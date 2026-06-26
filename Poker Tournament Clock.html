@@ -138,8 +138,8 @@ body{
 .table-wrap{ flex:1; width:100%; display:flex; align-items:center; justify-content:center; min-height:0; }
 .poker-table{
   position:relative;
-  width:min(58vw, 680px); height:min(27vh, 244px);
-  border-radius:46% / 44%;
+  width:min(62vw, 740px); height:min(40vh, 358px);
+  border-radius:48% / 46%;
   background:radial-gradient(120% 120% at 50% 42%, var(--felt-top), var(--felt-bot) 68%, var(--felt-edge));
   border:clamp(8px,1.3vw,15px) solid var(--rail);
   box-shadow:
@@ -322,7 +322,7 @@ body.is-paused #keyHint{ display:none; }
    below P5/P6.
    ============================================================ */
 .seat-avatar{
-  position:absolute; width:clamp(96px, min(13vw,20vh), 200px); aspect-ratio:1; border-radius:50%;
+  position:absolute; width:clamp(56px, min(7vw,11vh), 110px); aspect-ratio:1; border-radius:50%;
   border:4px solid var(--gold-deep); background:#cdbf9a center/cover no-repeat;
   box-shadow:var(--bevel), 0 6px 14px rgba(0,0,0,.4); cursor:pointer; padding:0;
   display:flex; align-items:center; justify-content:center;
@@ -377,8 +377,17 @@ body.is-paused #keyHint{ display:none; }
   box-shadow:var(--bevel),0 8px 18px rgba(0,0,0,.4); min-width:clamp(150px,20vw,240px); }
 .hu-seat-card.hu-top{ top:0; transform:translate(-50%,-58%); }
 .hu-seat-card.hu-bot{ bottom:0; transform:translate(-50%,58%); }
-.hu-seat-card .seat-avatar{ position:static; transform:none; margin:0; width:clamp(40px,5vw,66px); }
-.hu-seat-card .hu-name{ font-weight:700; font-size:clamp(1.3rem,min(4vw,5vh),2.4rem); line-height:1.05; color:var(--ink); min-width:3ch; }
+.hu-seat-card .seat-avatar{ position:static; transform:none; margin:0; width:clamp(50px,6vw,88px); }
+.hu-seat-card .hu-name{ font-weight:700; font-size:clamp(1.2rem,min(3.6vw,4.6vh),2.2rem); line-height:1.05; color:var(--ink); min-width:3ch; }
+.hu-pick{ display:flex; align-items:center; gap:.4em; }
+.hu-arrow{ background:var(--gold); color:var(--ink); border:2px solid var(--gold-deep); border-radius:8px; cursor:pointer;
+  font-family:var(--font-display); font-weight:700; font-size:clamp(.85rem,1.5vw,1.2rem); line-height:1; padding:.1em .36em; box-shadow:var(--bevel); }
+.hu-arrow:hover{ background:var(--gold-light); } .hu-arrow:active{ transform:scale(.9); }
+.hu-photo{ cursor:pointer; }
+.hu-invested{ font-size:clamp(.78rem,1.25vw,1.02rem); color:var(--ink-soft); font-weight:600; }
+.hu-invested b{ color:var(--gold-deep); font-weight:700; }
+.win-pick{ display:flex; align-items:center; gap:.6em; }
+.win-avatar{ cursor:pointer; }
 .hu-pot{ position:absolute; top:50%; left:50%; transform:translate(-50%,-86%); z-index:3; display:flex; flex-direction:column; align-items:center; gap:.05em; }
 .hu-pot-label{ font-size:var(--label-size); letter-spacing:.3em; text-transform:uppercase; color:rgba(246,239,217,.9); text-shadow:0 1px 4px rgba(0,0,0,.7); }
 .hu-pot-amt{ font-weight:700; font-size:clamp(2rem,min(7vw,11vh),5.2rem); line-height:1; color:var(--gold-light); text-shadow:0 3px 0 rgba(0,0,0,.55),0 0 36px rgba(232,184,75,.45); font-variant-numeric:tabular-nums; }
@@ -797,8 +806,24 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
             <span class="hu-pot-label">Total Pot</span>
             <span class="hu-pot-amt"><span class="cur">AED</span><span data-pot-amount>3,000</span></span>
           </div>
-          <div class="hu-seat-card hu-top"><button class="seat-avatar" data-hu-avatar="A" aria-label="Add photo for finalist A" title="Click to add a photo"></button><span class="hu-name edit-dashed" contenteditable="true">Player A</span></div>
-          <div class="hu-seat-card hu-bot"><button class="seat-avatar" data-hu-avatar="B" aria-label="Add photo for finalist B" title="Click to add a photo"></button><span class="hu-name edit-dashed" contenteditable="true">Player B</span></div>
+          <div class="hu-seat-card hu-top">
+            <div class="hu-pick">
+              <button class="hu-arrow" data-hu-cycle="0" data-dir="-1" aria-label="Previous player">◀</button>
+              <span class="seat-avatar hu-photo" data-hu-photo="0" data-hu-cycle="0" data-dir="1" title="Tap to change player"></span>
+              <button class="hu-arrow" data-hu-cycle="0" data-dir="1" aria-label="Next player">▶</button>
+            </div>
+            <span class="hu-name" data-hu-name="0">Player 1</span>
+            <span class="hu-invested">Invested <b>AED <span data-hu-invested="0">500</span></b></span>
+          </div>
+          <div class="hu-seat-card hu-bot">
+            <div class="hu-pick">
+              <button class="hu-arrow" data-hu-cycle="1" data-dir="-1" aria-label="Previous player">◀</button>
+              <span class="seat-avatar hu-photo" data-hu-photo="1" data-hu-cycle="1" data-dir="1" title="Tap to change player"></span>
+              <button class="hu-arrow" data-hu-cycle="1" data-dir="1" aria-label="Next player">▶</button>
+            </div>
+            <span class="hu-name" data-hu-name="1">Player 2</span>
+            <span class="hu-invested">Invested <b>AED <span data-hu-invested="1">500</span></b></span>
+          </div>
         </div>
       </div>
       <span class="pill reveal d4">Winner takes the pot</span>
@@ -824,10 +849,14 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
     <div class="slide-inner">
       <div class="win-photo-wrap reveal d1">
         <span class="win-crown">👑</span>
-        <button class="seat-avatar win-avatar" data-hu-avatar="W" aria-label="Add the winner's photo" title="Click to add the winner's photo"></button>
+        <span class="seat-avatar win-avatar" data-win-photo data-win-cycle data-dir="1" title="Tap to change the winner"></span>
       </div>
-      <span class="win-label reveal d2">Winner</span>
-      <span class="win-name edit-dashed reveal d3" contenteditable="true">Champion</span>
+      <div class="win-pick reveal d2">
+        <button class="hu-arrow" data-win-cycle data-dir="-1" aria-label="Previous player">◀</button>
+        <span class="win-label">Winner</span>
+        <button class="hu-arrow" data-win-cycle data-dir="1" aria-label="Next player">▶</button>
+      </div>
+      <span class="win-name reveal d3" data-win-name>Champion</span>
       <span class="win-sub reveal d4">Tonight's champion · <span class="suits"><span class="k">♠</span><span class="r">♥</span><span class="r">♦</span><span class="k">♣</span></span></span>
     </div>
   </section>
@@ -930,6 +959,7 @@ class TournamentClock {
     this.tickId = null;        /* setInterval id — NOT rAF, so it keeps running when the tab isn't painting */
     this.TICK_MS = 250;
     this.el = null;            /* active slide's [data-clock] element */
+    this.activeSlide = null;   /* slide element currently being timed (per-slide persistence) */
     this.type = null;          /* 'level' | 'transition' */
     this.duration = 0;         /* ms */
     this.deadline = 0;         /* performance.now() target */
@@ -948,27 +978,46 @@ class TournamentClock {
     this.handleSlideChange();  /* arm the initial slide (cover = no timer) */
   }
   handleSlideChange() {
-    this.stop();
+    this.snapshotActive();                       /* persist the slide we're leaving */
+    this.stopTick();
     const slide = this.p.slides[this.p.current];
     const secs = parseInt(slide.dataset.timer || '0', 10);
     const el = slide.querySelector('[data-clock]');
     if (!secs || !el) {                          /* cover / heads-up / winner: no countdown */
-      this.el = null; this.setPausedUI(false);
+      this.activeSlide = null; this.el = null; this.setPausedUI(false);
       if (this.bar) { this.bar.style.width = '100%'; this.bar.classList.remove('warn', 'danger'); }
       return;
     }
+    this.activeSlide = slide;
     this.el = el;
     this.type = slide.dataset.type;
     this.duration = secs * 1000;
     if (this.bar) this.bar.classList.remove('warn', 'danger');
-    if (this.type === 'transition' && this.sound) this.sound.playTransition();  /* casino cue on level change */
-    this.startFresh();
-  }
-  startFresh() {
-    this.paused = false; this.setPausedUI(false);
-    this.deadline = performance.now() + this.duration;
-    this.render(this.duration);
+
+    /* Per-slide persistence: each level remembers its remaining time + paused
+       state. First visit starts fresh; returning resumes EXACTLY where it was
+       left (no reset). Leaving freezes it — no time lost while you're away. */
+    const firstVisit = !slide._clockStarted;
+    slide._clockStarted = true;
+    let rem = firstVisit ? this.duration : (slide._clockMs != null ? slide._clockMs : this.duration);
+    let paused = firstVisit ? false : !!slide._clockPaused;
+    if (rem <= 0) { rem = 0; paused = true; }    /* a finished level holds at 0:00, never auto-advances on revisit */
+
+    if (this.type === 'transition' && firstVisit && this.sound) this.sound.playTransition();  /* cue only on first arrival */
+
+    this.paused = paused;
+    this.remaining = rem;
+    this.deadline = performance.now() + rem;
+    this.setPausedUI(paused);
+    this.render(rem);
     this.run();
+  }
+  snapshotActive() {
+    const s = this.activeSlide;
+    if (!s) return;
+    const rem = this.paused ? this.remaining : (this.deadline - performance.now());
+    s._clockMs = Math.max(0, rem);
+    s._clockPaused = this.paused;
   }
   run() {
     this.stopTick();
@@ -996,6 +1045,7 @@ class TournamentClock {
       this.remaining = this.deadline - performance.now();
       this.paused = true; this.setPausedUI(true);
     }
+    this.snapshotActive();                      /* keep this slide's saved state current */
   }
   setPausedUI(on) {
     document.body.classList.toggle('is-paused', on);
@@ -1027,7 +1077,6 @@ class TournamentClock {
     }
   }
   stopTick() { if (this.tickId) { clearInterval(this.tickId); this.tickId = null; } }
-  stop() { this.stopTick(); this.paused = false; }
 }
 
 /* ============================================================
@@ -1127,6 +1176,10 @@ const bank = {
   buyins: [500, 500, 500, 500, 500, 500],
   photos: [null, null, null, null, null, null]
 };
+/* which players are shown at heads-up (top, bottom) and as the winner — chosen
+   live with the ◀ ▶ pickers; their photo / name / investment link to the bank */
+let huPick = [0, 1];
+let winPick = 0;
 function potTotal(){ return bank.buyins.reduce((a, b) => a + (Number(b) || 0), 0); }
 function fmtMoney(n){ return Number(n || 0).toLocaleString('en-US'); }
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
@@ -1141,7 +1194,29 @@ function syncBankUI(except){
   document.querySelectorAll('[data-buyin]').forEach(el => { const i = +el.dataset.seat; if (el !== except && el !== document.activeElement) el.textContent = String(bank.buyins[i]); });
   document.querySelectorAll('[data-name-mirror]').forEach(el => { const i = +el.dataset.seat; if (el !== document.activeElement) el.textContent = bank.names[i]; });
   document.querySelectorAll('.seat-avatar[data-seat], .rebuy-ava[data-seat]').forEach(el => setAvatarEl(el, bank.photos[+el.dataset.seat]));
+  renderHeadsUp(); renderWinner();
 }
+/* heads-up + winner LINK to the chosen players: photo, name, and amount invested
+   (their buy-in incl. rebuys) all come straight from the bank */
+function renderHeadsUp(){
+  [0, 1].forEach(slot => {
+    const pi = huPick[slot];
+    const ph = document.querySelector('[data-hu-photo="' + slot + '"]'); if (ph) setAvatarEl(ph, bank.photos[pi]);
+    const nm = document.querySelector('[data-hu-name="' + slot + '"]'); if (nm) nm.textContent = bank.names[pi];
+    const iv = document.querySelector('[data-hu-invested="' + slot + '"]'); if (iv) iv.textContent = fmtMoney(bank.buyins[pi]);
+  });
+}
+function renderWinner(){
+  const ph = document.querySelector('[data-win-photo]'); if (ph) setAvatarEl(ph, bank.photos[winPick]);
+  const nm = document.querySelector('[data-win-name]'); if (nm) nm.textContent = bank.names[winPick] || 'Champion';
+}
+function cycleHu(slot, dir){
+  const other = huPick[slot === 0 ? 1 : 0];
+  let pi = huPick[slot];
+  for (let k = 0; k < 6; k++){ pi = (pi + dir + 6) % 6; if (pi !== other) break; }  /* skip the player in the other seat */
+  huPick[slot] = pi; renderHeadsUp();
+}
+function cycleWin(dir){ winPick = (winPick + dir + 6) % 6; renderWinner(); }
 /* read the cover's current names/buy-ins/photos INTO the bank on load, so a
    saved copy (⌘S) reopens with its baked-in roster instead of the defaults */
 function hydrateBankFromDOM(){
@@ -1171,8 +1246,10 @@ const avatarFile = document.getElementById('avatarFile');
 document.addEventListener('click', (e) => {
   const seatAv = e.target.closest('.seat-avatar[data-seat]');
   if (seatAv){ avatarTarget = { kind:'seat', i:+seatAv.dataset.seat }; avatarFile.click(); return; }
-  const huAv = e.target.closest('[data-hu-avatar]');
-  if (huAv){ avatarTarget = { kind:'el', el:huAv }; avatarFile.click(); }
+  const cyc = e.target.closest('[data-hu-cycle]');     /* heads-up: pick which player sits here */
+  if (cyc){ cycleHu(+cyc.dataset.huCycle, +cyc.dataset.dir); return; }
+  const wc = e.target.closest('[data-win-cycle]');     /* winner: pick the champion */
+  if (wc){ cycleWin(+wc.dataset.dir); }
 });
 avatarFile.addEventListener('change', () => {
   const f = avatarFile.files && avatarFile.files[0]; if (!f || !avatarTarget) return;
@@ -1301,6 +1378,7 @@ function exportDeck() {
   /* normalise any visited countdowns back to their fresh values for a clean file */
   document.querySelectorAll('.slide[data-type="level"] [data-clock]').forEach(el => el.textContent = '30:00');
   document.querySelectorAll('.slide[data-type="transition"] [data-clock]').forEach(el => el.textContent = '5');
+  slides.forEach(s => { delete s._clockStarted; delete s._clockMs; delete s._clockPaused; });  /* saved copy starts with fresh timers */
   const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
   slides.forEach(s => s.classList.remove('active')); if (liveActive) liveActive.classList.add('active');
   const blob = new Blob([html], { type: 'text/html' });

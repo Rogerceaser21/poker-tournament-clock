@@ -422,6 +422,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   <span id="fontScaleLabel">100%</span>
   <button id="fontScaleUp" aria-label="Increase font size" title="Larger (⌘ .)">A+</button>
   <span class="ctrl-divider" aria-hidden="true"></span>
+  <button id="pauseBtn" class="fs-btn" aria-label="Pause or resume the timer" title="Pause / resume (Space)">⏸</button>
   <button id="rebuyBtn" class="fs-btn" aria-label="Pot and rebuys" title="Pot / rebuys (R)">💰</button>
   <button id="muteBtn" class="fs-btn" aria-label="Toggle sound" title="Sound on/off (M)">🔊</button>
   <button id="fullscreenBtn" class="fs-btn" aria-label="Enter fullscreen" title="Fullscreen (⌘ F / F)">⛶</button>
@@ -999,6 +1000,8 @@ class TournamentClock {
   setPausedUI(on) {
     document.body.classList.toggle('is-paused', on);
     if (this.el) this.el.classList.toggle('paused', on);
+    const pb = document.getElementById('pauseBtn');
+    if (pb) { pb.textContent = on ? '▶' : '⏸'; pb.title = on ? 'Resume (Space)' : 'Pause (Space)'; }
   }
   render(ms) {
     if (this.type === 'transition') {
@@ -1319,6 +1322,7 @@ const sound = new SoundFx();
 const presentation = new SlidePresentation();
 const clock = new TournamentClock(presentation);
 clock.sound = sound;                       /* play the casino cue on each transition */
+document.getElementById('pauseBtn').addEventListener('click', () => clock.togglePause());  /* touch pause for iPad */
 
 buildMoneyPile();
 hydrateBankFromDOM();                      /* pull a saved copy's baked-in roster into the bank... */

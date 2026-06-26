@@ -1338,12 +1338,45 @@ function buildMoneyPile(){
 }
 
 /* ============================================================
-   SOUND — synthesized casino cue at each level transition (Web Audio,
-   no files). Unlocks on first gesture; mute with the 🔊 button or M.
+   SOUND — casino cue at each level transition.
+   Synthesised once into a WAV and played through an HTML5 <audio>
+   element (NOT Web Audio). This matters on iOS/iPad: a media element
+   plays like a video — THROUGH the silent switch — and, once unlocked
+   by the first tap, it keeps replaying on the auto-triggered transitions
+   without needing a fresh gesture. Web Audio would be muted by the ring
+   switch and suspended between transitions. Self-contained, no files.
    ============================================================ */
+function makeChimeWav(){
+  const sr = 22050, n = Math.floor(sr * 0.95);
+  const env = (t, t0, tau) => t < t0 ? 0 : Math.exp(-(t - t0) / tau);
+  const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const wr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  wr(0,'RIFF'); dv.setUint32(4, 36 + n * 2, true); wr(8,'WAVE'); wr(12,'fmt ');
+  dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
+  dv.setUint32(24,sr,true); dv.setUint32(28,sr*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true);
+  wr(36,'data'); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++){
+    const t = i / sr;
+    let s = 0;
+    s += 0.18 * Math.sin(2*Math.PI*2400*t) * env(t, 0,    0.06);   /* chip clink */
+    s += 0.14 * Math.sin(2*Math.PI*3100*t) * env(t, 0.03, 0.05);
+    s += 0.10 * Math.sin(2*Math.PI*2400*t) * env(t, 0.14, 0.05);
+    s += 0.22 * Math.sin(2*Math.PI*659.25*t) * env(t, 0.18, 0.36); /* E5 chime */
+    s += 0.24 * Math.sin(2*Math.PI*987.77*t) * env(t, 0.34, 0.52); /* B5 chime */
+    s = Math.max(-1, Math.min(1, s));
+    dv.setInt16(44 + i * 2, s * 32767, true);
+  }
+  let bin = ''; const bytes = new Uint8Array(buf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return 'data:audio/wav;base64,' + btoa(bin);
+}
 class SoundFx {
   constructor(){
-    this.muted = false; this.ctx = null;
+    this.muted = false; this.unlocked = false;
+    this.audio = new Audio();
+    this.audio.preload = 'auto';
+    this.audio.setAttribute('playsinline', '');
+    try { this.audio.src = makeChimeWav(); } catch (e) {}
     this.btn = document.getElementById('muteBtn');
     this.btn.addEventListener('click', () => this.toggleMute());
     document.addEventListener('keydown', (e) => {
@@ -1352,30 +1385,27 @@ class SoundFx {
         this.toggleMute();
       }
     });
-    const unlock = () => { const c = this.ensure(); if (c && c.state === 'suspended') c.resume(); };
-    window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock);
+    /* unlock the audio element on the first tap/keypress so it can replay
+       later on the auto-triggered transitions (iOS requirement) */
+    const unlock = () => { if (!this.unlocked) this._unlock(); };
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && !this.unlocked) this._unlock(); });
     this.applyBtn();
   }
-  ensure(){ if (!this.ctx){ try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e){} } return this.ctx; }
-  toggleMute(){ this.muted = !this.muted; this.applyBtn(); }
-  applyBtn(){ this.btn.textContent = this.muted ? '🔇' : '🔊'; this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
-  ping(freq, t, dur, type, peak){
-    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
-    o.type = type; o.frequency.setValueAtTime(freq, t);
-    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.012);
-    g.gain.exponentialRampToValueAtTime(0.0006, t + dur);
-    o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + 0.03);
+  _unlock(){
+    const a = this.audio;
+    try {
+      const p = a.play();
+      if (p && p.then) p.then(() => { a.pause(); a.currentTime = 0; this.unlocked = true; }).catch(() => {});
+      else { a.pause(); a.currentTime = 0; this.unlocked = true; }
+    } catch (e) {}
   }
+  toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} } }
+  applyBtn(){ this.btn.textContent = this.muted ? '🔇' : '🔊'; this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
   playTransition(){
-    if (this.muted) return; const c = this.ensure(); if (!c) return; if (c.state === 'suspended') c.resume();
-    const t = c.currentTime;
-    /* chip clink — bright metallic pings */
-    this.ping(2400, t,        0.12, 'triangle', 0.16);
-    this.ping(3100, t + 0.03, 0.10, 'triangle', 0.12);
-    this.ping(2400, t + 0.14, 0.09, 'triangle', 0.10);
-    /* ascending two-note chime — "next level" */
-    this.ping(659.25, t + 0.18, 0.45, 'sine', 0.20);   /* E5 */
-    this.ping(987.77, t + 0.34, 0.65, 'sine', 0.22);   /* B5 */
+    if (this.muted) return;
+    try { this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
   }
 }
 

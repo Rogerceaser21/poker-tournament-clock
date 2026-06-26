@@ -1,0 +1,1350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Poker Tournament Clock — Tonight's Game</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,700;0,900;1,700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   THEME — "CASINO FELT"
+   Built on the same slide framework as the house lesson decks
+   (slides-container / .slide / .slide-inner / .reveal staggers /
+   font-scale + fullscreen + cursor controllers / no localStorage).
+   Re-skinned for a poker tournament clock. Edit these vars to retune.
+   ============================================================ */
+:root{
+  /* felt + rail */
+  --felt-top:#16955a; --felt-bot:#075c31; --felt-edge:#04331c;
+  --rail:#3a2416; --rail-light:#5a3a22;
+  /* metals + paper */
+  --gold:#e8b84b; --gold-light:#f7d98a; --gold-deep:#b07f2b;
+  --cream:#f6efd9; --cream-edge:#d8c79a;
+  --ink:#14110a; --ink-soft:#2a2418;
+  /* signal colours (transition flash + suits) */
+  --red:#d12f2a; --amber:#f0a52e; --green:#37b85b; --chip-blue:#2a5fb0;
+  /* fonts */
+  --font-display:'Oswald', system-ui, sans-serif;
+  --font-fancy:'Playfair Display', Georgia, serif;
+  /* type scale (clamp + live font-scale multiplier). min() guards cap by BOTH
+     width and height so nothing overflows 100vh on any projector/TV. */
+  --font-scale:1;
+  --timer-size:  calc(clamp(4rem,  min(23vw, 34vh), 28rem) * var(--font-scale));
+  --blind-size:  calc(clamp(2.2rem,min(9vw, 13vh),  7rem)  * var(--font-scale));
+  --hero-size:   calc(clamp(3rem,  min(13vw,20vh), 12rem)  * var(--font-scale));
+  --title-size:  calc(clamp(1.8rem,min(5.6vw,8.5vh),4.4rem)* var(--font-scale));
+  --h2-size:     calc(clamp(1.4rem,min(3.6vw,5vh),  2.6rem)* var(--font-scale));
+  --body-size:   calc(clamp(1.05rem,1.9vw,1.6rem)          * var(--font-scale));
+  --label-size:  calc(clamp(.6rem, 1vw, .9rem)             * var(--font-scale));
+  /* spacing + motion */
+  --slide-pad: clamp(1rem, 3.5vw, 3rem);
+  --gap: clamp(.6rem, 1.8vh, 1.4rem);
+  --gap-sm: clamp(.35rem, .9vh, .7rem);
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --bevel: inset -4px -4px 0 rgba(0,0,0,0.28), inset 4px 4px 0 rgba(255,255,255,0.30);
+}
+
+*{ margin:0; padding:0; box-sizing:border-box; }
+html,body{ height:100%; overflow:hidden; }
+body{
+  font-family:var(--font-display);
+  background:var(--felt-bot);
+  color:var(--cream);
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ============================================================
+   SLIDE FRAMEWORK (transitions identical to house style)
+   ============================================================ */
+.slides-container{ position:relative; width:100vw; height:100vh; overflow:hidden; }
+.slide{
+  position:absolute; inset:0; width:100vw; height:100vh; overflow:hidden;
+  display:flex; flex-direction:column;
+  opacity:0; transform:translateX(60px);
+  transition:opacity .45s var(--ease-expo), transform .45s var(--ease-expo);
+  pointer-events:none; will-change:opacity, transform;
+  background:radial-gradient(125% 105% at 50% 38%, var(--felt-top) 0%, var(--felt-bot) 62%, var(--felt-edge) 100%);
+}
+.slide.active{ opacity:1; transform:translateX(0); pointer-events:auto; }
+.slide.exit-left{ opacity:0; transform:translateX(-60px); }
+
+/* faint felt-weave texture + gold hairline frame on every slide */
+.slide::before{
+  content:''; position:absolute; inset:0; z-index:0; pointer-events:none;
+  background-image:
+    repeating-linear-gradient(45deg, rgba(255,255,255,.04) 0 2px, transparent 2px 6px),
+    repeating-linear-gradient(-45deg, rgba(0,0,0,.05) 0 2px, transparent 2px 6px);
+  opacity:.7;
+}
+.slide::after{
+  content:''; position:absolute; inset:clamp(8px,1.4vw,18px); z-index:0; pointer-events:none;
+  border:2px solid rgba(232,184,75,.32); border-radius:6px;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.25);
+}
+.slide-inner{
+  position:relative; z-index:2;
+  padding:var(--slide-pad); height:100%;
+  display:flex; flex-direction:column; justify-content:center; align-items:center;
+  gap:var(--gap); max-height:100vh; overflow:hidden; text-align:center;
+}
+
+/* ============================================================
+   REVEAL ANIMATIONS (staggered on activate — house pattern)
+   ============================================================ */
+.reveal{ opacity:0; transform:translateY(22px); transition:opacity .55s var(--ease-expo), transform .55s var(--ease-expo); }
+.reveal-scale{ opacity:0; transform:scale(.92); transition:opacity .55s var(--ease-expo), transform .55s var(--ease-expo); }
+.slide.active .reveal, .slide.active .reveal-scale{ opacity:1; transform:none; }
+.slide.active .d1{ transition-delay:.05s } .slide.active .d2{ transition-delay:.15s }
+.slide.active .d3{ transition-delay:.25s } .slide.active .d4{ transition-delay:.35s }
+.slide.active .d5{ transition-delay:.45s } .slide.active .d6{ transition-delay:.55s }
+.slide.active .d7{ transition-delay:.65s }
+
+/* ============================================================
+   SHARED COMPONENTS
+   ============================================================ */
+.eyebrow{
+  font-family:var(--font-display); font-weight:600; font-size:var(--label-size);
+  letter-spacing:.28em; text-transform:uppercase; color:var(--ink);
+  background:var(--gold); padding:.5em 1em; width:fit-content; border-radius:3px;
+  box-shadow:var(--bevel);
+}
+.pill{
+  font-family:var(--font-display); font-weight:500; font-size:var(--label-size);
+  letter-spacing:.12em; text-transform:uppercase; color:var(--cream);
+  background:rgba(0,0,0,.28); border:1px solid rgba(232,184,75,.5);
+  padding:.5em .9em; border-radius:999px;
+}
+.suits{ font-size:calc(var(--body-size)*1.3); letter-spacing:.25em; }
+.suits .r{ color:var(--red); } .suits .k{ color:#1c1a14; text-shadow:0 1px 0 rgba(255,255,255,.15); }
+/* editable text affordance — always-on (click and type during setup) */
+[contenteditable="true"]{ outline:none; cursor:text; border-radius:4px; transition:background .2s ease, box-shadow .2s ease; }
+[contenteditable="true"]:hover{ background:rgba(232,184,75,.12); }
+[contenteditable="true"]:focus{ background:rgba(232,184,75,.18); box-shadow:0 0 0 2px var(--gold); }
+.edit-dashed{ border-bottom:2px dashed rgba(232,184,75,.55); }
+
+/* ============================================================
+   COVER — poker table with 6 seats + live pot
+   ============================================================ */
+.cover-head{ display:flex; flex-direction:column; align-items:center; gap:var(--gap-sm); }
+.cover-title{
+  font-family:var(--font-fancy); font-weight:900; font-style:italic;
+  font-size:var(--title-size); line-height:1; color:var(--gold-light);
+  text-shadow:0 4px 0 rgba(0,0,0,.4), 0 0 30px rgba(232,184,75,.25);
+}
+.cover-sub{ font-size:var(--label-size); letter-spacing:.18em; text-transform:uppercase; color:rgba(246,239,217,.7); }
+
+.table-wrap{ flex:1; width:100%; display:flex; align-items:center; justify-content:center; min-height:0; }
+.poker-table{
+  position:relative;
+  width:min(58vw, 680px); height:min(27vh, 244px);
+  border-radius:46% / 44%;
+  background:radial-gradient(120% 120% at 50% 42%, var(--felt-top), var(--felt-bot) 68%, var(--felt-edge));
+  border:clamp(8px,1.3vw,15px) solid var(--rail);
+  box-shadow:
+    0 0 0 4px var(--gold-deep),
+    inset 0 0 0 6px rgba(232,184,75,.45),
+    inset 0 16px 50px rgba(0,0,0,.45),
+    0 30px 60px rgba(0,0,0,.5);
+}
+/* centre pot readout */
+.pot{ position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; gap:.1em; }
+.pot-label{ font-size:var(--label-size); letter-spacing:.3em; text-transform:uppercase; color:rgba(246,239,217,.75); }
+.pot-amount{ font-weight:700; font-size:clamp(1.8rem, min(6vw,9vh), 4.5rem); line-height:1; color:var(--gold-light); text-shadow:0 3px 0 rgba(0,0,0,.45); font-variant-numeric:tabular-nums; }
+.pot-amount .cur{ font-size:.5em; color:var(--cream); vertical-align:.35em; margin-right:.15em; letter-spacing:.05em; }
+.pot .suits{ margin-top:.15em; }
+
+/* seats straddle the rail */
+.seat{
+  position:absolute; transform:translate(-50%,-50%);
+  width:clamp(116px, 15vw, 196px);
+  background:var(--cream); color:var(--ink);
+  border:3px solid var(--gold-deep); border-radius:10px;
+  box-shadow:var(--bevel), 0 8px 18px rgba(0,0,0,.4);
+  padding:.5em .55em; display:flex; flex-direction:column; align-items:center; gap:.12em;
+}
+.seat .seat-no{
+  position:absolute; top:-.7em; left:50%; transform:translateX(-50%);
+  font-size:calc(var(--label-size)*.92); font-weight:700; color:var(--ink);
+  background:var(--gold); border:2px solid var(--gold-deep); border-radius:999px;
+  width:1.8em; height:1.8em; display:flex; align-items:center; justify-content:center;
+}
+.seat-name{ font-weight:600; font-size:clamp(.95rem,1.5vw,1.25rem); line-height:1.1; color:var(--ink); min-width:2ch; }
+.seat-buyin-row{ font-size:clamp(.85rem,1.3vw,1.1rem); color:var(--ink-soft); font-weight:500; }
+.seat-buyin-row .cur{ color:var(--gold-deep); font-weight:700; margin-right:.15em; }
+.seat-buyin{ font-weight:700; color:var(--ink); min-width:1ch; }
+.s1{ left:27%; top:0%; } .s2{ left:73%; top:0%; }
+.s3{ left:0%;  top:50%; } .s4{ left:100%; top:50%; }
+.s5{ left:27%; top:100%; } .s6{ left:73%; top:100%; }
+
+/* ============================================================
+   LEVEL SLIDES — level no. / huge timer / blinds
+   ============================================================ */
+.slide-inner.level{ justify-content:space-between; padding-block:clamp(1.4rem,5vh,3.6rem); }
+.level-head{ display:flex; align-items:baseline; gap:.5em; margin-top:clamp(2.2rem,6vh,4rem); }
+.level-head .lv{
+  font-weight:700; font-size:clamp(1.6rem, min(6vw,8vh), 4rem); letter-spacing:.06em;
+  color:var(--gold-light); text-shadow:0 3px 0 rgba(0,0,0,.4);
+}
+.level-head .lv-of{ font-weight:400; font-size:var(--h2-size); color:rgba(246,239,217,.65); letter-spacing:.1em; }
+.timer{
+  font-weight:700; font-size:var(--timer-size); line-height:.86;
+  font-variant-numeric:tabular-nums; letter-spacing:.01em;
+  color:var(--cream); text-shadow:0 6px 0 rgba(0,0,0,.38), 0 0 50px rgba(232,184,75,.22);
+}
+.timer.paused{ color:var(--amber); animation:pausePulse 1.1s ease-in-out infinite; }
+@keyframes pausePulse{ 50%{ opacity:.45; } }
+.blinds{ display:flex; align-items:stretch; gap:clamp(.8rem,2.5vw,2.2rem); }
+.blind-tile{
+  display:flex; flex-direction:column; align-items:center; gap:.1em;
+  background:rgba(0,0,0,.26); border:2px solid rgba(232,184,75,.5); border-radius:10px;
+  padding:.35em clamp(.8rem,2.2vw,1.8rem); min-width:clamp(120px,18vw,260px);
+}
+.bl-label{ font-size:var(--label-size); letter-spacing:.22em; text-transform:uppercase; color:var(--gold-light); }
+.bl-val{ font-weight:700; font-size:var(--blind-size); line-height:1; color:var(--cream); font-variant-numeric:tabular-nums; }
+.blind-sep{ align-self:center; font-weight:300; font-size:var(--blind-size); color:rgba(232,184,75,.7); }
+
+/* ============================================================
+   TRANSITION SLIDES — 5s red/amber/green flash, announces next
+   ============================================================ */
+.slide[data-type="transition"]{ background:#0d0d0f; }
+.flash-bg{ position:absolute; inset:0; z-index:0; background:var(--red); }
+.slide[data-type="transition"].active .flash-bg{ animation:flashRAG 1.5s steps(1,end) infinite; }
+@keyframes flashRAG{ 0%,100%{ background:var(--red);} 33%{ background:var(--amber);} 66%{ background:var(--green);} }
+.trans-panel{
+  background:rgba(8,8,10,.82); border:4px solid var(--gold);
+  border-radius:16px; padding:clamp(1.4rem,4vw,3rem) clamp(2rem,6vw,4.5rem);
+  box-shadow:0 18px 50px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.06);
+  display:flex; flex-direction:column; align-items:center; gap:var(--gap-sm);
+}
+.trans-eyebrow{ font-size:var(--label-size); letter-spacing:.35em; text-transform:uppercase; color:var(--gold-light); }
+.trans-level{ font-weight:700; font-size:clamp(2.2rem, min(9vw,12vh), 6rem); line-height:1; color:#fff; text-shadow:0 4px 0 rgba(0,0,0,.5); }
+.trans-blinds{ font-size:var(--h2-size); color:var(--cream); }
+.trans-blinds b{ color:var(--gold-light); font-weight:700; }
+.trans-count{
+  font-weight:700; font-size:clamp(3rem, min(14vw,20vh), 9rem); line-height:1;
+  color:var(--gold-light); font-variant-numeric:tabular-nums; text-shadow:0 0 40px rgba(232,184,75,.5);
+}
+.trans-count.paused{ color:#fff; animation:pausePulse 1.1s ease-in-out infinite; }
+.trans-sub{ font-size:var(--label-size); letter-spacing:.25em; text-transform:uppercase; color:rgba(246,239,217,.7); }
+
+/* ============================================================
+   HEADS-UP SLIDE
+   ============================================================ */
+.hu-title{ font-family:var(--font-fancy); font-weight:900; font-style:italic; font-size:var(--hero-size); line-height:.95; color:var(--gold-light); text-shadow:0 5px 0 rgba(0,0,0,.45); }
+.hu-row{ display:flex; align-items:center; gap:clamp(1rem,4vw,3rem); flex-wrap:wrap; justify-content:center; }
+.hu-plate{
+  background:var(--cream); color:var(--ink); border:3px solid var(--gold-deep); border-radius:12px;
+  box-shadow:var(--bevel), 0 10px 24px rgba(0,0,0,.4);
+  padding:.5em clamp(1rem,3vw,2.4rem); min-width:clamp(180px,26vw,360px);
+  display:flex; flex-direction:column; align-items:center; gap:.15em;
+}
+.hu-plate .hu-seat{ font-size:var(--label-size); letter-spacing:.22em; text-transform:uppercase; color:var(--gold-deep); }
+.hu-name{ font-weight:700; font-size:clamp(1.6rem,min(5vw,7vh),3.4rem); line-height:1.05; color:var(--ink); }
+.hu-vs{ font-family:var(--font-fancy); font-style:italic; font-weight:900; font-size:clamp(2rem,6vw,4rem); color:var(--red); text-shadow:0 3px 0 rgba(0,0,0,.35); }
+
+/* ============================================================
+   WINNER SLIDE — celebratory
+   ============================================================ */
+.slide.winner{ background:radial-gradient(125% 110% at 50% 35%, #1a7f4e 0%, #0a5c31 55%, #043b20 100%); }
+.win-crown{ font-size:clamp(2.4rem,7vw,5rem); filter:drop-shadow(0 6px 14px rgba(0,0,0,.5)); animation:floaty 3s ease-in-out infinite; }
+@keyframes floaty{ 50%{ transform:translateY(-10px); } }
+/* champion photo (click to upload) with crown on top */
+.win-photo-wrap{ position:relative; display:inline-flex; align-items:center; justify-content:center; animation:floaty 3.4s ease-in-out infinite; }
+.win-photo-wrap .win-crown{ position:absolute; top:0; left:50%; transform:translate(-50%,-58%); z-index:3; animation:none; }
+.win-avatar{ position:static; transform:none; margin:0; width:clamp(130px, min(22vw,30vh), 260px); border-width:5px;
+  box-shadow:var(--bevel), 0 0 0 5px var(--gold), 0 12px 30px rgba(0,0,0,.55); }
+.win-avatar::after{ font-size:2.2em; }
+.win-label{
+  font-weight:700; font-size:clamp(1.6rem,min(6vw,8vh),4rem); letter-spacing:.3em; text-transform:uppercase;
+  color:var(--gold-light); text-shadow:0 4px 0 rgba(0,0,0,.45), 0 0 40px rgba(232,184,75,.4);
+}
+.win-name{
+  font-family:var(--font-fancy); font-weight:900; font-size:var(--hero-size); line-height:1; color:#fff;
+  text-shadow:0 5px 0 rgba(0,0,0,.4), 0 0 50px rgba(232,184,75,.45); padding:.05em .2em; min-width:3ch;
+}
+.win-sub{ font-size:var(--body-size); color:var(--cream); letter-spacing:.04em; }
+/* CSS confetti — only animates while the winner slide is active */
+.confetti{ position:absolute; inset:0; z-index:1; pointer-events:none; overflow:hidden; }
+.confetti i{ position:absolute; top:-12vh; width:12px; height:16px; opacity:0; border-radius:2px; }
+.slide.winner.active .confetti i{ animation:fall linear infinite; }
+@keyframes fall{ 0%{ transform:translateY(-12vh) rotate(0); opacity:0; } 10%{ opacity:1; } 100%{ transform:translateY(118vh) rotate(540deg); opacity:1; } }
+
+/* ============================================================
+   CONTROLS: progress / dots / counter / pause / hint
+   ============================================================ */
+.progress-bar-wrap{ position:fixed; top:0; left:0; right:0; height:18px; background:rgba(0,0,0,.34); z-index:1000; box-shadow:inset 0 -2px 0 rgba(0,0,0,.22); }
+/* the top bar doubles as the LEVEL COUNTDOWN — it drains full -> empty over the level */
+.progress-bar-fill{ height:100%; width:100%; background:var(--gold); box-shadow:inset 0 -4px 0 rgba(0,0,0,.18); transition:width .25s linear, background-color .5s ease; }
+.progress-bar-fill.warn{ background:var(--amber); }
+.progress-bar-fill.danger{ background:var(--red); }
+.nav-dots{ position:fixed; right:clamp(.6rem,1.6vw,1.2rem); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; gap:clamp(.25rem,.7vh,.5rem); z-index:1000; }
+.nav-dots button{ width:10px; height:10px; border:2px solid var(--gold-deep); background:rgba(0,0,0,.35); cursor:pointer; padding:0; border-radius:2px; }
+.nav-dots button.active{ background:var(--gold); }
+.slide-counter{ position:fixed; bottom:clamp(.7rem,2vh,1.3rem); right:clamp(1rem,2.5vw,2rem); font-weight:600; font-size:var(--label-size); letter-spacing:.1em; color:var(--cream); background:rgba(0,0,0,.35); border:1px solid rgba(232,184,75,.4); padding:.4em .7em; border-radius:6px; z-index:1000; }
+
+.font-scale-ctrl{ position:fixed; bottom:clamp(.7rem,2vh,1.3rem); left:clamp(1rem,2.5vw,2rem); display:flex; align-items:center; gap:2px; z-index:1000;
+  background:rgba(8,8,10,.7); border:2px solid rgba(232,184,75,.5); border-radius:8px; box-shadow:var(--bevel); padding:.3em .45em; }
+.font-scale-ctrl button{ background:none; border:none; color:var(--cream); font-family:var(--font-display); font-weight:600; font-size:clamp(.62rem,.95vw,.8rem); cursor:pointer; padding:.3em .5em; line-height:1; border-radius:4px; }
+.font-scale-ctrl button:hover{ background:rgba(232,184,75,.22); }
+.font-scale-ctrl button:active{ transform:scale(.92); }
+.font-scale-ctrl button:disabled{ opacity:.3; cursor:default; }
+#fontScaleLabel{ font-weight:500; font-size:clamp(.58rem,.85vw,.72rem); color:rgba(246,239,217,.8); min-width:3em; text-align:center; }
+.font-scale-ctrl .ctrl-divider{ width:1px; height:1.2em; background:rgba(232,184,75,.4); margin:0 4px; }
+.font-scale-ctrl .fs-btn{ font-size:clamp(.8rem,1.1vw,1rem); padding:.18em .45em; }
+
+#pauseBadge{ position:fixed; top:clamp(1.6rem,3.6vh,2.4rem); left:50%; transform:translateX(-50%); z-index:9500; display:none;
+  font-weight:700; font-size:clamp(1rem,2.4vw,1.7rem); letter-spacing:.22em; text-transform:uppercase; color:var(--ink);
+  background:var(--amber); border:3px solid var(--gold-deep); border-radius:999px; padding:.4em 1.2em; box-shadow:var(--bevel), 0 8px 22px rgba(0,0,0,.4); }
+body.is-paused #pauseBadge{ display:block; animation:badgePulse 1.1s ease-in-out infinite; }
+@keyframes badgePulse{ 50%{ transform:translateX(-50%) scale(1.06); box-shadow:var(--bevel), 0 10px 30px rgba(0,0,0,.5); } }
+body.is-paused #keyHint{ display:none; }
+
+#keyHint{ position:fixed; bottom:clamp(.7rem,2vh,1.3rem); left:50%; transform:translateX(-50%); z-index:990;
+  font-size:var(--label-size); letter-spacing:.08em; color:rgba(246,239,217,.85); background:rgba(8,8,10,.6);
+  border:1px solid rgba(232,184,75,.35); border-radius:999px; padding:.45em 1em; transition:opacity .6s ease; pointer-events:none; }
+#keyHint b{ color:var(--gold-light); font-weight:700; }
+#keyHint.hide{ opacity:0; }
+
+#cursorFx{ position:fixed; inset:0; width:100vw; height:100vh; pointer-events:none; z-index:9999; }
+
+/* ============================================================
+   FIXED-WIDTH TIMER DIGITS — clock stays put, only glyphs swap
+   ============================================================ */
+.timer .cell{ display:inline-block; width:.60em; text-align:center; }
+.timer .cell.colon{ width:.32em; }
+.trans-count .cell{ display:inline-block; width:.64em; text-align:center; }
+
+/* ============================================================
+   PLAYER AVATARS (click to upload; shared by cover + rebuy panel)
+   Photo sits on the OUTER edge: above P1/P2, left of P3, right of P4,
+   below P5/P6.
+   ============================================================ */
+.seat-avatar{
+  position:absolute; width:clamp(96px, min(13vw,20vh), 200px); aspect-ratio:1; border-radius:50%;
+  border:4px solid var(--gold-deep); background:#cdbf9a center/cover no-repeat;
+  box-shadow:var(--bevel), 0 6px 14px rgba(0,0,0,.4); cursor:pointer; padding:0;
+  display:flex; align-items:center; justify-content:center;
+}
+.seat-avatar::after{ content:'＋'; font-size:1.4em; color:var(--ink-soft); opacity:.55; }
+.seat-avatar.has-photo::after{ content:''; }
+.seat-avatar:hover{ box-shadow:var(--bevel), 0 0 0 3px var(--gold), 0 6px 16px rgba(0,0,0,.5); }
+.side-top .seat-avatar{ bottom:100%; left:50%; transform:translateX(-50%); margin-bottom:.4em; }
+.side-bottom .seat-avatar{ top:100%; left:50%; transform:translateX(-50%); margin-top:.4em; }
+.side-left .seat-avatar{ right:100%; top:50%; transform:translateY(-50%); margin-right:.45em; }
+.side-right .seat-avatar{ left:100%; top:50%; transform:translateY(-50%); margin-left:.45em; }
+
+/* controls-pill buttons that can be toggled "off" (mute) */
+.fs-btn.off{ opacity:.5; text-decoration:line-through; }
+
+/* ============================================================
+   POT / REBUY OVERLAY — opens over any slide; timer keeps running
+   ============================================================ */
+.rebuy-overlay{ position:fixed; inset:0; z-index:9700; display:none; align-items:center; justify-content:center;
+  background:rgba(4,20,12,.8); padding:clamp(1rem,3vh,2rem); }
+.rebuy-overlay.open{ display:flex; }
+.rebuy-card{ width:min(640px,94vw); max-height:92vh; overflow:auto; background:linear-gradient(180deg,#0e3b24,#0a2c1a);
+  border:3px solid var(--gold); border-radius:16px; box-shadow:0 24px 64px rgba(0,0,0,.6); padding:clamp(1rem,2.4vw,1.7rem); }
+.rebuy-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:.7em; }
+.rebuy-head .rebuy-title{ font-weight:700; font-size:clamp(1.1rem,2.2vw,1.6rem); color:var(--gold-light); letter-spacing:.03em; }
+.rebuy-close{ background:none; border:2px solid var(--gold-deep); color:var(--cream); border-radius:8px; cursor:pointer; font-size:1rem; padding:.2em .55em; }
+.rebuy-close:hover{ background:rgba(232,184,75,.2); }
+.rebuy-list{ display:flex; flex-direction:column; gap:.5em; }
+.rebuy-row{ display:flex; align-items:center; gap:.7em; background:rgba(255,255,255,.05); border:1px solid rgba(232,184,75,.3); border-radius:10px; padding:.5em .7em; }
+.rebuy-ava{ width:clamp(34px,4vw,46px); aspect-ratio:1; border-radius:50%; border:2px solid var(--gold-deep); background:#cdbf9a center/cover no-repeat; flex-shrink:0; }
+.rebuy-name{ font-weight:600; font-size:clamp(1rem,1.6vw,1.25rem); color:var(--cream); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rebuy-amt{ font-size:clamp(1rem,1.6vw,1.25rem); color:var(--cream); font-weight:500; white-space:nowrap; }
+.rebuy-amt .cur{ color:var(--gold-light); font-weight:700; margin-right:.2em; font-size:.8em; }
+.rebuy-buyin{ font-weight:700; color:#fff; min-width:2ch; display:inline-block; padding:0 .15em; outline:none; }
+.rebuy-buyin:focus{ background:rgba(232,184,75,.2); border-radius:4px; }
+.rebuy-add{ flex-shrink:0; background:var(--gold); color:var(--ink); border:none; border-radius:8px; font-family:var(--font-display); font-weight:700; font-size:clamp(.85rem,1.4vw,1.05rem); cursor:pointer; padding:.4em .7em; box-shadow:var(--bevel); white-space:nowrap; }
+.rebuy-add:hover{ background:var(--gold-light); } .rebuy-add:active{ transform:scale(.94); }
+.rebuy-foot{ margin-top:.9em; padding-top:.7em; border-top:2px solid rgba(232,184,75,.4); text-align:right; font-size:clamp(1.1rem,2vw,1.5rem); color:var(--cream); }
+.rebuy-foot strong{ color:var(--gold-light); font-weight:700; }
+.rebuy-hint{ margin-top:.5em; font-size:var(--label-size); color:rgba(246,239,217,.6); text-align:center; letter-spacing:.03em; }
+
+/* ============================================================
+   HEADS-UP TABLE — 2 seats, central money pile, live pot
+   ============================================================ */
+.hu-table-wrap{ flex:1; width:100%; display:flex; align-items:center; justify-content:center; min-height:0; }
+.hu-table{ position:relative; width:min(60vw,680px); height:min(42vh,380px); border-radius:46% / 44%;
+  background:radial-gradient(120% 120% at 50% 42%, var(--felt-top), var(--felt-bot) 68%, var(--felt-edge));
+  border:clamp(8px,1.3vw,15px) solid var(--rail);
+  box-shadow:0 0 0 4px var(--gold-deep), inset 0 0 0 6px rgba(232,184,75,.45), inset 0 16px 50px rgba(0,0,0,.45), 0 30px 60px rgba(0,0,0,.5); }
+.hu-seat-card{ position:absolute; left:50%; display:flex; flex-direction:column; align-items:center; gap:.3em; z-index:4;
+  background:var(--cream); color:var(--ink); border:3px solid var(--gold-deep); border-radius:12px; padding:.45em 1em;
+  box-shadow:var(--bevel),0 8px 18px rgba(0,0,0,.4); min-width:clamp(150px,20vw,240px); }
+.hu-seat-card.hu-top{ top:0; transform:translate(-50%,-58%); }
+.hu-seat-card.hu-bot{ bottom:0; transform:translate(-50%,58%); }
+.hu-seat-card .seat-avatar{ position:static; transform:none; margin:0; width:clamp(40px,5vw,66px); }
+.hu-seat-card .hu-name{ font-weight:700; font-size:clamp(1.3rem,min(4vw,5vh),2.4rem); line-height:1.05; color:var(--ink); min-width:3ch; }
+.hu-pot{ position:absolute; top:50%; left:50%; transform:translate(-50%,-86%); z-index:3; display:flex; flex-direction:column; align-items:center; gap:.05em; }
+.hu-pot-label{ font-size:var(--label-size); letter-spacing:.3em; text-transform:uppercase; color:rgba(246,239,217,.9); text-shadow:0 1px 4px rgba(0,0,0,.7); }
+.hu-pot-amt{ font-weight:700; font-size:clamp(2rem,min(7vw,11vh),5.2rem); line-height:1; color:var(--gold-light); text-shadow:0 3px 0 rgba(0,0,0,.55),0 0 36px rgba(232,184,75,.45); font-variant-numeric:tabular-nums; }
+.hu-pot-amt .cur{ font-size:.42em; color:var(--cream); vertical-align:.4em; margin-right:.15em; }
+.money-pile{ position:absolute; top:50%; left:50%; transform:translate(-50%,-22%); z-index:1; width:clamp(280px,42vw,500px); height:clamp(110px,18vh,180px); pointer-events:none; filter:drop-shadow(0 12px 16px rgba(0,0,0,.5)); }
+.money-pile svg{ width:100%; height:100%; display:block; }
+
+/* ============================================================
+   RESPONSIVE — viewport fitting (house breakpoints)
+   ============================================================ */
+@media (max-height:760px){ :root{ --slide-pad:clamp(.9rem,3vw,2.2rem); --gap:clamp(.45rem,1.2vh,1rem); } }
+@media (max-height:600px){ :root{ --gap:clamp(.3rem,.8vh,.6rem); --body-size:calc(clamp(.95rem,1.4vw,1.2rem)*var(--font-scale)); } .nav-dots{ display:none } }
+@media (max-height:480px){ :root{ --slide-pad:clamp(.5rem,2vw,1.1rem); } #keyHint{ display:none } }
+@media (max-width:760px){ .seat{ width:clamp(96px,30vw,150px); } .blind-tile{ min-width:clamp(96px,32vw,180px); } }
+/* when the font scale is pushed high, tighten so nothing clips */
+body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
+@media (prefers-reduced-motion:reduce){
+  .slide,.reveal,.reveal-scale{ transition-duration:.01ms !important; }
+  .flash-bg{ animation:none !important; background:var(--amber) !important; }
+  .win-crown,.win-photo-wrap,.confetti i,.timer.paused,.trans-count.paused,#pauseBadge{ animation:none !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- progress / nav / counter -->
+<div class="progress-bar-wrap"><div class="progress-bar-fill" id="progressFill"></div></div>
+<nav class="nav-dots" id="navDots" aria-label="Slide navigation"></nav>
+<div class="slide-counter" id="slideCounter">1 / 26</div>
+
+<!-- pause indicator + keyboard hint -->
+<div id="pauseBadge">⏸ Paused</div>
+<div id="keyHint"><b>Space</b> pause · <b>←&nbsp;→</b> slides · <b>R</b> rebuys · <b>F</b> fullscreen · <b>M</b> mute</div>
+
+<!-- cursor fx -->
+<canvas id="cursorFx" aria-hidden="true"></canvas>
+
+<!-- controls pill -->
+<div class="font-scale-ctrl" id="fontScaleCtrl" aria-label="Controls">
+  <button id="fontScaleDown" aria-label="Decrease font size" title="Smaller (⌘ ,)">A−</button>
+  <span id="fontScaleLabel">100%</span>
+  <button id="fontScaleUp" aria-label="Increase font size" title="Larger (⌘ .)">A+</button>
+  <span class="ctrl-divider" aria-hidden="true"></span>
+  <button id="rebuyBtn" class="fs-btn" aria-label="Pot and rebuys" title="Pot / rebuys (R)">💰</button>
+  <button id="muteBtn" class="fs-btn" aria-label="Toggle sound" title="Sound on/off (M)">🔊</button>
+  <button id="fullscreenBtn" class="fs-btn" aria-label="Enter fullscreen" title="Fullscreen (⌘ F / F)">⛶</button>
+</div>
+
+<!-- hidden file picker for avatar uploads (one, reused) -->
+<input type="file" id="avatarFile" accept="image/*" style="display:none">
+
+<!-- pot / rebuy overlay (opens over any slide; timer keeps running) -->
+<div class="rebuy-overlay" id="rebuyOverlay" aria-hidden="true">
+  <div class="rebuy-card" role="dialog" aria-label="Pot and rebuys">
+    <div class="rebuy-head">
+      <span class="rebuy-title">💰 Pot &amp; Rebuys</span>
+      <button class="rebuy-close" id="rebuyClose" aria-label="Close">✕</button>
+    </div>
+    <div class="rebuy-list" id="rebuyList"></div>
+    <div class="rebuy-foot">Total Pot &nbsp;<strong>AED <span data-pot-amount>3,000</span></strong></div>
+    <div class="rebuy-hint">Tap ＋ to add a AED 500 rebuy, or edit an amount directly · the level timer keeps running · <b>Esc</b> to close</div>
+  </div>
+</div>
+
+<div class="slides-container" id="slidesContainer">
+
+  <!-- ===== SLIDE 1 — COVER (poker table, 6 seats, live pot) ===== -->
+  <section class="slide active" data-slide="1" aria-label="Tonight's Game — setup">
+    <div class="slide-inner">
+      <div class="cover-head">
+        <span class="eyebrow reveal d1">Home Game · Tournament Clock</span>
+        <h1 class="cover-title reveal d2">Tonight's Game</h1>
+        <span class="cover-sub reveal d3">Click a photo, name or buy-in to edit · pot updates live</span>
+      </div>
+      <div class="table-wrap reveal d4">
+        <div class="poker-table">
+          <!-- centre pot -->
+          <div class="pot">
+            <span class="pot-label">Total Pot</span>
+            <span class="pot-amount"><span class="cur">AED</span><span id="potAmount" data-pot-amount>3,000</span></span>
+            <span class="suits"><span class="k">♠</span><span class="r">♥</span><span class="r">♦</span><span class="k">♣</span></span>
+          </div>
+          <!-- 6 seats around the rail; avatar floats to each seat's OUTER edge -->
+          <div class="seat s1 side-top" data-seat="0"><button class="seat-avatar" data-avatar data-seat="0" aria-label="Add photo for seat 1" title="Click to add a photo"></button><span class="seat-no">1</span><span class="seat-name edit-dashed" data-name data-seat="0" contenteditable="true">Player 1</span><span class="seat-buyin-row"><span class="cur">AED</span><span class="seat-buyin edit-dashed" data-buyin data-seat="0" contenteditable="true">500</span></span></div>
+          <div class="seat s2 side-top" data-seat="1"><button class="seat-avatar" data-avatar data-seat="1" aria-label="Add photo for seat 2" title="Click to add a photo"></button><span class="seat-no">2</span><span class="seat-name edit-dashed" data-name data-seat="1" contenteditable="true">Player 2</span><span class="seat-buyin-row"><span class="cur">AED</span><span class="seat-buyin edit-dashed" data-buyin data-seat="1" contenteditable="true">500</span></span></div>
+          <div class="seat s3 side-left" data-seat="2"><button class="seat-avatar" data-avatar data-seat="2" aria-label="Add photo for seat 3" title="Click to add a photo"></button><span class="seat-no">3</span><span class="seat-name edit-dashed" data-name data-seat="2" contenteditable="true">Player 3</span><span class="seat-buyin-row"><span class="cur">AED</span><span class="seat-buyin edit-dashed" data-buyin data-seat="2" contenteditable="true">500</span></span></div>
+          <div class="seat s4 side-right" data-seat="3"><button class="seat-avatar" data-avatar data-seat="3" aria-label="Add photo for seat 4" title="Click to add a photo"></button><span class="seat-no">4</span><span class="seat-name edit-dashed" data-name data-seat="3" contenteditable="true">Player 4</span><span class="seat-buyin-row"><span class="cur">AED</span><span class="seat-buyin edit-dashed" data-buyin data-seat="3" contenteditable="true">500</span></span></div>
+          <div class="seat s5 side-bottom" data-seat="4"><button class="seat-avatar" data-avatar data-seat="4" aria-label="Add photo for seat 5" title="Click to add a photo"></button><span class="seat-no">5</span><span class="seat-name edit-dashed" data-name data-seat="4" contenteditable="true">Player 5</span><span class="seat-buyin-row"><span class="cur">AED</span><span class="seat-buyin edit-dashed" data-buyin data-seat="4" contenteditable="true">500</span></span></div>
+          <div class="seat s6 side-bottom" data-seat="5"><button class="seat-avatar" data-avatar data-seat="5" aria-label="Add photo for seat 6" title="Click to add a photo"></button><span class="seat-no">6</span><span class="seat-name edit-dashed" data-name data-seat="5" contenteditable="true">Player 6</span><span class="seat-buyin-row"><span class="cur">AED</span><span class="seat-buyin edit-dashed" data-buyin data-seat="5" contenteditable="true">500</span></span></div>
+        </div>
+      </div>
+      <span class="pill reveal d5">Press → to start Level 1</span>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 2 — LEVEL 1 (1/2) ===== -->
+  <section class="slide" data-slide="2" data-type="level" data-timer="1800" aria-label="Level 1, blinds 1 / 2">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 1</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">1</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">2</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 3 — TRANSITION → LEVEL 2 ===== -->
+  <section class="slide" data-slide="3" data-type="transition" data-timer="5" aria-label="Next up Level 2, blinds 2 / 4">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 2</div>
+        <div class="trans-blinds">Blinds <b>2 / 4</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 4 — LEVEL 2 (2/4) ===== -->
+  <section class="slide" data-slide="4" data-type="level" data-timer="1800" aria-label="Level 2, blinds 2 / 4">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 2</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">2</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">4</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 5 — TRANSITION → LEVEL 3 ===== -->
+  <section class="slide" data-slide="5" data-type="transition" data-timer="5" aria-label="Next up Level 3, blinds 5 / 5">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 3</div>
+        <div class="trans-blinds">Blinds <b>5 / 5</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 6 — LEVEL 3 (5/5) ===== -->
+  <section class="slide" data-slide="6" data-type="level" data-timer="1800" aria-label="Level 3, blinds 5 / 5">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 3</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">5</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">5</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 7 — TRANSITION → LEVEL 4 ===== -->
+  <section class="slide" data-slide="7" data-type="transition" data-timer="5" aria-label="Next up Level 4, blinds 5 / 10">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 4</div>
+        <div class="trans-blinds">Blinds <b>5 / 10</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 8 — LEVEL 4 (5/10) ===== -->
+  <section class="slide" data-slide="8" data-type="level" data-timer="1800" aria-label="Level 4, blinds 5 / 10">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 4</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">5</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">10</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 9 — TRANSITION → LEVEL 5 ===== -->
+  <section class="slide" data-slide="9" data-type="transition" data-timer="5" aria-label="Next up Level 5, blinds 10 / 15">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 5</div>
+        <div class="trans-blinds">Blinds <b>10 / 15</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 10 — LEVEL 5 (10/15) ===== -->
+  <section class="slide" data-slide="10" data-type="level" data-timer="1800" aria-label="Level 5, blinds 10 / 15">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 5</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">10</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">15</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 11 — TRANSITION → LEVEL 6 ===== -->
+  <section class="slide" data-slide="11" data-type="transition" data-timer="5" aria-label="Next up Level 6, blinds 10 / 20">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 6</div>
+        <div class="trans-blinds">Blinds <b>10 / 20</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 12 — LEVEL 6 (10/20) ===== -->
+  <section class="slide" data-slide="12" data-type="level" data-timer="1800" aria-label="Level 6, blinds 10 / 20">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 6</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">10</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">20</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 13 — TRANSITION → LEVEL 7 ===== -->
+  <section class="slide" data-slide="13" data-type="transition" data-timer="5" aria-label="Next up Level 7, blinds 15 / 30">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 7</div>
+        <div class="trans-blinds">Blinds <b>15 / 30</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 14 — LEVEL 7 (15/30) ===== -->
+  <section class="slide" data-slide="14" data-type="level" data-timer="1800" aria-label="Level 7, blinds 15 / 30">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 7</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">15</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">30</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 15 — TRANSITION → LEVEL 8 ===== -->
+  <section class="slide" data-slide="15" data-type="transition" data-timer="5" aria-label="Next up Level 8, blinds 20 / 40">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 8</div>
+        <div class="trans-blinds">Blinds <b>20 / 40</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 16 — LEVEL 8 (20/40) ===== -->
+  <section class="slide" data-slide="16" data-type="level" data-timer="1800" aria-label="Level 8, blinds 20 / 40">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 8</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">20</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">40</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 17 — TRANSITION → LEVEL 9 ===== -->
+  <section class="slide" data-slide="17" data-type="transition" data-timer="5" aria-label="Next up Level 9, blinds 25 / 50">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 9</div>
+        <div class="trans-blinds">Blinds <b>25 / 50</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 18 — LEVEL 9 (25/50) ===== -->
+  <section class="slide" data-slide="18" data-type="level" data-timer="1800" aria-label="Level 9, blinds 25 / 50">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 9</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">25</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">50</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 19 — TRANSITION → LEVEL 10 ===== -->
+  <section class="slide" data-slide="19" data-type="transition" data-timer="5" aria-label="Next up Level 10, blinds 50 / 100">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 10</div>
+        <div class="trans-blinds">Blinds <b>50 / 100</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 20 — LEVEL 10 (50/100) ===== -->
+  <section class="slide" data-slide="20" data-type="level" data-timer="1800" aria-label="Level 10, blinds 50 / 100">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 10</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">50</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">100</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 21 — TRANSITION → LEVEL 11 ===== -->
+  <section class="slide" data-slide="21" data-type="transition" data-timer="5" aria-label="Next up Level 11, blinds 75 / 150">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 11</div>
+        <div class="trans-blinds">Blinds <b>75 / 150</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Starting…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 22 — LEVEL 11 (75/150) ===== -->
+  <section class="slide" data-slide="22" data-type="level" data-timer="1800" aria-label="Level 11, blinds 75 / 150">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 11</span><span class="lv-of">of 12</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">75</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">150</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 23 — TRANSITION → LEVEL 12 ===== -->
+  <section class="slide" data-slide="23" data-type="transition" data-timer="5" aria-label="Next up Level 12, blinds 100 / 200">
+    <div class="flash-bg"></div>
+    <div class="slide-inner">
+      <div class="trans-panel reveal d1">
+        <span class="trans-eyebrow">Next Up</span>
+        <div class="trans-level">Level 12</div>
+        <div class="trans-blinds">Blinds <b>100 / 200</b></div>
+        <div class="trans-count" data-clock>5</div>
+        <span class="trans-sub">Final level</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 24 — LEVEL 12 (100/200) ===== -->
+  <section class="slide" data-slide="24" data-type="level" data-timer="1800" aria-label="Level 12, blinds 100 / 200">
+    <div class="slide-inner level">
+      <div class="level-head reveal d1"><span class="lv">Level 12</span><span class="lv-of">final level</span></div>
+      <div class="timer reveal d2" data-clock>30:00</div>
+      <div class="blinds reveal d3">
+        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">100</span></div>
+        <span class="blind-sep">/</span>
+        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">200</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 25 — HEADS UP ===== -->
+  <section class="slide" data-slide="25" aria-label="Heads up — final two players">
+    <div class="slide-inner">
+      <span class="eyebrow reveal d1">Down to the last two</span>
+      <h2 class="hu-title reveal d2">Heads Up</h2>
+      <div class="hu-table-wrap reveal d3">
+        <div class="hu-table">
+          <div class="money-pile" id="moneyPile" aria-hidden="true"></div>
+          <div class="hu-pot">
+            <span class="hu-pot-label">Total Pot</span>
+            <span class="hu-pot-amt"><span class="cur">AED</span><span data-pot-amount>3,000</span></span>
+          </div>
+          <div class="hu-seat-card hu-top"><button class="seat-avatar" data-hu-avatar="A" aria-label="Add photo for finalist A" title="Click to add a photo"></button><span class="hu-name edit-dashed" contenteditable="true">Player A</span></div>
+          <div class="hu-seat-card hu-bot"><button class="seat-avatar" data-hu-avatar="B" aria-label="Add photo for finalist B" title="Click to add a photo"></button><span class="hu-name edit-dashed" contenteditable="true">Player B</span></div>
+        </div>
+      </div>
+      <span class="pill reveal d4">Winner takes the pot</span>
+    </div>
+  </section>
+
+  <!-- ===== SLIDE 26 — WINNER ===== -->
+  <section class="slide winner" data-slide="26" aria-label="Winner">
+    <div class="confetti" aria-hidden="true">
+      <i style="left:6%;  background:var(--gold);     animation-duration:3.2s; animation-delay:0s"></i>
+      <i style="left:14%; background:var(--red);      animation-duration:4.1s; animation-delay:.6s"></i>
+      <i style="left:22%; background:var(--green);    animation-duration:3.6s; animation-delay:.2s"></i>
+      <i style="left:31%; background:var(--gold-light);animation-duration:4.6s; animation-delay:1.1s"></i>
+      <i style="left:39%; background:var(--chip-blue);animation-duration:3.3s; animation-delay:.4s"></i>
+      <i style="left:48%; background:var(--gold);     animation-duration:4.2s; animation-delay:.9s"></i>
+      <i style="left:56%; background:var(--red);      animation-duration:3.7s; animation-delay:.1s"></i>
+      <i style="left:64%; background:var(--green);    animation-duration:4.4s; animation-delay:1.3s"></i>
+      <i style="left:72%; background:var(--gold-light);animation-duration:3.4s; animation-delay:.7s"></i>
+      <i style="left:80%; background:var(--chip-blue);animation-duration:4.0s; animation-delay:.3s"></i>
+      <i style="left:88%; background:var(--gold);     animation-duration:3.9s; animation-delay:1.0s"></i>
+      <i style="left:95%; background:var(--red);      animation-duration:4.3s; animation-delay:.5s"></i>
+    </div>
+    <div class="slide-inner">
+      <div class="win-photo-wrap reveal d1">
+        <span class="win-crown">👑</span>
+        <button class="seat-avatar win-avatar" data-hu-avatar="W" aria-label="Add the winner's photo" title="Click to add the winner's photo"></button>
+      </div>
+      <span class="win-label reveal d2">Winner</span>
+      <span class="win-name edit-dashed reveal d3" contenteditable="true">Champion</span>
+      <span class="win-sub reveal d4">Tonight's champion · <span class="suits"><span class="k">♠</span><span class="r">♥</span><span class="r">♦</span><span class="k">♣</span></span></span>
+    </div>
+  </section>
+
+</div>
+
+<script>
+/* ============================================================
+   SLIDE PRESENTATION CONTROLLER (house controller, trimmed:
+   Space is NOT a "next" key here — it's reassigned to pause/resume
+   the active countdown by the TournamentClock below.)
+   ============================================================ */
+class SlidePresentation {
+  constructor() {
+    this.slides = Array.from(document.querySelectorAll('.slide'));
+    this.total = this.slides.length;
+    this.current = 0;
+    this.isAnimating = false;
+    this.ANIM_DURATION = 450;
+    this.onChange = null;                 /* hook for the clock */
+    this.progressFill = document.getElementById('progressFill');
+    this.slideCounter = document.getElementById('slideCounter');
+    this.navDotsEl = document.getElementById('navDots');
+    this.buildNavDots();
+    this.setupKeyboard();
+    this.setupWheel();
+    this.setupTouch();
+    this.slides.forEach((s, i) => s.classList.toggle('active', i === 0));
+    this.updateUI();
+  }
+  goTo(index) {
+    if (index < 0 || index >= this.total || this.isAnimating || index === this.current) return;
+    this.isAnimating = true;
+    this.slides[this.current].classList.remove('active');
+    this.slides[this.current].classList.add('exit-left');
+    const exiting = this.slides[this.current];
+    setTimeout(() => exiting.classList.remove('exit-left'), this.ANIM_DURATION);
+    this.current = index;
+    this.slides[this.current].classList.add('active');
+    setTimeout(() => { this.isAnimating = false; }, this.ANIM_DURATION);
+    this.updateUI();
+    if (this.onChange) this.onChange();   /* (re)start the new slide's timer */
+  }
+  next() { if (this.current < this.total - 1) this.goTo(this.current + 1); }
+  prev() { if (this.current > 0) this.goTo(this.current - 1); }
+  setupKeyboard() {
+    /* NOTE: Space deliberately omitted — it pauses/resumes the clock. */
+    const NEXT = ['ArrowRight', 'ArrowDown', 'PageDown'];
+    const PREV = ['ArrowLeft', 'ArrowUp', 'PageUp'];
+    document.addEventListener('keydown', (e) => {
+      if (e.target.isContentEditable || ['INPUT','TEXTAREA','IFRAME'].includes(e.target.tagName)) return;
+      if (NEXT.includes(e.code)) { e.preventDefault(); if (e.repeat) return; this.next(); }
+      else if (PREV.includes(e.code)) { e.preventDefault(); if (e.repeat) return; this.prev(); }
+    });
+  }
+  setupWheel() {
+    let wheelLock = false;
+    document.addEventListener('wheel', (e) => {
+      e.preventDefault(); if (wheelLock) return; wheelLock = true;
+      if (e.deltaY > 0) this.next(); else this.prev();
+      setTimeout(() => { wheelLock = false; }, this.ANIM_DURATION + 120);
+    }, { passive: false });
+  }
+  setupTouch() {
+    let sx = 0, sy = 0;
+    document.addEventListener('touchstart', (e) => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, { passive: true });
+    document.addEventListener('touchend', (e) => {
+      if (e.target.isContentEditable) return;
+      const dX = sx - e.changedTouches[0].clientX, dY = sy - e.changedTouches[0].clientY, T = 50;
+      if (Math.abs(dX) > Math.abs(dY)) { if (dX > T) this.next(); if (dX < -T) this.prev(); }
+      else { if (dY > T) this.next(); if (dY < -T) this.prev(); }
+    }, { passive: true });
+  }
+  buildNavDots() {
+    this.navDotsEl.innerHTML = '';
+    this.slides.forEach((_, i) => {
+      const b = document.createElement('button');
+      b.setAttribute('aria-label', `Go to slide ${i + 1}`);
+      b.addEventListener('click', () => this.goTo(i));
+      this.navDotsEl.appendChild(b);
+    });
+  }
+  updateUI() {
+    /* the top bar is now the LEVEL countdown (driven by the clock), not deck progress */
+    this.slideCounter.textContent = `${this.current + 1} / ${this.total}`;
+    this.navDotsEl.querySelectorAll('button').forEach((b, i) => b.classList.toggle('active', i === this.current));
+  }
+}
+
+/* ============================================================
+   TOURNAMENT CLOCK — drift-free countdown + auto-advance + pause
+   Timestamp-based (performance.now), recomputed every frame, so a
+   paused timer holds EXACTLY and a running one never drifts.
+   ============================================================ */
+class TournamentClock {
+  constructor(presentation) {
+    this.p = presentation;
+    this.bar = document.getElementById('progressFill');  /* top bar doubles as the level countdown */
+    this.sound = null;                                   /* assigned after SoundFx is created */
+    this.tickId = null;        /* setInterval id — NOT rAF, so it keeps running when the tab isn't painting */
+    this.TICK_MS = 250;
+    this.el = null;            /* active slide's [data-clock] element */
+    this.type = null;          /* 'level' | 'transition' */
+    this.duration = 0;         /* ms */
+    this.deadline = 0;         /* performance.now() target */
+    this.remaining = 0;        /* ms held while paused */
+    this.paused = false;
+    /* Space = pause/resume (ignored while typing in an editable field) */
+    document.addEventListener('keydown', (e) => {
+      if (e.code !== 'Space') return;
+      if (e.target.isContentEditable || ['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
+      e.preventDefault(); this.togglePause();
+    });
+    /* If the tab was backgrounded (timers throttle), snap the display correct
+       and auto-advance if overdue the moment it becomes visible again. */
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) this.tick(); });
+    this.p.onChange = () => this.handleSlideChange();
+    this.handleSlideChange();  /* arm the initial slide (cover = no timer) */
+  }
+  handleSlideChange() {
+    this.stop();
+    const slide = this.p.slides[this.p.current];
+    const secs = parseInt(slide.dataset.timer || '0', 10);
+    const el = slide.querySelector('[data-clock]');
+    if (!secs || !el) {                          /* cover / heads-up / winner: no countdown */
+      this.el = null; this.setPausedUI(false);
+      if (this.bar) { this.bar.style.width = '100%'; this.bar.classList.remove('warn', 'danger'); }
+      return;
+    }
+    this.el = el;
+    this.type = slide.dataset.type;
+    this.duration = secs * 1000;
+    if (this.bar) this.bar.classList.remove('warn', 'danger');
+    if (this.type === 'transition' && this.sound) this.sound.playTransition();  /* casino cue on level change */
+    this.startFresh();
+  }
+  startFresh() {
+    this.paused = false; this.setPausedUI(false);
+    this.deadline = performance.now() + this.duration;
+    this.render(this.duration);
+    this.run();
+  }
+  run() {
+    this.stopTick();
+    /* setInterval (not requestAnimationFrame): a tournament clock must keep
+       counting even when the tab isn't painting or is backgrounded. We recompute
+       the remaining time from a timestamp every tick, so it never drifts. */
+    this.tickId = setInterval(() => this.tick(), this.TICK_MS);
+  }
+  tick() {
+    if (this.paused || !this.el) return;
+    const rem = this.deadline - performance.now();
+    /* auto-advance. A successful goTo() restarts the clock on the new slide
+       (which clears THIS interval). If next() is momentarily blocked by an
+       in-flight slide animation, we simply leave the interval running and retry
+       on the next tick — so the clock can never deadlock at 0:00. */
+    if (rem <= 0) { this.render(0); this.p.next(); return; }
+    this.render(rem);
+  }
+  togglePause() {
+    if (!this.el) return;                       /* cover / heads-up / winner: no-op */
+    if (this.paused) {                          /* resume from held remaining */
+      this.deadline = performance.now() + this.remaining;
+      this.paused = false; this.setPausedUI(false);
+    } else {                                    /* freeze remaining exactly */
+      this.remaining = this.deadline - performance.now();
+      this.paused = true; this.setPausedUI(true);
+    }
+  }
+  setPausedUI(on) {
+    document.body.classList.toggle('is-paused', on);
+    if (this.el) this.el.classList.toggle('paused', on);
+  }
+  render(ms) {
+    if (this.type === 'transition') {
+      const n = Math.max(0, Math.ceil(ms / 1000));
+      this.el.innerHTML = `<span class="cell">${n}</span>`;
+    } else {
+      /* fixed-width digit cells so the clock never shifts — only the glyphs swap */
+      const s = Math.max(0, Math.ceil(ms / 1000));
+      const m = Math.floor(s / 60), ss = String(s % 60).padStart(2, '0');
+      const mm = m < 10 ? ' ' + m : String(m);               /* blank leading cell keeps the colon fixed */
+      const chars = [mm[0], mm[1], ':', ss[0], ss[1]];
+      this.el.innerHTML = chars.map(c =>
+        c === ':' ? '<span class="cell colon">:</span>'
+                  : `<span class="cell">${c === ' ' ? '&nbsp;' : c}</span>`).join('');
+    }
+    /* drive the draining top-bar countdown (full -> empty), with colour urgency */
+    if (this.bar) {
+      const frac = this.duration ? Math.max(0, Math.min(1, ms / this.duration)) : 1;
+      this.bar.style.width = (frac * 100) + '%';
+      const remSec = ms / 1000;
+      this.bar.classList.toggle('danger', this.type === 'level' && remSec <= 60);
+      this.bar.classList.toggle('warn', this.type === 'level' && remSec > 60 && remSec <= 300);
+    }
+  }
+  stopTick() { if (this.tickId) { clearInterval(this.tickId); this.tickId = null; } }
+  stop() { this.stopTick(); this.paused = false; }
+}
+
+/* ============================================================
+   FONT SCALE CONTROLLER (⌘. / ⌘,)
+   ============================================================ */
+class FontScaleController {
+  constructor() {
+    this.STEP = 0.1; this.MIN = 0.5; this.MAX = 2.0;
+    this.scale = 1; /* session-only — never persisted to localStorage */
+    this.labelEl = document.getElementById('fontScaleLabel');
+    this.btnUp = document.getElementById('fontScaleUp');
+    this.btnDown = document.getElementById('fontScaleDown');
+    this.btnUp.addEventListener('click', () => this.increase());
+    this.btnDown.addEventListener('click', () => this.decrease());
+    document.addEventListener('keydown', (e) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+      if (e.key === '.') { e.preventDefault(); this.increase(); }
+      if (e.key === ',') { e.preventDefault(); this.decrease(); }
+    });
+    this.apply();
+  }
+  increase() { this.setScale(this.scale + this.STEP); }
+  decrease() { this.setScale(this.scale - this.STEP); }
+  setScale(v) { this.scale = Math.round(Math.max(this.MIN, Math.min(this.MAX, v)) * 10) / 10; this.apply(); }
+  apply() {
+    document.documentElement.style.setProperty('--font-scale', this.scale);
+    this.labelEl.textContent = Math.round(this.scale * 100) + '%';
+    this.btnDown.disabled = this.scale <= this.MIN;
+    this.btnUp.disabled = this.scale >= this.MAX;
+    document.body.classList.toggle('scaled-up', this.scale > 1.2);
+  }
+}
+
+/* ============================================================
+   FULLSCREEN CONTROLLER (⌘F or bare F)
+   ============================================================ */
+class FullscreenController {
+  constructor() {
+    this.btn = document.getElementById('fullscreenBtn');
+    this.btn.addEventListener('click', () => this.toggle());
+    document.addEventListener('keydown', (e) => {
+      if (e.metaKey && (e.key === 'f' || e.key === 'F')) { e.preventDefault(); this.toggle(); return; }
+      if ((e.key === 'f' || e.key === 'F') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const t = e.target;
+        if (!(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable))) { e.preventDefault(); this.toggle(); }
+      }
+    });
+    document.addEventListener('fullscreenchange', () => this.syncLabel());
+  }
+  toggle() { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
+  syncLabel() { const fs = !!document.fullscreenElement; this.btn.title = fs ? 'Exit fullscreen (⌘ F / Esc)' : 'Fullscreen (⌘ F / F)'; }
+}
+
+/* ============================================================
+   CURSOR EFFECTS — gold trail + click-drag ink (house pattern)
+   ============================================================ */
+class CursorEffects {
+  constructor() {
+    this.canDo = matchMedia('(hover: hover) and (pointer: fine)').matches && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!this.canDo) return;
+    this.canvas = document.getElementById('cursorFx'); this.ctx = this.canvas.getContext('2d');
+    this.accent = (a) => `rgba(232, 184, 75, ${a})`;   /* casino gold */
+    this.trail = []; this.strokes = []; this.current = null; this.TRAIL_LIFE = 400; this.INK_FADE = 1500;
+    this.resize(); window.addEventListener('resize', () => this.resize()); this.bindEvents(); requestAnimationFrame(() => this.tick());
+  }
+  resize() { const dpr = window.devicePixelRatio || 1; this.canvas.width = innerWidth * dpr; this.canvas.height = innerHeight * dpr; this.canvas.style.width = innerWidth + 'px'; this.canvas.style.height = innerHeight + 'px'; this.ctx.setTransform(1, 0, 0, 1, 0, 0); this.ctx.scale(dpr, dpr); }
+  bindEvents() {
+    window.addEventListener('mousemove', (e) => { this.trail.push({ x: e.clientX, y: e.clientY, t: performance.now() }); if (this.current) this.current.points.push({ x: e.clientX, y: e.clientY }); });
+    window.addEventListener('mousedown', (e) => { if (e.button !== 0) return; if (e.target.closest('button, a, [contenteditable], input, textarea, .nav-dots')) return; this.current = { points: [{ x: e.clientX, y: e.clientY }], done: false }; this.strokes.push(this.current); });
+    const end = () => { if (this.current) { this.current.done = true; this.current.finishedAt = performance.now(); this.current = null; } };
+    window.addEventListener('mouseup', end); window.addEventListener('mouseleave', end);
+  }
+  tick() {
+    const now = performance.now(), ctx = this.ctx; ctx.clearRect(0, 0, innerWidth, innerHeight);
+    this.trail = this.trail.filter(p => now - p.t < this.TRAIL_LIFE);
+    for (const p of this.trail) { const age = (now - p.t) / this.TRAIL_LIFE, a = 1 - age, r = 7 * (1 - age * 0.35); ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fillStyle = this.accent(a * 0.55); ctx.shadowBlur = 12; ctx.shadowColor = this.accent(0.9); ctx.fill(); }
+    ctx.shadowBlur = 0;
+    for (let i = this.strokes.length - 1; i >= 0; i--) {
+      const s = this.strokes[i]; let a = 1;
+      if (s.done) { const age = now - s.finishedAt; if (age >= this.INK_FADE) { this.strokes.splice(i, 1); continue; } a = 1 - age / this.INK_FADE; }
+      if (s.points.length < 2) continue;
+      ctx.beginPath(); ctx.moveTo(s.points[0].x, s.points[0].y);
+      for (let j = 1; j < s.points.length; j++) ctx.lineTo(s.points[j].x, s.points[j].y);
+      ctx.strokeStyle = this.accent(a); ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.shadowBlur = 14; ctx.shadowColor = this.accent(a); ctx.stroke();
+    }
+    ctx.shadowBlur = 0; requestAnimationFrame(() => this.tick());
+  }
+}
+
+/* ============================================================
+   SHARED PLAYER BANK — single source of truth for the cover seats,
+   the rebuy overlay, and the heads-up pot, so they never disagree.
+   ============================================================ */
+const REBUY_STEP = 500;
+const bank = {
+  names:  ['Player 1','Player 2','Player 3','Player 4','Player 5','Player 6'],
+  buyins: [500, 500, 500, 500, 500, 500],
+  photos: [null, null, null, null, null, null]
+};
+function potTotal(){ return bank.buyins.reduce((a, b) => a + (Number(b) || 0), 0); }
+function fmtMoney(n){ return Number(n || 0).toLocaleString('en-US'); }
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
+function setAvatarEl(el, src){
+  if (src){ el.style.backgroundImage = 'url("' + src + '")'; el.classList.add('has-photo'); }
+  else { el.style.backgroundImage = ''; el.classList.remove('has-photo'); }
+}
+/* paint every bank-derived display; never overwrite the field being edited */
+function syncBankUI(except){
+  const total = fmtMoney(potTotal());
+  document.querySelectorAll('[data-pot-amount]').forEach(el => { if (el !== except && el !== document.activeElement) el.textContent = total; });
+  document.querySelectorAll('[data-buyin]').forEach(el => { const i = +el.dataset.seat; if (el !== except && el !== document.activeElement) el.textContent = String(bank.buyins[i]); });
+  document.querySelectorAll('[data-name-mirror]').forEach(el => { const i = +el.dataset.seat; if (el !== document.activeElement) el.textContent = bank.names[i]; });
+  document.querySelectorAll('.seat-avatar[data-seat], .rebuy-ava[data-seat]').forEach(el => setAvatarEl(el, bank.photos[+el.dataset.seat]));
+}
+/* read the cover's current names/buy-ins/photos INTO the bank on load, so a
+   saved copy (⌘S) reopens with its baked-in roster instead of the defaults */
+function hydrateBankFromDOM(){
+  document.querySelectorAll('.seat[data-seat]').forEach(seat => {
+    const i = +seat.dataset.seat;
+    const nm = seat.querySelector('[data-name]'); if (nm && nm.textContent.trim()) bank.names[i] = nm.textContent.trim();
+    const by = seat.querySelector('[data-buyin]'); if (by){ const n = parseInt((by.textContent || '').replace(/[^\d]/g, ''), 10); if (!isNaN(n)) bank.buyins[i] = n; }
+    const av = seat.querySelector('.seat-avatar[data-seat]');
+    if (av && av.style.backgroundImage){ const m = av.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/); if (m) bank.photos[i] = m[1]; }
+  });
+}
+/* edits to any buy-in / name field flow back into the bank, then re-sync everything */
+document.addEventListener('input', (e) => {
+  const b = e.target.closest && e.target.closest('[data-buyin]');
+  if (b){ bank.buyins[+b.dataset.seat] = parseInt((b.textContent || '').replace(/[^\d]/g, ''), 10) || 0; syncBankUI(b); return; }
+  const n = e.target.closest && e.target.closest('[data-name]');
+  if (n){ bank.names[+n.dataset.seat] = (n.textContent || '').trim(); syncBankUI(n); }
+});
+document.addEventListener('focusout', (e) => {
+  const b = e.target.closest && e.target.closest('[data-buyin]');
+  if (b){ b.textContent = String(bank.buyins[+b.dataset.seat] || 0); }
+});
+
+/* ===== avatar upload — resized in-browser, baked into the file on ⌘S ===== */
+let avatarTarget = null;
+const avatarFile = document.getElementById('avatarFile');
+document.addEventListener('click', (e) => {
+  const seatAv = e.target.closest('.seat-avatar[data-seat]');
+  if (seatAv){ avatarTarget = { kind:'seat', i:+seatAv.dataset.seat }; avatarFile.click(); return; }
+  const huAv = e.target.closest('[data-hu-avatar]');
+  if (huAv){ avatarTarget = { kind:'el', el:huAv }; avatarFile.click(); }
+});
+avatarFile.addEventListener('change', () => {
+  const f = avatarFile.files && avatarFile.files[0]; if (!f || !avatarTarget) return;
+  resizeSquare(f, 320, (dataUrl) => {
+    if (avatarTarget.kind === 'seat'){ bank.photos[avatarTarget.i] = dataUrl; syncBankUI(); }
+    else { setAvatarEl(avatarTarget.el, dataUrl); }
+    avatarTarget = null; avatarFile.value = '';
+  });
+});
+function resizeSquare(file, size, cb){
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = c.height = size;
+    const ctx = c.getContext('2d');
+    const s = Math.min(img.width, img.height), sx = (img.width - s) / 2, sy = (img.height - s) / 2;
+    ctx.drawImage(img, sx, sy, s, s, 0, 0, size, size);
+    URL.revokeObjectURL(url); cb(c.toDataURL('image/jpeg', 0.82));
+  };
+  img.onerror = () => URL.revokeObjectURL(url);
+  img.src = url;
+}
+
+/* ===== pot / rebuy overlay — opens over any slide; clock keeps running ===== */
+const rebuyOverlay = document.getElementById('rebuyOverlay');
+const rebuyList = document.getElementById('rebuyList');
+function renderRebuyList(){
+  rebuyList.innerHTML = bank.names.map((nm, i) =>
+    '<div class="rebuy-row">' +
+      '<span class="rebuy-ava" data-seat="' + i + '"></span>' +
+      '<span class="rebuy-name" data-name-mirror data-seat="' + i + '">' + escapeHtml(nm) + '</span>' +
+      '<span class="rebuy-amt"><span class="cur">AED</span><span class="rebuy-buyin" data-buyin data-seat="' + i + '" contenteditable="true">' + bank.buyins[i] + '</span></span>' +
+      '<button class="rebuy-add" data-add="' + i + '">＋ ' + REBUY_STEP + '</button>' +
+    '</div>').join('');
+  syncBankUI();
+}
+function openRebuy(){ renderRebuyList(); rebuyOverlay.classList.add('open'); }
+function closeRebuy(){ rebuyOverlay.classList.remove('open'); }
+function toggleRebuy(){ rebuyOverlay.classList.contains('open') ? closeRebuy() : openRebuy(); }
+document.getElementById('rebuyBtn').addEventListener('click', toggleRebuy);
+document.getElementById('rebuyClose').addEventListener('click', closeRebuy);
+rebuyOverlay.addEventListener('click', (e) => { if (e.target === rebuyOverlay) closeRebuy(); });
+rebuyList.addEventListener('click', (e) => { const a = e.target.closest('[data-add]'); if (a){ bank.buyins[+a.dataset.add] += REBUY_STEP; syncBankUI(); } });
+
+/* ===== money pile on the heads-up table — crisp inline SVG poker chips ===== */
+function buildMoneyPile(){
+  const pile = document.getElementById('moneyPile'); if (!pile) return;
+  const W = 640, H = 280, baseY = H - 46, rx = 50, ry = 17, t = 11, spot = '#f6efd9';
+  const cols = {
+    blue:  ['#4377cd','#2a5fb0','#1b3f80'],
+    red:   ['#e44a41','#cc322c','#9c231f'],
+    green: ['#49bd6e','#2ea455','#1e7d3f'],
+    gold:  ['#f4cf6e','#e8b84b','#b88a2c'],
+    black: ['#3c3a30','#16130d','#080704']
+  };
+  let defs = '';
+  Object.keys(cols).forEach(k => { const c = cols[k];
+    defs += '<linearGradient id="cg_' + k + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + c[0] + '"/><stop offset=".5" stop-color="' + c[1] + '"/><stop offset="1" stop-color="' + c[2] + '"/></linearGradient>'; });
+  function stack(x, n, key){
+    let g = '<ellipse cx="' + x + '" cy="' + (baseY + ry * 0.6) + '" rx="' + (rx * 1.05) + '" ry="' + (ry * 0.7) + '" fill="rgba(0,0,0,.35)"/>';  /* base shadow */
+    for (let k = 0; k < n; k++){ const cy = baseY - k * t;
+      g += '<ellipse cx="' + x + '" cy="' + cy + '" rx="' + rx + '" ry="' + ry + '" fill="url(#cg_' + key + ')" stroke="rgba(0,0,0,.4)" stroke-width="1.3"/>'; }
+    const cy = baseY - (n - 1) * t;                                   /* decorate the top chip face */
+    g += '<ellipse cx="' + x + '" cy="' + cy + '" rx="' + rx + '" ry="' + ry + '" fill="url(#cg_' + key + ')"/>';
+    g += '<ellipse cx="' + x + '" cy="' + cy + '" rx="' + (rx - 3) + '" ry="' + (ry - 1.5) + '" fill="none" stroke="' + spot + '" stroke-width="6" stroke-dasharray="7 11" opacity=".85"/>';  /* edge spots */
+    g += '<ellipse cx="' + x + '" cy="' + cy + '" rx="' + (rx - 15) + '" ry="' + (ry - 6) + '" fill="none" stroke="' + spot + '" stroke-width="2.5" opacity=".7"/>';                       /* inner ring */
+    g += '<ellipse cx="' + x + '" cy="' + cy + '" rx="' + (rx - 24) + '" ry="' + (ry - 9) + '" fill="' + spot + '" opacity=".5"/>';                                                      /* centre */
+    return '<g>' + g + '</g>';
+  }
+  const layout = [[150,5,'blue'],[245,9,'red'],[325,13,'green'],[410,8,'gold'],[500,6,'black']];   /* tallest in the middle */
+  const body = layout.map(s => stack(s[0], s[1], s[2])).join('');
+  pile.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMax meet" xmlns="http://www.w3.org/2000/svg"><defs>' + defs + '</defs>' + body + '</svg>';
+}
+
+/* ============================================================
+   SOUND — synthesized casino cue at each level transition (Web Audio,
+   no files). Unlocks on first gesture; mute with the 🔊 button or M.
+   ============================================================ */
+class SoundFx {
+  constructor(){
+    this.muted = false; this.ctx = null;
+    this.btn = document.getElementById('muteBtn');
+    this.btn.addEventListener('click', () => this.toggleMute());
+    document.addEventListener('keydown', (e) => {
+      if ((e.key === 'm' || e.key === 'M') && !e.metaKey && !e.ctrlKey && !e.altKey){
+        if (e.target.isContentEditable || ['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
+        this.toggleMute();
+      }
+    });
+    const unlock = () => { const c = this.ensure(); if (c && c.state === 'suspended') c.resume(); };
+    window.addEventListener('pointerdown', unlock); window.addEventListener('keydown', unlock);
+    this.applyBtn();
+  }
+  ensure(){ if (!this.ctx){ try { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e){} } return this.ctx; }
+  toggleMute(){ this.muted = !this.muted; this.applyBtn(); }
+  applyBtn(){ this.btn.textContent = this.muted ? '🔇' : '🔊'; this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
+  ping(freq, t, dur, type, peak){
+    const c = this.ctx, o = c.createOscillator(), g = c.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(peak, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0006, t + dur);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + dur + 0.03);
+  }
+  playTransition(){
+    if (this.muted) return; const c = this.ensure(); if (!c) return; if (c.state === 'suspended') c.resume();
+    const t = c.currentTime;
+    /* chip clink — bright metallic pings */
+    this.ping(2400, t,        0.12, 'triangle', 0.16);
+    this.ping(3100, t + 0.03, 0.10, 'triangle', 0.12);
+    this.ping(2400, t + 0.14, 0.09, 'triangle', 0.10);
+    /* ascending two-note chime — "next level" */
+    this.ping(659.25, t + 0.18, 0.45, 'sine', 0.20);   /* E5 */
+    this.ping(987.77, t + 0.34, 0.65, 'sine', 0.22);   /* B5 */
+  }
+}
+
+/* ============================================================
+   SAVE A CONFIGURED COPY (⌘S) — bakes typed names/buy-ins into a
+   downloadable file. No localStorage; ⌘S is the only persistence.
+   ============================================================ */
+function exportDeck() {
+  const liveActive = document.querySelector('.slide.active');
+  const slides = Array.from(document.querySelectorAll('.slide'));
+  document.body.classList.remove('is-paused');
+  closeRebuy(); rebuyList.innerHTML = '';                 /* don't bake the transient overlay rows into the file */
+  slides.forEach((s, i) => { s.classList.remove('exit-left'); s.classList.toggle('active', i === 0); });
+  /* normalise any visited countdowns back to their fresh values for a clean file */
+  document.querySelectorAll('.slide[data-type="level"] [data-clock]').forEach(el => el.textContent = '30:00');
+  document.querySelectorAll('.slide[data-type="transition"] [data-clock]').forEach(el => el.textContent = '5');
+  const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+  slides.forEach(s => s.classList.remove('active')); if (liveActive) liveActive.classList.add('active');
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Poker Tournament Clock.html'; a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ============================================================
+   BOOT
+   This deck never SAVES to localStorage. On load we only PURGE any
+   stale keys an older build might have left, so a browser can never
+   show outdated content. (Specific keys only — never localStorage.clear.)
+   ============================================================ */
+try { ['poker_clock_edits', 'poker_fontScale', 'poker_pot'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+
+const fontScaleCtrl = new FontScaleController();
+const fullscreenCtrl = new FullscreenController();
+const cursorFx = new CursorEffects();
+const sound = new SoundFx();
+const presentation = new SlidePresentation();
+const clock = new TournamentClock(presentation);
+clock.sound = sound;                       /* play the casino cue on each transition */
+
+buildMoneyPile();
+hydrateBankFromDOM();                      /* pull a saved copy's baked-in roster into the bank... */
+syncBankUI();                              /* ...then paint pot + avatars from it */
+
+/* rebuy overlay: R toggles, Esc closes (timer keeps running underneath) */
+document.addEventListener('keydown', (e) => {
+  if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (e.target.isContentEditable || ['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
+    e.preventDefault(); toggleRebuy();
+  }
+  if (e.key === 'Escape' && rebuyOverlay.classList.contains('open')) closeRebuy();
+});
+
+/* editable fields: Enter confirms (blur) instead of a newline — delegated, covers dynamic rebuy rows */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.isContentEditable) { e.preventDefault(); e.target.blur(); }
+});
+
+/* ⌘S / Ctrl+S → save a configured copy (names, buy-ins, photos baked in) */
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 's' || e.key === 'S')) { e.preventDefault(); exportDeck(); }
+});
+
+/* fade the keyboard hint after a few seconds */
+setTimeout(() => { const h = document.getElementById('keyHint'); if (h) h.classList.add('hide'); }, 6000);
+</script>
+</body>
+</html>

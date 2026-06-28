@@ -144,6 +144,11 @@ body{
   text-shadow:0 4px 0 rgba(0,0,0,.4), 0 0 30px rgba(232,184,75,.25);
 }
 .cover-sub{ font-size:var(--label-size); letter-spacing:.18em; text-transform:uppercase; color:rgba(246,239,217,.7); }
+/* setup row under the table: editable "minutes per level" + Start button */
+.cover-setup{ display:flex; flex-direction:column; align-items:center; gap:var(--gap-sm); margin-bottom:clamp(3rem,9vh,6rem); }
+.setup-field{ font-size:clamp(.85rem,1.5vw,1.15rem); letter-spacing:.03em; color:rgba(246,239,217,.92);
+  background:rgba(8,8,10,.5); border:1px solid rgba(232,184,75,.5); border-radius:999px; padding:.5em 1.1em; }
+.setup-field .mins-val{ font-weight:700; color:var(--gold-light); min-width:1.8ch; display:inline-block; text-align:center; }
 
 .table-wrap{ flex:1; width:100%; display:flex; align-items:center; justify-content:center; min-height:0; }
 .poker-table{
@@ -214,6 +219,11 @@ body{
 .bl-label{ font-size:var(--label-size); letter-spacing:.22em; text-transform:uppercase; color:var(--gold-light); }
 .bl-val{ font-weight:700; font-size:var(--blind-size); line-height:1; color:var(--cream); font-variant-numeric:tabular-nums; }
 .blind-sep{ align-self:center; font-weight:300; font-size:var(--blind-size); color:rgba(232,184,75,.7); }
+/* per-level length override chip — absolute so it never shifts the clock or clips */
+.level-mins{ position:absolute; left:50%; bottom:calc(clamp(2.2rem,7vh,4.2rem) + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); z-index:3;
+  font-size:clamp(.72rem,1.1vw,.95rem); letter-spacing:.04em; color:rgba(246,239,217,.78); white-space:nowrap;
+  background:rgba(8,8,10,.5); border:1px solid rgba(232,184,75,.4); border-radius:999px; padding:.4em .95em; }
+.level-mins .lm-val{ font-weight:700; color:var(--gold-light); min-width:1.5ch; display:inline-block; text-align:center; }
 
 /* ============================================================
    TRANSITION SLIDES — 5s red/amber/green flash, announces next
@@ -294,15 +304,16 @@ body{
 .nav-dots button.active{ background:var(--gold); }
 .slide-counter{ position:fixed; bottom:clamp(.7rem,2vh,1.3rem); right:clamp(1rem,2.5vw,2rem); font-weight:600; font-size:var(--label-size); letter-spacing:.1em; color:var(--cream); background:rgba(0,0,0,.35); border:1px solid rgba(232,184,75,.4); padding:.4em .7em; border-radius:6px; z-index:1000; }
 
-.font-scale-ctrl{ position:fixed; bottom:clamp(.7rem,2vh,1.3rem); left:clamp(1rem,2.5vw,2rem); display:flex; align-items:center; gap:2px; z-index:1000;
-  background:rgba(8,8,10,.7); border:2px solid rgba(232,184,75,.5); border-radius:8px; box-shadow:var(--bevel); padding:.3em .45em; }
-.font-scale-ctrl button{ background:none; border:none; color:var(--cream); font-family:var(--font-display); font-weight:600; font-size:clamp(.62rem,.95vw,.8rem); cursor:pointer; padding:.3em .5em; line-height:1; border-radius:4px; }
+.font-scale-ctrl{ position:fixed; bottom:calc(clamp(.7rem,2vh,1.3rem) + env(safe-area-inset-bottom,0px)); left:clamp(.7rem,2.5vw,2rem); display:flex; align-items:center; gap:clamp(2px,.4vw,5px); z-index:1000;
+  background:rgba(8,8,10,.72); border:2px solid rgba(232,184,75,.5); border-radius:12px; box-shadow:var(--bevel); padding:.35em .5em; }
+/* finger-friendly tap targets (~46px) for iPad */
+.font-scale-ctrl button{ background:none; border:none; color:var(--cream); font-family:var(--font-display); font-weight:600; font-size:clamp(.95rem,1.5vw,1.2rem); cursor:pointer; padding:.4em .55em; line-height:1; border-radius:9px; min-width:2.4em; min-height:2.4em; display:inline-flex; align-items:center; justify-content:center; }
 .font-scale-ctrl button:hover{ background:rgba(232,184,75,.22); }
 .font-scale-ctrl button:active{ transform:scale(.92); }
 .font-scale-ctrl button:disabled{ opacity:.3; cursor:default; }
-#fontScaleLabel{ font-weight:500; font-size:clamp(.58rem,.85vw,.72rem); color:rgba(246,239,217,.8); min-width:3em; text-align:center; }
-.font-scale-ctrl .ctrl-divider{ width:1px; height:1.2em; background:rgba(232,184,75,.4); margin:0 4px; }
-.font-scale-ctrl .fs-btn{ font-size:clamp(.8rem,1.1vw,1rem); padding:.18em .45em; }
+#fontScaleLabel{ font-weight:600; font-size:clamp(.78rem,1.1vw,.95rem); color:rgba(246,239,217,.85); min-width:3.4em; text-align:center; }
+.font-scale-ctrl .ctrl-divider{ width:1px; height:1.7em; background:rgba(232,184,75,.4); margin:0 3px; }
+.font-scale-ctrl .fs-btn{ font-size:clamp(1.2rem,1.8vw,1.55rem); padding:.3em .5em; }
 
 #pauseBadge{ position:fixed; top:clamp(1.6rem,3.6vh,2.4rem); left:50%; transform:translateX(-50%); z-index:9500; display:none;
   font-weight:700; font-size:clamp(1rem,2.4vw,1.7rem); letter-spacing:.22em; text-transform:uppercase; color:var(--ink);
@@ -493,7 +504,10 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
           <div class="seat s6 side-bottom" data-seat="5"><button class="seat-avatar" data-avatar data-seat="5" aria-label="Add photo for seat 6" title="Click to add a photo"></button><span class="seat-no">6</span><span class="seat-name edit-dashed" data-name data-seat="5" contenteditable="true">Player 6</span><span class="seat-buyin-row"><span class="cur">AED</span><span class="seat-buyin edit-dashed" data-buyin data-seat="5" contenteditable="true">500</span></span></div>
         </div>
       </div>
-      <button class="start-btn reveal d5" id="startBtn">Start · Level 1 ▶</button>
+      <div class="cover-setup reveal d5">
+        <span class="setup-field">Minutes per level: <span class="mins-val edit-dashed" id="allLevelMins" contenteditable="true">30</span></span>
+        <button class="start-btn" id="startBtn">Start · Level 1 ▶</button>
+      </div>
     </div>
   </section>
 
@@ -1420,7 +1434,7 @@ function exportDeck() {
   closeRebuy(); rebuyList.innerHTML = '';                 /* don't bake the transient overlay rows into the file */
   slides.forEach((s, i) => { s.classList.remove('exit-left'); s.classList.toggle('active', i === 0); });
   /* normalise any visited countdowns back to their fresh values for a clean file */
-  document.querySelectorAll('.slide[data-type="level"] [data-clock]').forEach(el => el.textContent = '30:00');
+  document.querySelectorAll('.slide[data-type="level"]').forEach(s => { const el = s.querySelector('[data-clock]'); if (el) el.textContent = Math.round(parseInt(s.dataset.timer || '1800', 10) / 60) + ':00'; });
   document.querySelectorAll('.slide[data-type="transition"] [data-clock]').forEach(el => el.textContent = '5');
   slides.forEach(s => { delete s._clockStarted; delete s._clockMs; delete s._clockPaused; });  /* saved copy starts with fresh timers */
   const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
@@ -1452,6 +1466,50 @@ document.getElementById('nextBtn').addEventListener('click', () => presentation.
 buildMoneyPile();
 hydrateBankFromDOM();                      /* pull a saved copy's baked-in roster into the bank... */
 syncBankUI();                              /* ...then paint pot + avatars from it */
+
+/* ============================================================
+   EDITABLE LEVEL LENGTH — global (cover) sets all 12 at once;
+   each level also carries a small "Level length · NN min" chip you
+   can tap to override just that one. data-timer (seconds) stays the
+   source of truth, so a ⌘S copy reopens with your custom lengths.
+   ============================================================ */
+const levelSlides = Array.from(document.querySelectorAll('.slide[data-type="level"]'));
+function clampMins(v){ const n = parseInt(String(v).replace(/[^\d]/g, ''), 10); return (isNaN(n) || n < 1) ? 1 : Math.min(n, 180); }
+function buildLevelMinChips(){
+  levelSlides.forEach(slide => {
+    if (slide.querySelector('[data-levelmins]')) return;                 /* a baked copy already has it */
+    const mins = Math.round(parseInt(slide.dataset.timer || '1800', 10) / 60);
+    const chip = document.createElement('div');
+    chip.className = 'level-mins reveal d4';
+    chip.innerHTML = 'Level length · <span class="lm-val edit-dashed" data-levelmins contenteditable="true">' + mins + '</span> min';
+    const inner = slide.querySelector('.slide-inner.level'); if (inner) inner.appendChild(chip);
+  });
+}
+function setLevelMinutes(i, mins){
+  const slide = levelSlides[i]; if (!slide) return;
+  mins = clampMins(mins);                                                          /* never 0 (would disable the timer) */
+  slide.dataset.timer = mins * 60;
+  delete slide._clockStarted; delete slide._clockMs; delete slide._clockPaused;        /* reset this level to the new length */
+  const chip = slide.querySelector('[data-levelmins]'); if (chip && chip !== document.activeElement) chip.textContent = String(mins);
+  const disp = slide.querySelector('[data-clock]'); if (disp) disp.textContent = mins + ':00';
+  if (typeof clock !== 'undefined' && clock.activeSlide === slide){ clock.activeSlide = null; clock.handleSlideChange(); }  /* re-arm if it's on screen */
+}
+function setAllLevelMinutes(mins){ for (let i = 0; i < levelSlides.length; i++) setLevelMinutes(i, mins); }
+buildLevelMinChips();
+const allLevelMinsEl = document.getElementById('allLevelMins');
+if (allLevelMinsEl){
+  allLevelMinsEl.addEventListener('input', () => setAllLevelMinutes(clampMins(allLevelMinsEl.textContent)));
+  allLevelMinsEl.addEventListener('blur',  () => { const m = clampMins(allLevelMinsEl.textContent); allLevelMinsEl.textContent = String(m); setAllLevelMinutes(m); });
+}
+/* per-level chips are generated, so listen by delegation */
+document.addEventListener('input', (e) => {
+  const lm = e.target.closest && e.target.closest('[data-levelmins]');
+  if (lm){ const i = levelSlides.indexOf(lm.closest('.slide')); if (i >= 0) setLevelMinutes(i, clampMins(lm.textContent)); }
+});
+document.addEventListener('focusout', (e) => {
+  const lm = e.target.closest && e.target.closest('[data-levelmins]');
+  if (lm){ lm.textContent = String(clampMins(lm.textContent)); }
+});
 
 /* rebuy overlay: R toggles, Esc closes (timer keeps running underneath) */
 document.addEventListener('keydown', (e) => {

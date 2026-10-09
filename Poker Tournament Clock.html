@@ -31,7 +31,7 @@
   /* type scale (clamp + live font-scale multiplier). min() guards cap by BOTH
      width and height so nothing overflows 100vh on any projector/TV. */
   --font-scale:1;
-  --timer-size:  calc(clamp(4rem,  min(22vw, 30vh), 26rem) * var(--font-scale));
+  --timer-size:  calc(clamp(4rem,  min(18.5vw, 25vh), 22rem) * var(--font-scale));
   --blind-size:  calc(clamp(2.2rem,min(9vw, 13vh),  7rem)  * var(--font-scale));
   --hero-size:   calc(clamp(3rem,  min(13vw,20vh), 12rem)  * var(--font-scale));
   --title-size:  calc(clamp(1.8rem,min(5.6vw,8.5vh),4.4rem)* var(--font-scale));
@@ -196,7 +196,7 @@ body{
 /* ============================================================
    LEVEL SLIDES — level no. / huge timer / blinds
    ============================================================ */
-.slide-inner.level{ justify-content:center; gap:clamp(1rem,5vh,3.5rem); }
+.slide-inner.level{ justify-content:center; gap:clamp(.6rem,3vh,2rem); padding-bottom:clamp(5.5rem,12vh,8rem); }
 .level-head{ display:flex; align-items:baseline; gap:.5em; }
 .level-head .lv{
   font-weight:700; font-size:clamp(1.6rem, min(6vw,8vh), 4rem); letter-spacing:.06em;
@@ -219,11 +219,26 @@ body{
 .bl-label{ font-size:var(--label-size); letter-spacing:.22em; text-transform:uppercase; color:var(--gold-light); }
 .bl-val{ font-weight:700; font-size:var(--blind-size); line-height:1; color:var(--cream); font-variant-numeric:tabular-nums; }
 .blind-sep{ align-self:center; font-weight:300; font-size:var(--blind-size); color:rgba(232,184,75,.7); }
-/* per-level length override chip — absolute so it never shifts the clock or clips */
-.level-mins{ position:absolute; left:50%; bottom:calc(clamp(2.2rem,7vh,4.2rem) + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); z-index:3;
-  font-size:clamp(.72rem,1.1vw,.95rem); letter-spacing:.04em; color:rgba(246,239,217,.78); white-space:nowrap;
-  background:rgba(8,8,10,.5); border:1px solid rgba(232,184,75,.4); border-radius:999px; padding:.4em .95em; }
-.level-mins .lm-val{ font-weight:700; color:var(--gold-light); min-width:1.5ch; display:inline-block; text-align:center; }
+/* CHIP COUNT STRIP — every level shows each player's photo, name and stack,
+   biggest stack first; the leader's pill is gold, busted players (0 chips) fade to OUT.
+   Tap a number to type a new count. */
+.chip-strip{ display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:clamp(.35rem,.8vw,.8rem); max-width:100%;
+  background:rgba(8,8,10,.5); border:1px solid rgba(232,184,75,.5); border-radius:999px; padding:.4em .5em .4em 1.2em; margin-top:clamp(.5rem,2vh,1.4rem); }
+.chip-strip:empty{ display:none; }
+.cs-hd{ font-size:var(--label-size); letter-spacing:.22em; text-transform:uppercase; color:var(--gold-light); line-height:1.25; text-align:left; margin-right:.4em; }
+.cs-hd b{ display:block; color:var(--cream); font-weight:600; letter-spacing:.08em; }
+.cs-pl{ display:flex; align-items:center; gap:.5em; padding:.3em .9em .3em .3em; border-radius:999px; background:rgba(0,0,0,.28); border:1px solid rgba(232,184,75,.35); }
+.cs-ava{ width:clamp(44px,4vw,64px); aspect-ratio:1; border-radius:50%; border:3px solid var(--gold-deep); background:#cdbf9a center/cover no-repeat;
+  box-shadow:var(--bevel), 0 6px 14px rgba(0,0,0,.4); flex-shrink:0; }
+.cs-tx{ display:flex; flex-direction:column; align-items:flex-start; line-height:1.05; }
+.cs-nm{ font-size:clamp(.8rem,1.15vw,1.05rem); letter-spacing:.1em; text-transform:uppercase; color:rgba(246,239,217,.85); white-space:nowrap; }
+.cs-ct{ font-weight:700; font-size:clamp(1.15rem,2vw,1.8rem); color:var(--cream); font-variant-numeric:tabular-nums; min-width:2ch; text-align:left; }
+.cs-pl.lead{ background:var(--gold); border-color:var(--gold-deep); box-shadow:var(--bevel); }
+.cs-pl.lead .cs-nm{ color:var(--ink-soft); } .cs-pl.lead .cs-ct{ color:var(--ink); }
+.cs-pl.lead .cs-ava{ border-color:var(--ink-soft); }
+.cs-pl.out{ opacity:.4; } .cs-pl.out .cs-ava{ filter:grayscale(1) brightness(.75); }
+.cs-pl.out .cs-ct{ font-size:clamp(.8rem,1.1vw,1rem); letter-spacing:.18em; }
+@media (max-width:900px){ .chip-strip{ border-radius:22px; padding:.5em; } .cs-hd{ width:100%; text-align:center; margin:0 0 .2em; } }
 
 /* ============================================================
    TRANSITION SLIDES — 5s red/amber/green flash, announces next
@@ -295,7 +310,7 @@ body{
    CONTROLS: progress / dots / counter / pause / hint
    ============================================================ */
 .progress-bar-wrap{ position:fixed; top:0; left:0; right:0; height:18px; background:rgba(0,0,0,.34); z-index:1000; box-shadow:inset 0 -2px 0 rgba(0,0,0,.22); }
-/* the top bar doubles as the LEVEL COUNTDOWN — it drains full -> empty over the level */
+/* the top bar doubles as the LEVEL TIMER — it fills left -> right as the level runs */
 .progress-bar-fill{ height:100%; width:100%; background:var(--gold); box-shadow:inset 0 -4px 0 rgba(0,0,0,.18); transition:width .25s linear, background-color .5s ease; }
 .progress-bar-fill.warn{ background:var(--amber); }
 .progress-bar-fill.danger{ background:var(--red); }
@@ -384,6 +399,36 @@ body.is-paused #keyHint{ display:none; }
 .rebuy-foot{ margin-top:.9em; padding-top:.7em; border-top:2px solid rgba(232,184,75,.4); text-align:right; font-size:clamp(1.1rem,2vw,1.5rem); color:var(--cream); }
 .rebuy-foot strong{ color:var(--gold-light); font-weight:700; }
 .rebuy-hint{ margin-top:.5em; font-size:var(--label-size); color:rgba(246,239,217,.6); text-align:center; letter-spacing:.03em; }
+/* SETTINGS (⚙️) — Blinds tab + Players tab, opens over any level; the clock keeps running */
+.rebuy-card.settings-card{ width:min(760px,94vw); }
+.set-tabs{ display:flex; gap:.5em; margin-bottom:.9em; }
+.set-tab{ flex:1; min-height:46px; font-family:var(--font-display); font-weight:600; font-size:clamp(.95rem,1.6vw,1.15rem); letter-spacing:.14em; text-transform:uppercase;
+  color:var(--cream); background:rgba(0,0,0,.28); border:2px solid rgba(232,184,75,.4); border-radius:10px; cursor:pointer; padding:.45em; }
+.set-tab.on{ background:var(--gold); color:var(--ink); border-color:var(--gold-deep); box-shadow:var(--bevel); }
+.set-pane{ display:none; } .set-pane.on{ display:block; }
+.set-row{ display:flex; align-items:center; gap:.6em; flex-wrap:wrap; color:var(--cream); font-size:clamp(.95rem,1.5vw,1.15rem); margin-bottom:.8em; }
+.set-in{ font-family:var(--font-display); font-weight:700; font-size:clamp(1rem,1.6vw,1.2rem); color:#fff; background:rgba(0,0,0,.35);
+  border:1px solid rgba(232,184,75,.45); border-radius:8px; padding:.3em .4em; width:5.2em; min-height:44px; text-align:center; -moz-appearance:textfield; appearance:textfield; }
+.set-in::-webkit-inner-spin-button, .set-in::-webkit-outer-spin-button{ -webkit-appearance:none; margin:0; }
+.set-in:focus{ outline:none; border-color:var(--gold); box-shadow:0 0 0 2px var(--gold); }
+.set-btn{ font-family:var(--font-display); font-weight:600; font-size:clamp(.85rem,1.4vw,1.05rem); color:var(--cream); background:rgba(0,0,0,.25);
+  border:2px solid var(--gold-deep); border-radius:8px; cursor:pointer; padding:.4em .8em; min-height:44px; }
+.set-btn:hover{ background:rgba(232,184,75,.2); }
+.set-btn.danger{ border-color:rgba(209,47,42,.7); color:#f4b4b1; } .set-btn.danger:hover{ background:rgba(209,47,42,.2); }
+.blind-table{ width:100%; border-collapse:separate; border-spacing:0 .35em; }
+.blind-table th{ font-size:var(--label-size); letter-spacing:.2em; text-transform:uppercase; color:var(--gold-light); font-weight:500; padding:0 .3em; }
+.blind-table td{ text-align:center; padding:.2em .3em; background:rgba(255,255,255,.05); border-top:1px solid rgba(232,184,75,.25); border-bottom:1px solid rgba(232,184,75,.25); }
+.blind-table td:first-child{ border-left:1px solid rgba(232,184,75,.25); border-radius:10px 0 0 10px; font-weight:700; color:var(--gold-light); font-size:clamp(1rem,1.6vw,1.25rem); white-space:nowrap; }
+.blind-table td:last-child{ border-right:1px solid rgba(232,184,75,.25); border-radius:0 10px 10px 0; }
+.blind-table tr.now td{ background:rgba(232,184,75,.18); }
+.now-tag{ font-size:.55em; letter-spacing:.15em; background:var(--gold); color:var(--ink); border-radius:4px; padding:.15em .4em; margin-left:.4em; vertical-align:middle; }
+.lv-del{ background:none; border:none; color:rgba(246,239,217,.6); font-size:1.15rem; cursor:pointer; min-width:44px; min-height:44px; border-radius:8px; }
+.lv-del:hover{ color:#fff; background:rgba(209,47,42,.35); }
+.set-actions{ display:flex; justify-content:space-between; gap:.6em; flex-wrap:wrap; margin-top:.6em; }
+button.rebuy-ava{ cursor:pointer; padding:0; }
+.chips-in{ display:flex; align-items:center; gap:.35em; font-size:var(--label-size); letter-spacing:.15em; text-transform:uppercase; color:var(--gold-light); }
+.rebuy-row{ flex-wrap:wrap; }
+.rebuy-row.out{ opacity:.55; }
 
 /* ============================================================
    HEADS-UP TABLE — 2 seats, central money pile, live pot
@@ -441,7 +486,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
 
 <!-- pause indicator + keyboard hint -->
 <div id="pauseBadge">⏸ Paused</div>
-<div id="keyHint"><b>Space</b> pause · <b>←&nbsp;→</b> slides · <b>R</b> rebuys · <b>F</b> fullscreen · <b>M</b> mute</div>
+<div id="keyHint"><b>Space</b> pause · <b>←&nbsp;→</b> slides · <b>R</b> settings · <b>F</b> fullscreen · <b>M</b> mute</div>
 
 <!-- cursor fx -->
 <canvas id="cursorFx" aria-hidden="true"></canvas>
@@ -456,7 +501,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   <button id="fontScaleUp" aria-label="Increase font size" title="Larger (⌘ .)">A+</button>
   <span class="ctrl-divider" aria-hidden="true"></span>
   <button id="pauseBtn" class="fs-btn" aria-label="Pause or resume the timer" title="Pause / resume (Space)">⏸</button>
-  <button id="rebuyBtn" class="fs-btn" aria-label="Pot and rebuys" title="Pot / rebuys (R)">💰</button>
+  <button id="settingsBtn" class="fs-btn" aria-label="Settings" title="Settings: blinds, players, chips (R)">⚙️</button>
   <button id="muteBtn" class="fs-btn" aria-label="Toggle sound" title="Sound on/off (M)">🔊</button>
   <button id="fullscreenBtn" class="fs-btn" aria-label="Enter fullscreen" title="Fullscreen (⌘ F / F)">⛶</button>
 </div>
@@ -464,16 +509,32 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
 <!-- hidden file picker for avatar uploads (one, reused) -->
 <input type="file" id="avatarFile" accept="image/*" style="display:none">
 
-<!-- pot / rebuy overlay (opens over any slide; timer keeps running) -->
-<div class="rebuy-overlay" id="rebuyOverlay" aria-hidden="true">
-  <div class="rebuy-card" role="dialog" aria-label="Pot and rebuys">
+<!-- SETTINGS overlay (opens over any slide; timer keeps running) -->
+<div class="rebuy-overlay" id="settingsOverlay" aria-hidden="true">
+  <div class="rebuy-card settings-card" role="dialog" aria-label="Settings">
     <div class="rebuy-head">
-      <span class="rebuy-title">💰 Pot &amp; Rebuys</span>
-      <button class="rebuy-close" id="rebuyClose" aria-label="Close">✕</button>
+      <span class="rebuy-title">⚙️ Settings</span>
+      <button class="rebuy-close" id="settingsClose" aria-label="Close">✕</button>
     </div>
-    <div class="rebuy-list" id="rebuyList"></div>
-    <div class="rebuy-foot">Total Pot &nbsp;<strong>AED <span data-pot-amount>3,000</span></strong></div>
-    <div class="rebuy-hint">Tap ＋ to add a AED 500 rebuy, or edit an amount directly · the level timer keeps running · <b>Esc</b> to close</div>
+    <div class="set-tabs" role="tablist">
+      <button class="set-tab on" data-tab="blinds" role="tab">Blinds</button>
+      <button class="set-tab" data-tab="players" role="tab">Players &amp; Chips</button>
+    </div>
+    <div class="set-pane on" data-pane="blinds">
+      <div class="set-row">Minutes for every level <input class="set-in" type="number" inputmode="numeric" min="1" max="180" id="setAllMins"> <button class="set-btn" id="applyAllMins">Apply to all</button></div>
+      <table class="blind-table">
+        <thead><tr><th>Level</th><th>Small blind</th><th>Big blind</th><th>Minutes</th><th></th></tr></thead>
+        <tbody id="blindRows"></tbody>
+      </table>
+      <div class="set-actions"><button class="rebuy-add" id="addLevel">＋ Add level</button></div>
+    </div>
+    <div class="set-pane" data-pane="players">
+      <div class="set-row">Starting stack <input class="set-in" type="number" inputmode="numeric" min="0" id="setStartStack"> <button class="set-btn" id="applyStartStack">Give everyone this</button></div>
+      <div class="rebuy-list" id="playerRows"></div>
+      <div class="rebuy-foot">Total Pot &nbsp;<strong>AED <span data-pot-amount>3,000</span></strong></div>
+      <div class="rebuy-hint">Tap a photo to change it · 0 chips = OUT · ＋ Rebuy adds AED 500 and a fresh starting stack</div>
+    </div>
+    <div class="set-actions"><span class="rebuy-hint" style="margin:0">Saved automatically on this device · <b>Esc</b> to close</span><button class="set-btn danger" id="resetAll">Reset everything</button></div>
   </div>
 </div>
 
@@ -511,318 +572,10 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
     </div>
   </section>
 
-  <!-- ===== SLIDE 2 — LEVEL 1 (1/2) ===== -->
-  <section class="slide" data-slide="2" data-type="level" data-timer="1800" aria-label="Level 1, blinds 1 / 2">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 1</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">1</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">2</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 3 — TRANSITION → LEVEL 2 ===== -->
-  <section class="slide" data-slide="3" data-type="transition" data-timer="5" aria-label="Next up Level 2, blinds 2 / 4">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 2</div>
-        <div class="trans-blinds">Blinds <b>2 / 4</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 4 — LEVEL 2 (2/4) ===== -->
-  <section class="slide" data-slide="4" data-type="level" data-timer="1800" aria-label="Level 2, blinds 2 / 4">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 2</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">2</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">4</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 5 — TRANSITION → LEVEL 3 ===== -->
-  <section class="slide" data-slide="5" data-type="transition" data-timer="5" aria-label="Next up Level 3, blinds 5 / 5">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 3</div>
-        <div class="trans-blinds">Blinds <b>5 / 5</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 6 — LEVEL 3 (5/5) ===== -->
-  <section class="slide" data-slide="6" data-type="level" data-timer="1800" aria-label="Level 3, blinds 5 / 5">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 3</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">5</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">5</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 7 — TRANSITION → LEVEL 4 ===== -->
-  <section class="slide" data-slide="7" data-type="transition" data-timer="5" aria-label="Next up Level 4, blinds 5 / 10">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 4</div>
-        <div class="trans-blinds">Blinds <b>5 / 10</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 8 — LEVEL 4 (5/10) ===== -->
-  <section class="slide" data-slide="8" data-type="level" data-timer="1800" aria-label="Level 4, blinds 5 / 10">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 4</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">5</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">10</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 9 — TRANSITION → LEVEL 5 ===== -->
-  <section class="slide" data-slide="9" data-type="transition" data-timer="5" aria-label="Next up Level 5, blinds 10 / 15">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 5</div>
-        <div class="trans-blinds">Blinds <b>10 / 15</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 10 — LEVEL 5 (10/15) ===== -->
-  <section class="slide" data-slide="10" data-type="level" data-timer="1800" aria-label="Level 5, blinds 10 / 15">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 5</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">10</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">15</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 11 — TRANSITION → LEVEL 6 ===== -->
-  <section class="slide" data-slide="11" data-type="transition" data-timer="5" aria-label="Next up Level 6, blinds 10 / 20">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 6</div>
-        <div class="trans-blinds">Blinds <b>10 / 20</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 12 — LEVEL 6 (10/20) ===== -->
-  <section class="slide" data-slide="12" data-type="level" data-timer="1800" aria-label="Level 6, blinds 10 / 20">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 6</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">10</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">20</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 13 — TRANSITION → LEVEL 7 ===== -->
-  <section class="slide" data-slide="13" data-type="transition" data-timer="5" aria-label="Next up Level 7, blinds 15 / 30">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 7</div>
-        <div class="trans-blinds">Blinds <b>15 / 30</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 14 — LEVEL 7 (15/30) ===== -->
-  <section class="slide" data-slide="14" data-type="level" data-timer="1800" aria-label="Level 7, blinds 15 / 30">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 7</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">15</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">30</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 15 — TRANSITION → LEVEL 8 ===== -->
-  <section class="slide" data-slide="15" data-type="transition" data-timer="5" aria-label="Next up Level 8, blinds 20 / 40">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 8</div>
-        <div class="trans-blinds">Blinds <b>20 / 40</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 16 — LEVEL 8 (20/40) ===== -->
-  <section class="slide" data-slide="16" data-type="level" data-timer="1800" aria-label="Level 8, blinds 20 / 40">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 8</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">20</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">40</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 17 — TRANSITION → LEVEL 9 ===== -->
-  <section class="slide" data-slide="17" data-type="transition" data-timer="5" aria-label="Next up Level 9, blinds 25 / 50">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 9</div>
-        <div class="trans-blinds">Blinds <b>25 / 50</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 18 — LEVEL 9 (25/50) ===== -->
-  <section class="slide" data-slide="18" data-type="level" data-timer="1800" aria-label="Level 9, blinds 25 / 50">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 9</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">25</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">50</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 19 — TRANSITION → LEVEL 10 ===== -->
-  <section class="slide" data-slide="19" data-type="transition" data-timer="5" aria-label="Next up Level 10, blinds 50 / 100">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 10</div>
-        <div class="trans-blinds">Blinds <b>50 / 100</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 20 — LEVEL 10 (50/100) ===== -->
-  <section class="slide" data-slide="20" data-type="level" data-timer="1800" aria-label="Level 10, blinds 50 / 100">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 10</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">50</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">100</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 21 — TRANSITION → LEVEL 11 ===== -->
-  <section class="slide" data-slide="21" data-type="transition" data-timer="5" aria-label="Next up Level 11, blinds 75 / 150">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 11</div>
-        <div class="trans-blinds">Blinds <b>75 / 150</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Starting…</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 22 — LEVEL 11 (75/150) ===== -->
-  <section class="slide" data-slide="22" data-type="level" data-timer="1800" aria-label="Level 11, blinds 75 / 150">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 11</span><span class="lv-of">of 12</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">75</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">150</span></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 23 — TRANSITION → LEVEL 12 ===== -->
-  <section class="slide" data-slide="23" data-type="transition" data-timer="5" aria-label="Next up Level 12, blinds 100 / 200">
-    <div class="flash-bg"></div>
-    <div class="slide-inner">
-      <div class="trans-panel reveal d1">
-        <span class="trans-eyebrow">Next Up</span>
-        <div class="trans-level">Level 12</div>
-        <div class="trans-blinds">Blinds <b>100 / 200</b></div>
-        <div class="trans-count" data-clock>5</div>
-        <span class="trans-sub">Final level</span>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== SLIDE 24 — LEVEL 12 (100/200) ===== -->
-  <section class="slide" data-slide="24" data-type="level" data-timer="1800" aria-label="Level 12, blinds 100 / 200">
-    <div class="slide-inner level">
-      <div class="level-head reveal d1"><span class="lv">Level 12</span><span class="lv-of">final level</span></div>
-      <div class="timer reveal d2" data-clock>30:00</div>
-      <div class="blinds reveal d3">
-        <div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val">100</span></div>
-        <span class="blind-sep">/</span>
-        <div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val">200</span></div>
-      </div>
-    </div>
-  </section>
+  <!-- LEVEL + "NEXT UP" SLIDES are generated here by renderLevelSlides() from the levels list (edit them in ⚙️ Settings) -->
 
   <!-- ===== SLIDE 25 — HEADS UP ===== -->
-  <section class="slide" data-slide="25" aria-label="Heads up — final two players">
+  <section class="slide" id="huSlide" data-slide="25" aria-label="Heads up — final two players">
     <div class="slide-inner">
       <span class="eyebrow reveal d1">Down to the last two</span>
       <h2 class="hu-title reveal d2">Heads Up</h2>
@@ -927,6 +680,20 @@ class SlidePresentation {
     setTimeout(() => { this.isAnimating = false; }, this.ANIM_DURATION);
     this.updateUI();
     if (this.onChange) this.onChange();   /* (re)start the new slide's timer */
+  }
+  /* re-read the slide list after levels are added/removed; keep the slide on
+     screen if it still exists, otherwise land on the nearest one */
+  refresh() {
+    const cur = this.slides[this.current];
+    this.slides = Array.from(document.querySelectorAll('.slide'));
+    this.total = this.slides.length;
+    let idx = this.slides.indexOf(cur);
+    const lost = idx < 0;
+    if (lost) idx = Math.min(this.current, this.total - 1);
+    this.current = idx;
+    this.slides.forEach((s, i) => s.classList.toggle('active', i === idx));
+    this.buildNavDots(); this.updateUI();
+    if (lost && this.onChange) this.onChange();
   }
   next() { if (this.current < this.total - 1) this.goTo(this.current + 1); }
   prev() { if (this.current > 0) this.goTo(this.current - 1); }
@@ -1095,10 +862,10 @@ class TournamentClock {
         c === ':' ? '<span class="cell colon">:</span>'
                   : `<span class="cell">${c === ' ' ? '&nbsp;' : c}</span>`).join('');
     }
-    /* drive the draining top-bar countdown (full -> empty), with colour urgency */
+    /* drive the top-bar timer: fills left -> right as time is used, with colour urgency */
     if (this.bar) {
-      const frac = this.duration ? Math.max(0, Math.min(1, ms / this.duration)) : 1;
-      this.bar.style.width = (frac * 100) + '%';
+      const left = this.duration ? Math.max(0, Math.min(1, ms / this.duration)) : 1;
+      this.bar.style.width = ((1 - left) * 100) + '%';
       const remSec = ms / 1000;
       this.bar.classList.toggle('danger', this.type === 'level' && remSec <= 60);
       this.bar.classList.toggle('warn', this.type === 'level' && remSec > 60 && remSec <= 300);
@@ -1202,7 +969,9 @@ const REBUY_STEP = 500;
 const bank = {
   names:  ['Player 1','Player 2','Player 3','Player 4','Player 5','Player 6'],
   buyins: [500, 500, 500, 500, 500, 500],
-  photos: [null, null, null, null, null, null]
+  photos: [null, null, null, null, null, null],
+  chips:  [700, 700, 700, 700, 700, 700],   /* live chip counts; 0 = busted (OUT) */
+  startStack: 700
 };
 /* which players are shown at heads-up (top, bottom) and as the winner — chosen
    live with the ◀ ▶ pickers; their photo / name / investment link to the bank */
@@ -1220,9 +989,34 @@ function syncBankUI(except){
   const total = fmtMoney(potTotal());
   document.querySelectorAll('[data-pot-amount]').forEach(el => { if (el !== except && el !== document.activeElement) el.textContent = total; });
   document.querySelectorAll('[data-buyin]').forEach(el => { const i = +el.dataset.seat; if (el !== except && el !== document.activeElement) el.textContent = String(bank.buyins[i]); });
-  document.querySelectorAll('[data-name-mirror]').forEach(el => { const i = +el.dataset.seat; if (el !== document.activeElement) el.textContent = bank.names[i]; });
-  document.querySelectorAll('.seat-avatar[data-seat], .rebuy-ava[data-seat]').forEach(el => setAvatarEl(el, bank.photos[+el.dataset.seat]));
+  document.querySelectorAll('[data-name], [data-name-mirror]').forEach(el => { const i = +el.dataset.seat; if (el !== except && el !== document.activeElement) el.textContent = bank.names[i]; });
+  document.querySelectorAll('[data-chips-in]').forEach(el => { const i = +el.dataset.chipsIn; if (el !== except && el !== document.activeElement) el.value = bank.chips[i]; el.closest('.rebuy-row').classList.toggle('out', !(bank.chips[i] > 0)); });
+  document.querySelectorAll('.seat[data-seat]').forEach(el => { el.dataset.chips = bank.chips[+el.dataset.seat]; });   /* baked into a ⌘S copy */
+  document.getElementById('slidesContainer').dataset.startStack = bank.startStack;
+  renderStrips();
+  document.querySelectorAll('.seat-avatar[data-seat], .rebuy-ava[data-seat], .cs-ava[data-seat]').forEach(el => setAvatarEl(el, bank.photos[+el.dataset.seat]));
   renderHeadsUp(); renderWinner();
+  saveState();
+}
+/* CHIP COUNT STRIP on every level — biggest stack first, busted players last */
+function renderStrips(){
+  const order = bank.names.map((_, i) => i).sort((a, b) => (bank.chips[b] || 0) - (bank.chips[a] || 0));
+  const live = order.filter(i => bank.chips[i] > 0);
+  const avg = live.length ? Math.round(live.reduce((t, i) => t + bank.chips[i], 0) / live.length) : 0;
+  /* gold pill only for a clear leader (nobody highlighted while stacks are tied) */
+  const lead = live.length === 1 || (live.length > 1 && bank.chips[live[0]] > bank.chips[live[1]]) ? live[0] : -1;
+  const html = '<span class="cs-hd">Chip count<b>Avg ' + fmtMoney(avg) + ' · ' + live.length + ' left</b></span>' +
+    order.map(i => {
+      const out = !(bank.chips[i] > 0);
+      return '<div class="cs-pl' + (i === lead ? ' lead' : '') + (out ? ' out' : '') + '"><span class="cs-ava" data-seat="' + i + '"></span>' +
+        '<span class="cs-tx"><span class="cs-nm">' + escapeHtml(bank.names[i]) + '</span>' +
+        '<span class="cs-ct" data-chips="' + i + '" contenteditable="true" inputmode="numeric" title="Tap to change chips">' + (out ? 'OUT' : fmtMoney(bank.chips[i])) + '</span></span></div>';
+    }).join('');
+  document.querySelectorAll('[data-strip]').forEach(el => {
+    if (el.contains(document.activeElement)) return;          /* never re-sort under someone typing */
+    el.innerHTML = html;
+    el.querySelectorAll('.cs-ava[data-seat]').forEach(a => setAvatarEl(a, bank.photos[+a.dataset.seat]));
+  });
 }
 /* heads-up + winner LINK to the chosen players: photo, name, and amount invested
    (their buy-in incl. rebuys) all come straight from the bank */
@@ -1252,6 +1046,7 @@ function hydrateBankFromDOM(){
     const i = +seat.dataset.seat;
     const nm = seat.querySelector('[data-name]'); if (nm && nm.textContent.trim()) bank.names[i] = nm.textContent.trim();
     const by = seat.querySelector('[data-buyin]'); if (by){ const n = parseInt((by.textContent || '').replace(/[^\d]/g, ''), 10); if (!isNaN(n)) bank.buyins[i] = n; }
+    const ch = parseInt(seat.dataset.chips, 10); if (!isNaN(ch)) bank.chips[i] = ch;
     const av = seat.querySelector('.seat-avatar[data-seat]');
     if (av && av.style.backgroundImage){ const m = av.style.backgroundImage.match(/url\(["']?(.*?)["']?\)/); if (m) bank.photos[i] = m[1]; }
   });
@@ -1261,18 +1056,27 @@ document.addEventListener('input', (e) => {
   const b = e.target.closest && e.target.closest('[data-buyin]');
   if (b){ bank.buyins[+b.dataset.seat] = parseInt((b.textContent || '').replace(/[^\d]/g, ''), 10) || 0; syncBankUI(b); return; }
   const n = e.target.closest && e.target.closest('[data-name]');
-  if (n){ bank.names[+n.dataset.seat] = (n.textContent || '').trim(); syncBankUI(n); }
+  if (n){ bank.names[+n.dataset.seat] = (n.textContent || '').trim(); syncBankUI(n); return; }
+  const c = e.target.closest && e.target.closest('[data-chips]');          /* typing on the level strip */
+  if (c){ const d = (c.textContent || '').replace(/[^\d]/g, ''); if (d !== ''){ bank.chips[+c.dataset.chips] = parseInt(d, 10); syncBankUI(c); } }
 });
 document.addEventListener('focusout', (e) => {
   const b = e.target.closest && e.target.closest('[data-buyin]');
-  if (b){ b.textContent = String(bank.buyins[+b.dataset.seat] || 0); }
+  if (b){ b.textContent = String(bank.buyins[+b.dataset.seat] || 0); return; }
+  const c = e.target.closest && e.target.closest('[data-chips]');
+  if (c){ setTimeout(renderStrips, 0); }                                   /* re-sort once typing is done */
+});
+/* tapping a strip number selects it, so you can just type the new count */
+document.addEventListener('focusin', (e) => {
+  const c = e.target.closest && e.target.closest('[data-chips]'); if (!c) return;
+  const r = document.createRange(); r.selectNodeContents(c); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
 });
 
 /* ===== avatar upload — resized in-browser, baked into the file on ⌘S ===== */
 let avatarTarget = null;
 const avatarFile = document.getElementById('avatarFile');
 document.addEventListener('click', (e) => {
-  const seatAv = e.target.closest('.seat-avatar[data-seat]');
+  const seatAv = e.target.closest('.seat-avatar[data-seat], button.rebuy-ava[data-seat]');
   if (seatAv){ avatarTarget = { kind:'seat', i:+seatAv.dataset.seat }; avatarFile.click(); return; }
   const cyc = e.target.closest('[data-hu-cycle]');     /* heads-up: pick which player sits here */
   if (cyc){ cycleHu(+cyc.dataset.huCycle, +cyc.dataset.dir); return; }
@@ -1300,26 +1104,237 @@ function resizeSquare(file, size, cb){
   img.src = url;
 }
 
-/* ===== pot / rebuy overlay — opens over any slide; clock keeps running ===== */
-const rebuyOverlay = document.getElementById('rebuyOverlay');
-const rebuyList = document.getElementById('rebuyList');
-function renderRebuyList(){
-  rebuyList.innerHTML = bank.names.map((nm, i) =>
+/* ============================================================
+   LEVELS — one list drives every level slide and every "Next up"
+   slide. Edited in ⚙️ Settings; add/remove rebuilds the slides but
+   keeps each surviving level's clock exactly where it was.
+   ============================================================ */
+const DEFAULT_LEVELS = [[1,2],[2,4],[5,5],[5,10],[10,15],[10,20],[15,30],[20,40],[25,50],[50,100],[75,150],[100,200]];
+let levelSeq = 0;
+function newLevelId(){ return 'lv' + Date.now().toString(36) + (++levelSeq); }
+let levels = [];
+function clampInt(v, lo, hi, dflt){ const n = parseInt(String(v).replace(/[^\d]/g, ''), 10); return isNaN(n) ? dflt : Math.max(lo, Math.min(hi, n)); }
+function clampMins(v){ return clampInt(v, 1, 180, 1); }
+function fmtClock(secs){ return Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'); }
+/* a saved (⌘S) copy carries its levels as data-* on the generated slides */
+function hydrateLevelsFromDOM(){
+  const found = Array.from(document.querySelectorAll('.slide[data-type="level"][data-lid]'));
+  levels = found.length
+    ? found.map(sl => ({ id: sl.dataset.lid, sb: +sl.dataset.sb || 0, bb: +sl.dataset.bb || 0, mins: clampMins(Math.round((+sl.dataset.timer || 1800) / 60)) }))
+    : DEFAULT_LEVELS.map(([sb, bb]) => ({ id: newLevelId(), sb, bb, mins: 30 }));
+}
+function createLevelSlide(type, id){
+  const sl = document.createElement('section');
+  sl.className = 'slide'; sl.dataset.type = type; sl.dataset.lid = id;
+  if (type === 'level'){
+    sl.innerHTML = '<div class="slide-inner level">' +
+      '<div class="level-head reveal d1"><span class="lv"></span><span class="lv-of"></span></div>' +
+      '<div class="timer reveal d2" data-clock></div>' +
+      '<div class="blinds reveal d3"><div class="blind-tile"><span class="bl-label">Small Blind</span><span class="bl-val" data-sb></span></div>' +
+      '<span class="blind-sep">/</span><div class="blind-tile"><span class="bl-label">Big Blind</span><span class="bl-val" data-bb></span></div></div>' +
+      '<div class="chip-strip reveal d4" data-strip></div></div>';
+  } else {
+    sl.dataset.timer = 5;
+    sl.innerHTML = '<div class="flash-bg"></div><div class="slide-inner"><div class="trans-panel reveal d1">' +
+      '<span class="trans-eyebrow">Next Up</span><div class="trans-level"></div>' +
+      '<div class="trans-blinds">Blinds <b data-next-blinds></b></div><div class="trans-count" data-clock>5</div>' +
+      '<span class="trans-sub">Starting…</span></div></div>';
+  }
+  return sl;
+}
+/* change a level's length; a level already under way keeps the time it has used */
+function setSlideDuration(sl, secs){
+  const old = parseInt(sl.dataset.timer || '0', 10);
+  if (old === secs) return;
+  sl.dataset.timer = secs;
+  if (!sl._clockStarted){ const d = sl.querySelector('[data-clock]'); if (d) d.textContent = fmtClock(secs); return; }
+  const live = clock.activeSlide === sl;
+  const remOld = live ? (clock.paused ? clock.remaining : clock.deadline - performance.now()) : (sl._clockMs || 0);
+  const rem = Math.max(0, secs * 1000 - (old * 1000 - remOld));
+  if (live){
+    clock.duration = secs * 1000;
+    if (clock.paused) clock.remaining = rem; else clock.deadline = performance.now() + rem;
+    clock.render(rem);
+  } else sl._clockMs = rem;
+}
+function fillLevelSlide(sl, type, lv, i, n){
+  if (type === 'level'){
+    sl.dataset.sb = lv.sb; sl.dataset.bb = lv.bb;
+    sl.setAttribute('aria-label', 'Level ' + (i + 1) + ', blinds ' + lv.sb + ' / ' + lv.bb);
+    sl.querySelector('.lv').textContent = 'Level ' + (i + 1);
+    sl.querySelector('.lv-of').textContent = 'of ' + n;
+    sl.querySelector('[data-sb]').textContent = fmtMoney(lv.sb);
+    sl.querySelector('[data-bb]').textContent = fmtMoney(lv.bb);
+    if (!sl.dataset.timer){ sl.dataset.timer = lv.mins * 60; sl.querySelector('[data-clock]').textContent = fmtClock(lv.mins * 60); }
+    else setSlideDuration(sl, lv.mins * 60);
+  } else {
+    sl.setAttribute('aria-label', 'Next up Level ' + (i + 1) + ', blinds ' + lv.sb + ' / ' + lv.bb);
+    sl.querySelector('.trans-level').textContent = 'Level ' + (i + 1);
+    sl.querySelector('[data-next-blinds]').textContent = fmtMoney(lv.sb) + ' / ' + fmtMoney(lv.bb);
+  }
+}
+/* reconcile the slides with the list: reuse, create, reorder, remove.
+   Nodes already in place are never moved (moving would replay their animations). */
+function renderLevelSlides(){
+  const box = document.getElementById('slidesContainer');
+  const existing = new Map();
+  box.querySelectorAll('.slide[data-lid]').forEach(sl => existing.set(sl.dataset.type + ':' + sl.dataset.lid, sl));
+  const keep = new Set();
+  let prev = box.querySelector('.slide');                       /* the cover */
+  const place = (type, lv, i) => {
+    let sl = existing.get(type + ':' + lv.id) || createLevelSlide(type, lv.id);
+    if (prev.nextElementSibling !== sl) prev.after(sl);
+    fillLevelSlide(sl, type, lv, i, levels.length);
+    keep.add(sl); prev = sl;
+  };
+  levels.forEach((lv, i) => { if (i > 0) place('transition', lv, i); place('level', lv, i); });
+  existing.forEach(sl => { if (!keep.has(sl)) sl.remove(); });
+}
+function levelsChanged(structural){
+  renderLevelSlides();
+  if (structural){ presentation.refresh(); renderStrips(); renderBlindRows(); }
+  syncCoverMins();
+  saveState();
+}
+function syncCoverMins(){
+  const el = document.getElementById('allLevelMins');
+  const same = levels.every(l => l.mins === levels[0].mins);
+  if (el && el !== document.activeElement) el.textContent = same ? String(levels[0].mins) : 'mixed';
+  const all = document.getElementById('setAllMins');
+  if (all && all !== document.activeElement) all.value = same ? levels[0].mins : '';
+}
+function setAllLevelMinutes(mins){ levels.forEach(l => l.mins = mins); levelsChanged(false); renderBlindRows(); }
+
+/* ============================================================
+   AUTO-SAVE — blinds, players, photos and chips survive a refresh
+   on this device. One key, written a moment after each change.
+   ============================================================ */
+const STORE_KEY = 'poker_clock_state_v1';
+let storeReady = false;                       /* don't write until the saved state has been read */
+function saveState(){
+  if (!storeReady) return;
+  clearTimeout(saveState.t);
+  saveState.t = setTimeout(() => {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1,
+        levels: levels.map(l => ({ id: l.id, sb: l.sb, bb: l.bb, mins: l.mins })),
+        names: bank.names, buyins: bank.buyins, photos: bank.photos, chips: bank.chips, startStack: bank.startStack }));
+    } catch (e) {}
+  }, 250);
+}
+function loadState(){
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem(STORE_KEY) || 'null'); } catch (e) { return; }
+  if (!st || st.v !== 1) return;
+  const six = (a) => Array.isArray(a) && a.length === 6;
+  if (Array.isArray(st.levels) && st.levels.length)
+    levels = st.levels.map(l => ({ id: String(l.id || newLevelId()), sb: clampInt(l.sb, 0, 1e7, 0), bb: clampInt(l.bb, 0, 1e7, 0), mins: clampMins(l.mins) }));
+  if (six(st.names)) bank.names = st.names.map(String);
+  if (six(st.buyins)) bank.buyins = st.buyins.map(n => clampInt(n, 0, 1e9, 0));
+  if (six(st.photos)) bank.photos = st.photos.map(p => (typeof p === 'string' && p.startsWith('data:image/')) ? p : null);
+  if (six(st.chips)) bank.chips = st.chips.map(n => clampInt(n, 0, 1e9, 0));
+  if (st.startStack != null) bank.startStack = clampInt(st.startStack, 0, 1e9, 700);
+}
+
+/* ============================================================
+   SETTINGS overlay (⚙️ / R) — opens over any slide; clock keeps running
+   ============================================================ */
+const settingsOverlay = document.getElementById('settingsOverlay');
+const blindRows = document.getElementById('blindRows');
+const playerRows = document.getElementById('playerRows');
+function currentLevelId(){
+  const sl = presentation.slides[presentation.current];
+  return sl && sl.dataset.lid ? sl.dataset.lid : null;
+}
+function renderBlindRows(){
+  if (!settingsOverlay.classList.contains('open')) return;
+  const now = currentLevelId();
+  blindRows.innerHTML = levels.map((l, i) =>
+    '<tr' + (l.id === now ? ' class="now"' : '') + '><td>' + (i + 1) + (l.id === now ? '<span class="now-tag">NOW</span>' : '') + '</td>' +
+    '<td><input class="set-in" type="number" inputmode="numeric" min="0" data-lv="' + i + '" data-k="sb" value="' + l.sb + '" aria-label="Level ' + (i + 1) + ' small blind"></td>' +
+    '<td><input class="set-in" type="number" inputmode="numeric" min="0" data-lv="' + i + '" data-k="bb" value="' + l.bb + '" aria-label="Level ' + (i + 1) + ' big blind"></td>' +
+    '<td><input class="set-in" type="number" inputmode="numeric" min="1" max="180" data-lv="' + i + '" data-k="mins" value="' + l.mins + '" aria-label="Level ' + (i + 1) + ' minutes"></td>' +
+    '<td><button class="lv-del" data-del="' + i + '" aria-label="Remove level ' + (i + 1) + '" title="Remove level">✕</button></td></tr>').join('');
+  const same = levels.every(l => l.mins === levels[0].mins);
+  document.getElementById('setAllMins').value = same ? levels[0].mins : '';
+}
+function renderPlayerRows(){
+  playerRows.innerHTML = bank.names.map((nm, i) =>
     '<div class="rebuy-row">' +
-      '<span class="rebuy-ava" data-seat="' + i + '"></span>' +
-      '<span class="rebuy-name" data-name-mirror data-seat="' + i + '">' + escapeHtml(nm) + '</span>' +
+      '<button class="rebuy-ava" data-seat="' + i + '" aria-label="Change photo for ' + escapeHtml(nm) + '" title="Change photo"></button>' +
+      '<span class="rebuy-name edit-dashed" data-name data-seat="' + i + '" contenteditable="true">' + escapeHtml(nm) + '</span>' +
+      '<label class="chips-in">Chips <input class="set-in" type="number" inputmode="numeric" min="0" data-chips-in="' + i + '" value="' + bank.chips[i] + '"></label>' +
       '<span class="rebuy-amt"><span class="cur">AED</span><span class="rebuy-buyin" data-buyin data-seat="' + i + '" contenteditable="true">' + bank.buyins[i] + '</span></span>' +
-      '<button class="rebuy-add" data-add="' + i + '">＋ ' + REBUY_STEP + '</button>' +
+      '<button class="rebuy-add" data-add="' + i + '">＋ Rebuy</button>' +
     '</div>').join('');
+  document.getElementById('setStartStack').value = bank.startStack;
   syncBankUI();
 }
-function openRebuy(){ renderRebuyList(); rebuyOverlay.classList.add('open'); }
-function closeRebuy(){ rebuyOverlay.classList.remove('open'); }
-function toggleRebuy(){ rebuyOverlay.classList.contains('open') ? closeRebuy() : openRebuy(); }
-document.getElementById('rebuyBtn').addEventListener('click', toggleRebuy);
-document.getElementById('rebuyClose').addEventListener('click', closeRebuy);
-rebuyOverlay.addEventListener('click', (e) => { if (e.target === rebuyOverlay) closeRebuy(); });
-rebuyList.addEventListener('click', (e) => { const a = e.target.closest('[data-add]'); if (a){ bank.buyins[+a.dataset.add] += REBUY_STEP; syncBankUI(); } });
+function openSettings(){ settingsOverlay.classList.add('open'); renderBlindRows(); renderPlayerRows(); settingsOverlay.setAttribute('aria-hidden', 'false'); }
+function closeSettings(){ settingsOverlay.classList.remove('open'); settingsOverlay.setAttribute('aria-hidden', 'true'); if (document.activeElement) document.activeElement.blur(); }
+function toggleSettings(){ settingsOverlay.classList.contains('open') ? closeSettings() : openSettings(); }
+document.getElementById('settingsBtn').addEventListener('click', toggleSettings);
+document.getElementById('settingsClose').addEventListener('click', closeSettings);
+settingsOverlay.addEventListener('click', (e) => {
+  if (e.target === settingsOverlay){ closeSettings(); return; }
+  const tab = e.target.closest('[data-tab]');
+  if (tab){
+    settingsOverlay.querySelectorAll('[data-tab]').forEach(t => t.classList.toggle('on', t === tab));
+    settingsOverlay.querySelectorAll('[data-pane]').forEach(p => p.classList.toggle('on', p.dataset.pane === tab.dataset.tab));
+    return;
+  }
+  const del = e.target.closest('[data-del]');
+  if (del){
+    if (levels.length <= 1) return;                              /* always keep at least one level */
+    levels.splice(+del.dataset.del, 1); levelsChanged(true); return;
+  }
+  const add = e.target.closest('[data-add]');
+  if (add){ const i = +add.dataset.add; bank.buyins[i] += REBUY_STEP; bank.chips[i] += bank.startStack; syncBankUI(); return; }
+});
+/* live edits inside Settings */
+settingsOverlay.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.dataset.lv != null){
+    if (t.value === '') return;                                  /* mid-typing: wait for a number */
+    const lv = levels[+t.dataset.lv]; if (!lv) return;
+    lv[t.dataset.k] = t.dataset.k === 'mins' ? clampMins(t.value) : clampInt(t.value, 0, 1e7, 0);
+    levelsChanged(false); return;
+  }
+  if (t.dataset.chipsIn != null){
+    if (t.value === '') return;
+    bank.chips[+t.dataset.chipsIn] = clampInt(t.value, 0, 1e9, 0); syncBankUI(t); return;
+  }
+});
+settingsOverlay.addEventListener('change', (e) => {          /* tidy a field once you leave it */
+  const t = e.target;
+  if (t.dataset.lv != null){ const lv = levels[+t.dataset.lv]; if (lv) t.value = lv[t.dataset.k]; }
+  if (t.dataset.chipsIn != null) t.value = bank.chips[+t.dataset.chipsIn];
+});
+settingsOverlay.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT'){ e.preventDefault(); e.target.blur(); } });
+document.getElementById('addLevel').addEventListener('click', () => {
+  const last = levels[levels.length - 1] || { bb: 1, mins: 30 };
+  levels.push({ id: newLevelId(), sb: last.bb, bb: last.bb * 2, mins: last.mins });
+  levelsChanged(true);
+  const rows = blindRows.querySelectorAll('tr'); if (rows.length) rows[rows.length - 1].scrollIntoView({ block: 'nearest' });
+});
+document.getElementById('applyAllMins').addEventListener('click', () => {
+  const v = document.getElementById('setAllMins').value; if (v === '') return;
+  setAllLevelMinutes(clampMins(v));
+});
+document.getElementById('applyStartStack').addEventListener('click', () => {
+  const v = document.getElementById('setStartStack').value; if (v === '') return;
+  const n = clampInt(v, 0, 1e9, 700);
+  if (!confirm('Set every player to ' + fmtMoney(n) + ' chips?')) return;
+  bank.startStack = n; bank.chips = bank.chips.map(() => n); syncBankUI();
+});
+document.getElementById('setStartStack').addEventListener('change', (e) => {
+  if (e.target.value !== ''){ bank.startStack = clampInt(e.target.value, 0, 1e9, 700); saveState(); }
+});
+document.getElementById('resetAll').addEventListener('click', () => {
+  if (!confirm('Reset blinds, players, photos and chips back to the defaults?')) return;
+  try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  storeReady = false; location.reload();
+});
 
 /* ===== money pile on the heads-up table — crisp inline SVG poker chips ===== */
 function buildMoneyPile(){
@@ -1424,17 +1439,17 @@ class SoundFx {
 }
 
 /* ============================================================
-   SAVE A CONFIGURED COPY (⌘S) — bakes typed names/buy-ins into a
-   downloadable file. No localStorage; ⌘S is the only persistence.
+   SAVE A CONFIGURED COPY (⌘S) — bakes the blinds, names, buy-ins,
+   photos and chips into a downloadable file you can open anywhere.
    ============================================================ */
 function exportDeck() {
   const liveActive = document.querySelector('.slide.active');
   const slides = Array.from(document.querySelectorAll('.slide'));
   document.body.classList.remove('is-paused');
-  closeRebuy(); rebuyList.innerHTML = '';                 /* don't bake the transient overlay rows into the file */
+  closeSettings(); blindRows.innerHTML = ''; playerRows.innerHTML = '';   /* don't bake the transient overlay rows into the file */
   slides.forEach((s, i) => { s.classList.remove('exit-left'); s.classList.toggle('active', i === 0); });
   /* normalise any visited countdowns back to their fresh values for a clean file */
-  document.querySelectorAll('.slide[data-type="level"]').forEach(s => { const el = s.querySelector('[data-clock]'); if (el) el.textContent = Math.round(parseInt(s.dataset.timer || '1800', 10) / 60) + ':00'; });
+  document.querySelectorAll('.slide[data-type="level"]').forEach(s => { const el = s.querySelector('[data-clock]'); if (el) el.textContent = fmtClock(parseInt(s.dataset.timer || '1800', 10)); });
   document.querySelectorAll('.slide[data-type="transition"] [data-clock]').forEach(el => el.textContent = '5');
   slides.forEach(s => { delete s._clockStarted; delete s._clockMs; delete s._clockPaused; });  /* saved copy starts with fresh timers */
   const html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
@@ -1445,11 +1460,16 @@ function exportDeck() {
 
 /* ============================================================
    BOOT
-   This deck never SAVES to localStorage. On load we only PURGE any
-   stale keys an older build might have left, so a browser can never
-   show outdated content. (Specific keys only — never localStorage.clear.)
+   Settings auto-save under STORE_KEY (see AUTO-SAVE). On load we also
+   PURGE stale keys older builds left behind. (Specific keys only —
+   never localStorage.clear.)
    ============================================================ */
 try { ['poker_clock_edits', 'poker_fontScale', 'poker_pot'].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+
+hydrateBankFromDOM();                      /* a saved copy's baked-in roster + chips... */
+hydrateLevelsFromDOM();                    /* ...and its blind levels (or the defaults) */
+loadState();                               /* ...then anything auto-saved on this device wins */
+renderLevelSlides();                       /* build the level + "Next up" slides before the deck reads them */
 
 const fontScaleCtrl = new FontScaleController();
 const fullscreenCtrl = new FullscreenController();
@@ -1464,63 +1484,28 @@ document.getElementById('prevBtn').addEventListener('click', () => presentation.
 document.getElementById('nextBtn').addEventListener('click', () => presentation.next());
 
 buildMoneyPile();
-hydrateBankFromDOM();                      /* pull a saved copy's baked-in roster into the bank... */
-syncBankUI();                              /* ...then paint pot + avatars from it */
+storeReady = true;
+syncBankUI();                              /* paint pot, avatars and the chip strips */
+syncCoverMins();
 
-/* ============================================================
-   EDITABLE LEVEL LENGTH — global (cover) sets all 12 at once;
-   each level also carries a small "Level length · NN min" chip you
-   can tap to override just that one. data-timer (seconds) stays the
-   source of truth, so a ⌘S copy reopens with your custom lengths.
-   ============================================================ */
-const levelSlides = Array.from(document.querySelectorAll('.slide[data-type="level"]'));
-function clampMins(v){ const n = parseInt(String(v).replace(/[^\d]/g, ''), 10); return (isNaN(n) || n < 1) ? 1 : Math.min(n, 180); }
-function buildLevelMinChips(){
-  levelSlides.forEach(slide => {
-    if (slide.querySelector('[data-levelmins]')) return;                 /* a baked copy already has it */
-    const mins = Math.round(parseInt(slide.dataset.timer || '1800', 10) / 60);
-    const chip = document.createElement('div');
-    chip.className = 'level-mins reveal d4';
-    chip.innerHTML = 'Level length · <span class="lm-val edit-dashed" data-levelmins contenteditable="true">' + mins + '</span> min';
-    const inner = slide.querySelector('.slide-inner.level'); if (inner) inner.appendChild(chip);
-  });
-}
-function setLevelMinutes(i, mins){
-  const slide = levelSlides[i]; if (!slide) return;
-  mins = clampMins(mins);                                                          /* never 0 (would disable the timer) */
-  slide.dataset.timer = mins * 60;
-  delete slide._clockStarted; delete slide._clockMs; delete slide._clockPaused;        /* reset this level to the new length */
-  const chip = slide.querySelector('[data-levelmins]'); if (chip && chip !== document.activeElement) chip.textContent = String(mins);
-  const disp = slide.querySelector('[data-clock]'); if (disp) disp.textContent = mins + ':00';
-  if (typeof clock !== 'undefined' && clock.activeSlide === slide){ clock.activeSlide = null; clock.handleSlideChange(); }  /* re-arm if it's on screen */
-}
-function setAllLevelMinutes(mins){ for (let i = 0; i < levelSlides.length; i++) setLevelMinutes(i, mins); }
-buildLevelMinChips();
+/* cover "Minutes per level" sets every level at once (each level can
+   still be changed on its own in ⚙️ Settings) */
 const allLevelMinsEl = document.getElementById('allLevelMins');
 if (allLevelMinsEl){
-  allLevelMinsEl.addEventListener('input', () => setAllLevelMinutes(clampMins(allLevelMinsEl.textContent)));
-  allLevelMinsEl.addEventListener('blur',  () => { const m = clampMins(allLevelMinsEl.textContent); allLevelMinsEl.textContent = String(m); setAllLevelMinutes(m); });
+  allLevelMinsEl.addEventListener('input', () => { if (/\d/.test(allLevelMinsEl.textContent)) setAllLevelMinutes(clampMins(allLevelMinsEl.textContent)); });
+  allLevelMinsEl.addEventListener('blur',  () => { if (/\d/.test(allLevelMinsEl.textContent)) setAllLevelMinutes(clampMins(allLevelMinsEl.textContent)); syncCoverMins(); });
 }
-/* per-level chips are generated, so listen by delegation */
-document.addEventListener('input', (e) => {
-  const lm = e.target.closest && e.target.closest('[data-levelmins]');
-  if (lm){ const i = levelSlides.indexOf(lm.closest('.slide')); if (i >= 0) setLevelMinutes(i, clampMins(lm.textContent)); }
-});
-document.addEventListener('focusout', (e) => {
-  const lm = e.target.closest && e.target.closest('[data-levelmins]');
-  if (lm){ lm.textContent = String(clampMins(lm.textContent)); }
-});
 
-/* rebuy overlay: R toggles, Esc closes (timer keeps running underneath) */
+/* settings: R toggles, Esc closes (timer keeps running underneath) */
 document.addEventListener('keydown', (e) => {
   if ((e.key === 'r' || e.key === 'R') && !e.metaKey && !e.ctrlKey && !e.altKey) {
     if (e.target.isContentEditable || ['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
-    e.preventDefault(); toggleRebuy();
+    e.preventDefault(); toggleSettings();
   }
-  if (e.key === 'Escape' && rebuyOverlay.classList.contains('open')) closeRebuy();
+  if (e.key === 'Escape' && settingsOverlay.classList.contains('open')) closeSettings();
 });
 
-/* editable fields: Enter confirms (blur) instead of a newline — delegated, covers dynamic rebuy rows */
+/* editable fields: Enter confirms (blur) instead of a newline — delegated, covers generated rows and strips */
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.isContentEditable) { e.preventDefault(); e.target.blur(); }
 });

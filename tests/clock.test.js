@@ -10,8 +10,10 @@ const PAGE = process.env.CLOCK_URL || 'http://localhost:8791/Poker%20Tournament%
 const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const LEVELS = [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 }));
 const wait = ms => new Promise(r => setTimeout(r, ms));
-/* the first real tap unlocks all 17 sound players; headless WebKit's media side is then busy for ~2 s and the next
-   play() waits for it. Checks whose 2nd tap times a beep let that first tap settle first. */
+/* HEADLESS WebKit only: after the first real tap unlocks all 17 sound players, its media side is busy for ~2 s and the
+   next play() waits for it. The real Safari engine does not (iPadOS 26.3 Simulator: beep / 💀 audible within 33-125 ms
+   of being asked 0.7-4 s after the first tap, all played in full; log /Users/igor/wt/poker-fixes-logs/sim-walk-t3-first-tap-timing.log).
+   So the checks whose 2nd tap times a beep let that first tap settle first. */
 const SETTLE = 3000;
 
 async function newPage(browserType, { spotify = false } = {}) {
@@ -258,6 +260,32 @@ const TESTS = [
     await emoji(p, '💀'); await wait(500); await p.evaluate(() => { window.__refuseFah = false; }); await emoji(p, '🤡'); await wait(800);
     const log = await p.evaluate(() => emojiSfx.log || null), bad = log && log.find(x => x.e === '💀'), good = log && log.find(x => x.e === '🤡');
     return (bad && bad.ok === false && bad.err === 'NotAllowedError' && typeof bad.at === 'number' && good && good.ok === true) || { log }; }],
+  ['Emoji: a play dropped while its player\'s unlock is on its way leaves no player muted or playing', async ({ p }) => {
+    await wait(600);
+    await p.evaluate(() => { const o = HTMLMediaElement.prototype.play;   /* the 😭 players' unlock (muted) plays answer 600 ms late */
+      HTMLMediaElement.prototype.play = function(){ const r = o.apply(this, arguments); return this.muted && this.src.includes('fail-horn') ? new Promise((ok, bad) => setTimeout(() => r.then(ok, bad), 600)) : r; };
+      window.dispatchEvent(new PointerEvent('pointerdown')); emojiSfx.play('😭'); emojiSfx.on = false; });   /* switched off before its dip turn → dropped */
+    await wait(1500);
+    const r = await p.evaluate(() => emojiSfx.pool['fail-horn'].map(a => ({ paused: a.paused, muted: a.muted, t: +a.currentTime.toFixed(2), ok: a._ok, job: !!a._job })));
+    return r.every(a => a.paused && !a.muted && a.t === 0 && a.ok && !a.job) || r; }],
+  ['Emoji: mute while 😭 plays → it stops within 200 ms and the music is back within ~1 s', async ({ p, log }) => {
+    await wait(1200); log.length = 0; emoji(p, '😭');
+    await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000); await wait(800);
+    const t0 = Date.now(); await p.evaluate(() => sound.toggleMute());
+    const stop = await until(() => p.evaluate(() => emojiSfx.pool['fail-horn'].every(a => a.paused)), 2000), dt = Date.now() - t0;
+    const back = await until(() => dips(log).find(e => e.c === 'play'), 3000), d = dips(log);
+    return (stop && dt <= 200 && back && back.t - t0 <= 1000 && d.map(e => e.c).join() === 'pause,play') || { dt, back: back && back.t - t0, d }; }, { spotify: true }],
+  ['Emoji: switching Emoji sounds off while 😭 plays → it stops within 200 ms and the music is back within ~1 s', async ({ p, log }) => {
+    await wait(1200); log.length = 0; emoji(p, '😭');
+    await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000); await wait(800);
+    const t0 = Date.now(); await p.evaluate(() => { const es = document.getElementById('phEmojiSounds'); es.checked = false; es.dispatchEvent(new Event('change')); });
+    const stop = await until(() => p.evaluate(() => emojiSfx.pool['fail-horn'].every(a => a.paused)), 2000), dt = Date.now() - t0;
+    const back = await until(() => dips(log).find(e => e.c === 'play'), 3000), d = dips(log);
+    return (stop && dt <= 200 && back && back.t - t0 <= 1000 && d.map(e => e.c).join() === 'pause,play') || { dt, back: back && back.t - t0, d }; }, { spotify: true }],
+  ['Beep: a real beep that played counts the beep player as unlocked (unlock never ran)', async ({ p }) => {
+    await p.evaluate(() => { sound._unlock = () => {}; window.levelAlert(); }); await wait(1500);
+    const r = await p.evaluate(() => ({ unlocked: sound.unlocked, n: emojiSfx.unlockedCount, emoji: emojiSfx.all().filter(a => a._ok).length }));
+    return (r.unlocked === true && r.n === r.emoji + 1) || r; }],
   ['Old stored Premium=false (v1 key) is ignored after reload and the old key is removed', async ({ p }) => {
     await wait(1200); await p.evaluate(() => localStorage.setItem('poker_spotify_auth_v1_premium', 'false'));
     await p.reload(); await wait(1500);

@@ -1922,7 +1922,7 @@ class SoundFx {
       if (p && p.then) this._p = p.then(done, bad); else done();
     } catch (e) { this._unl = false; a.muted = false; }
   }
-  toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} } }
+  toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} if (typeof emojiSfx !== 'undefined') emojiSfx.stop(); } }
   applyBtn(){ setIcon(this.btn, this.muted ? 'mute' : 'sound'); this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
   /* session: 'ambient' = plays over other apps' music (muted by the iPad's silent mode);
               'playback' = full alert, plays even on silent, but stops other apps' music */
@@ -1930,7 +1930,7 @@ class SoundFx {
     if (this.muted) return false;
     try { if (navigator.audioSession && session) navigator.audioSession.type = session; } catch (e) {}
     this._tok = (this._tok || 0) + 1;                    /* an unlock still on its way must not pause / mute this beep */
-    try { this.audio.muted = false; this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); return p; } catch (e) { return false; }
+    try { this.audio.muted = false; this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.then) p.then(() => { this.unlocked = true; }, () => {}); return p; } catch (e) { return false; }   /* a beep that played = unlocked too */
   }
 }
 
@@ -2561,14 +2561,16 @@ const emojiSfx = {
   note(j, ok, err){ if (j.noted) return; j.noted = true; this.log.push({ e: j.e, ok, err: err || null, at: Date.now() }); if (this.log.length > 10) this.log.shift(); },
   /* this play is over: free the player, music back (only if it is still THIS play's player) */
   done(a, j){ if (!j || a._job !== j) return; a._job = null; const r = a._rel; a._rel = null; if (r) r(); },
+  /* sound off / Emoji sounds off: stop every emoji sound now, music back right away */
+  stop(){ this.all().forEach(a => { const j = a._job; if (!j) return; if (j.on){ try { a.pause(); a.currentTime = 0; a.muted = false; } catch (x) {} } this.done(a, j); }); },
   /* iPad: a player plays by itself later only if play() was called ON IT during a tap — so on every tap, each player not yet
      unlocked plays silently once, then stops. Refused → the next tap tries again. Never touches a sound that is really playing. */
   unlock(){ this.all().forEach(a => { if (a._ok || a._job || a._try) return;
     const t = ++a._unl; a._try = true;
     try { a.muted = true; const p = a.play();
-      const ok = () => { a._try = false; a._ok = true; if (a._unl !== t) return;   /* a real play took over meanwhile: leave it alone */
+      const ok = () => { a._try = false; a._ok = true; if (a._unl !== t && a._job) return;   /* a real play has it now: leave it alone (a dropped one: clean up) */
         a.pause(); a.currentTime = 0; a.muted = false; };
-      const bad = () => { a._try = false; if (a._unl === t) a.muted = false; };
+      const bad = () => { a._try = false; if (a._unl === t || !a._job) a.muted = false; };
       if (p && p.then) a._p = p.then(ok, bad); else ok(); } catch (x) { a._try = false; a.muted = false; } }); },
   /* pause the music (or turn it down), play the sound, music back after it — see musicDip */
   async play(e){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const n = EMOJI_SOUNDS[e]; if (!n) return;
@@ -2577,7 +2579,7 @@ const emojiSfx = {
     const want = () => this.on && !(typeof sound !== 'undefined' && sound.muted);
     const h = await musicDip.begin(SFX_MS[n] + 200, false, want);
     if (a._job !== j){ if (h) h.release(); return; }                       /* a newer play took this player meanwhile */
-    if (!h || !want()){ if (h) h.release(); a._job = null; if (a.muted && !a._try){ a.pause(); a.muted = false; } return; }   /* dropped (too many waiting) or muted meanwhile — the emoji still flies */
+    if (!h || !want()){ if (h) h.release(); a._job = null; if (!a._try){ a.pause(); a.currentTime = 0; a.muted = false; } return; }   /* dropped (too many waiting) or muted meanwhile — the emoji still flies; an unlock on its way cleans up itself */
     if (a._try){ await Promise.race([a._p, new Promise(r => setTimeout(r, 300))]);   /* its silent unlock is on its way: let it settle (max 0.3 s) — its pause can't touch us */
       if (a._job !== j){ h.release(); return; } }
     try { if (navigator.audioSession) navigator.audioSession.type = h.mode; } catch (x) {}
@@ -2613,7 +2615,7 @@ const phones = {
     const ac = this.el('phAllowChips'); ac.checked = this.allowChips;
     ac.addEventListener('change', () => { this.allowChips = ac.checked; this.save(); this.push(); });
     const es = this.el('phEmojiSounds'); es.checked = emojiSfx.on;
-    es.addEventListener('change', () => { emojiSfx.on = es.checked; this.save(); if (es.checked) emojiSfx.play('🤯'); });
+    es.addEventListener('change', () => { emojiSfx.on = es.checked; this.save(); if (es.checked) emojiSfx.play('🤯'); else emojiSfx.stop(); });
     this.el('phNewRoom').addEventListener('click', () => { if (!confirm('Make a new room code? Phones on the old code will need to scan the new QR.')) return;
       this.room = this.newCode(); this.save(); this.restart(); this.renderPanel(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden && this.enabled) this.ensure(); });

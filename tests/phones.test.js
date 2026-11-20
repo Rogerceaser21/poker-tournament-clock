@@ -1,7 +1,6 @@
 /* Poker Tournament Clock — phones test: a fake iPad (host) + 3 fake phones, live over WebRTC.
  *
- *   1. serve the folder:   python3 -m http.server 8791      (from the repo root)
- *   2. run:                NODE_PATH=<a node_modules with playwright> node tests/phones.test.js
+ *   run (it serves the repo itself on :8791):                NODE_PATH=<a node_modules with playwright> node tests/phones.test.js
  *
  * Needs internet (the free PeerJS server introduces the devices). Prints a results table; exits 1 on any failure.
  */
@@ -21,6 +20,7 @@ async function check(name, fn){
 }
 
 (async () => {
+  const srv = (process.env.CLOCK_URL || process.env.CLOCK_BASE) ? null : await require('./serve').start();   /* self-serve the repo */
   /* ---- the iPad ---- */
   const hb = await HOST_BROWSER.launch(HOST_BROWSER === chromium ? { args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] } : {});
   const hctx = await hb.newContext({ viewport: { width: 1180, height: 820 }, userAgent: HOST_BROWSER === webkit ? IPAD_UA : undefined });
@@ -196,5 +196,5 @@ async function check(name, fn){
 
   console.log(`\n${rows.length - failed}/${rows.length} passed`);
   await hb.close(); await pb.close();
-  process.exit(failed ? 1 : 0);
+  if (srv) srv.close(); process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('CRASHED', e); process.exit(1); });

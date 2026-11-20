@@ -1,7 +1,6 @@
 /* Poker Tournament Clock — automated checks (run before every push).
  *
- *   1. serve the folder:   python3 -m http.server 8791      (from the repo root)
- *   2. run:                NODE_PATH=<a node_modules with playwright> node tests/clock.test.js
+ *   run (it serves the repo itself on :8791):                NODE_PATH=<a node_modules with playwright> node tests/clock.test.js
  *
  * Drives the real page in iPad-sized Safari (WebKit, iPad user agent) and Chrome.
  * Spotify is faked (no real account needed). Prints a results table; exits 1 if anything fails.
@@ -119,6 +118,7 @@ const TESTS = [
 ];
 
 (async () => {
+  const srv = (process.env.CLOCK_URL || process.env.CLOCK_BASE) ? null : await require('./serve').start();   /* self-serve the repo */
   const rows = []; let failed = 0;
   for (const bt of [webkit, chromium]) {
     for (const [name, fn, opts] of TESTS) {
@@ -134,5 +134,5 @@ const TESTS = [
   }
   console.log(rows.join('\n'));
   console.log(`\n${rows.length - failed}/${rows.length} passed`);
-  process.exit(failed ? 1 : 0);
+  if (srv) srv.close(); process.exit(failed ? 1 : 0);
 })();

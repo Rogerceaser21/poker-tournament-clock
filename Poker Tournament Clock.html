@@ -1904,23 +1904,23 @@ class SoundFx {
         this.toggleMute();
       }
     });
-    /* unlock the audio element on the first tap/keypress so it can replay
-       later on the auto-triggered transitions (iOS requirement) */
+    /* unlock the audio element with a tap/keypress so it can replay later on the auto-triggered
+       transitions (iOS: only a play() INSIDE a tap counts). Tried on every tap until it worked. */
     const unlock = () => { if (!this.unlocked) this._unlock(); };
-    window.addEventListener('pointerdown', unlock);
-    window.addEventListener('keydown', unlock);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && !this.unlocked) this._unlock(); });
+    ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, unlock, { passive: true }));
     this.applyBtn();
   }
   _unlock(){
-    const a = this.audio;
+    const a = this.audio; if (this._unl || !a.paused) return;   /* one try at a time; never touch a beep that is playing */
+    const t = this._tok = (this._tok || 0) + 1; this._unl = true;
     try {
-      a.muted = true;                                   /* silent unlock: never blip (or pause Spotify) on the first tap */
+      a.muted = true;                                   /* silent unlock: never blip (or pause Spotify) on a tap */
       const p = a.play();
-      const done = () => { a.pause(); a.currentTime = 0; a.muted = false; this.unlocked = true; };
-      if (p && p.then) p.then(done).catch(() => { a.muted = false; });
-      else done();
-    } catch (e) {}
+      const done = () => { this._unl = false; this.unlocked = true; if (this._tok !== t) return;   /* a real beep took over: leave it */
+        a.pause(); a.currentTime = 0; a.muted = false; };
+      const bad = () => { this._unl = false; if (this._tok === t) a.muted = false; };   /* refused: the next tap tries again */
+      if (p && p.then) this._p = p.then(done, bad); else done();
+    } catch (e) { this._unl = false; a.muted = false; }
   }
   toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} } }
   applyBtn(){ setIcon(this.btn, this.muted ? 'mute' : 'sound'); this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
@@ -1929,7 +1929,8 @@ class SoundFx {
   playTransition(session){                               /* → the play() promise, or false when nothing will play */
     if (this.muted) return false;
     try { if (navigator.audioSession && session) navigator.audioSession.type = session; } catch (e) {}
-    try { this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); return p; } catch (e) { return false; }
+    this._tok = (this._tok || 0) + 1;                    /* an unlock still on its way must not pause / mute this beep */
+    try { this.audio.muted = false; this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); return p; } catch (e) { return false; }
   }
 }
 
@@ -2407,6 +2408,7 @@ const musicDip = {
 async function levelAlert(){
   if (sound.muted) return;
   const h = await musicDip.begin(PIPS_MS + 150, true, () => !sound.muted); if (!h) return;
+  if (sound._unl) await Promise.race([sound._p, new Promise(r => setTimeout(r, 300))]);   /* its silent unlock (this same tap) is on its way: let it settle, max 0.3 s */
   if (sound.muted){ h.release(); return; }
   const a = sound.audio; a.addEventListener('ended', h.release, { once: true }); a.addEventListener('error', h.release, { once: true });
   const p = sound.playTransition(h.mode);
@@ -2539,27 +2541,56 @@ const QR_SRC = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
 const PH_KEY = 'poker_phones_v1';
 /* emoji → meme sound (sounds/*.m4a, from Remotion's free @remotion/sfx library) */
 const EMOJI_SOUNDS = { '💀': 'fah', '🤡': 'bruh', '😂': 'oh-my-god', '😭': 'fail-horn', '🔥': 'wow', '👏': 'yippee', '🤯': 'boom', '💰': 'ding' };
+/* real length of each file (ms) = how long the music dip holds */
+const SFX_MS = { 'fah': 1927, 'bruh': 629, 'oh-my-god': 1615, 'fail-horn': 4519, 'wow': 2600, 'yippee': 2647, 'boom': 1255, 'ding': 1400 };
+/* 2 players per sound, all made at start-up (iPad: an element made later is not unlocked) — the same emoji twice overlaps,
+   never restarts the one playing. Per element: _ok = unlocked, _job = the real play on it, _unl = unlock ticket, _try = unlock on its way */
 const emojiSfx = {
-  on: true, cache: {}, unlocked: false,
-  get(e){ const n = EMOJI_SOUNDS[e]; if (!n) return null;
-    if (!this.cache[n]){ const a = new Audio('sounds/' + n + '.m4a'); a.preload = 'auto'; a.setAttribute('playsinline', ''); this.cache[n] = a; } return this.cache[n]; },
-  /* iPad: every sound must be started once by a tap before it may play by itself later — do it silently on the first tap */
-  unlock(){ if (this.unlocked) return; this.unlocked = true;
-    Object.keys(EMOJI_SOUNDS).forEach(e => { const a = this.get(e); try { a.muted = true; const p = a.play(); const back = () => { a.pause(); a.currentTime = 0; a.muted = false; };
-      if (p && p.then) p.then(back).catch(() => { a.muted = false; }); else back(); } catch (x) {} }); },
+  on: true, MS: SFX_MS, pool: {}, log: [], total: 0,
+  init(){ Object.values(EMOJI_SOUNDS).forEach(n => { this.pool[n] = [0, 1].map(() => { const a = new Audio('sounds/' + n + '.m4a');
+      a.preload = 'auto'; a.setAttribute('playsinline', ''); a._ok = false; a._job = null; a._rel = null; a._unl = 0; a._try = false; a._t0 = 0;
+      /* only a play that really started ends / fails here (a newer play still waiting for its dip is not ended by the old sound) */
+      a.addEventListener('ended', () => { const j = a._job; if (j && j.on) this.done(a, j); });
+      a.addEventListener('error', () => { const j = a._job; if (j && j.on){ this.note(j, false, 'MediaError' + (a.error ? a.error.code : '')); this.done(a, j); } });
+      return a; }); });
+    this.total = Object.keys(this.pool).length * 2 + 1; },                /* + the level beep (SoundFx) */
+  get unlockedCount(){ let n = typeof sound !== 'undefined' && sound.unlocked ? 1 : 0; Object.values(this.pool).forEach(l => l.forEach(a => { if (a._ok) n++; })); return n; },
+  all(){ return [].concat(...Object.values(this.pool)); },
+  /* a free player (not busy), else the one that started first */
+  pick(n){ const l = this.pool[n]; return l.find(a => !a._job && a.paused && !a._try) || l.find(a => !a._job) || l.slice().sort((x, y) => x._t0 - y._t0)[0]; },
+  note(j, ok, err){ if (j.noted) return; j.noted = true; this.log.push({ e: j.e, ok, err: err || null, at: Date.now() }); if (this.log.length > 10) this.log.shift(); },
+  /* this play is over: free the player, music back (only if it is still THIS play's player) */
+  done(a, j){ if (!j || a._job !== j) return; a._job = null; const r = a._rel; a._rel = null; if (r) r(); },
+  /* iPad: a player plays by itself later only if play() was called ON IT during a tap — so on every tap, each player not yet
+     unlocked plays silently once, then stops. Refused → the next tap tries again. Never touches a sound that is really playing. */
+  unlock(){ this.all().forEach(a => { if (a._ok || a._job || a._try) return;
+    const t = ++a._unl; a._try = true;
+    try { a.muted = true; const p = a.play();
+      const ok = () => { a._try = false; a._ok = true; if (a._unl !== t) return;   /* a real play took over meanwhile: leave it alone */
+        a.pause(); a.currentTime = 0; a.muted = false; };
+      const bad = () => { a._try = false; if (a._unl === t) a.muted = false; };
+      if (p && p.then) a._p = p.then(ok, bad); else ok(); } catch (x) { a._try = false; a.muted = false; } }); },
   /* pause the music (or turn it down), play the sound, music back after it — see musicDip */
-  async play(e){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const a = this.get(e); if (!a) return;
-    const ms = (isFinite(a.duration) && a.duration > 0 ? a.duration * 1000 : 2500) + 200;
+  async play(e){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const n = EMOJI_SOUNDS[e]; if (!n) return;
+    const a = this.pick(n), j = { e }, prev = a._rel;
+    a._unl++; a._job = j; a._rel = null; a._t0 = Date.now(); if (prev) prev();   /* both busy: the oldest one restarts, its dip hold goes */
     const want = () => this.on && !(typeof sound !== 'undefined' && sound.muted);
-    const h = await musicDip.begin(ms, false, want); if (!h) return;    /* dropped (too many waiting) or muted meanwhile — the emoji still flies */
-    if (!want()){ h.release(); return; }
+    const h = await musicDip.begin(SFX_MS[n] + 200, false, want);
+    if (a._job !== j){ if (h) h.release(); return; }                       /* a newer play took this player meanwhile */
+    if (!h || !want()){ if (h) h.release(); a._job = null; if (a.muted && !a._try){ a.pause(); a.muted = false; } return; }   /* dropped (too many waiting) or muted meanwhile — the emoji still flies */
+    if (a._try){ await Promise.race([a._p, new Promise(r => setTimeout(r, 300))]);   /* its silent unlock is on its way: let it settle (max 0.3 s) — its pause can't touch us */
+      if (a._job !== j){ h.release(); return; } }
     try { if (navigator.audioSession) navigator.audioSession.type = h.mode; } catch (x) {}
     /* the music comes back when THIS sound really ended (or failed / was refused) */
-    try { a.muted = false; a.currentTime = 0; a.addEventListener('ended', h.release, { once: true }); a.addEventListener('error', h.release, { once: true });
-      if (!(isFinite(a.duration) && a.duration > 0)) a.addEventListener('loadedmetadata', () => h.renew(a.duration * 1000 + 200), { once: true });
-      const p = a.play(); if (p && p.catch) p.catch(h.release); } catch (x) { h.release(); } }
+    a._rel = h.release;
+    try { if (!a.paused) a.pause();                                        /* still playing (the oldest sound, or a slow unlock): stop first, then rewind */
+      a.muted = false; a.currentTime = 0; j.on = true; const p = a.play();
+      if (p && p.then) p.then(() => { a._ok = true; this.note(j, true); }, (x) => { this.note(j, false, (x && x.name) || 'Error'); h.release(); this.done(a, j); });
+      else this.note(j, true);
+    } catch (x) { this.note(j, false, x.name || 'Error'); h.release(); this.done(a, j); } }
 };
-['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { once: true, passive: true }));
+emojiSfx.init();
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { passive: true }));
 const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
 function loadScript(src){ return new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')){ ok(); return; }
   const s = document.createElement('script'); s.src = src; s.async = true; s.dataset.phones = ''; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }

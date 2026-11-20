@@ -1012,8 +1012,8 @@ class SlidePresentation {
     const PREV = ['ArrowLeft', 'ArrowUp', 'PageUp'];
     document.addEventListener('keydown', (e) => {
       if (e.target.isContentEditable || ['INPUT','TEXTAREA','IFRAME'].includes(e.target.tagName)) return;
-      if (NEXT.includes(e.code)) { e.preventDefault(); if (e.repeat) return; this.next(); }
-      else if (PREV.includes(e.code)) { e.preventDefault(); if (e.repeat) return; this.prev(); }
+      if (NEXT.includes(e.code)) { e.preventDefault(); if (e.repeat) return; typeof jumpLevel === 'function' ? jumpLevel(1) : this.next(); }
+      else if (PREV.includes(e.code)) { e.preventDefault(); if (e.repeat) return; typeof jumpLevel === 'function' ? jumpLevel(-1) : this.prev(); }
     });
   }
   setupWheel() {
@@ -1082,8 +1082,10 @@ class TournamentClock {
     this.handleSlideChange();  /* arm the initial slide (cover = no timer) */
   }
   handleSlideChange() {
-    this.snapshotActive();                       /* persist the slide we're leaving */
     this.stopTick();
+    /* the screen we're leaving keeps NO timer: show its full time again for next time */
+    const left = this.activeSlide;
+    if (left){ const d = left.querySelector('[data-clock]'); if (d){ d.classList.remove('paused'); d.textContent = left.dataset.type === 'transition' ? '5' : fmtClock(parseInt(left.dataset.timer || '0', 10)); } }
     const slide = this.p.slides[this.p.current];
     const secs = parseInt(slide.dataset.timer || '0', 10);
     const el = slide.querySelector('[data-clock]');
@@ -1098,21 +1100,13 @@ class TournamentClock {
     this.duration = secs * 1000;
     if (this.bar) this.bar.classList.remove('warn', 'danger');
 
-    /* Per-slide persistence: each level remembers its remaining time + paused
-       state. First visit starts fresh; returning resumes EXACTLY where it was
-       left (no reset). Leaving freezes it — no time lost while you're away. */
-    const firstVisit = !slide._clockStarted;
+    /* ONE clock: every arrival on a level or a "Next up" screen starts it fresh — full time, running.
+       (⏮ back to a level = that level from full time; nothing keeps ticking anywhere else.) */
     slide._clockStarted = true;
-    let rem = firstVisit ? this.duration : (slide._clockMs != null ? slide._clockMs : this.duration);
-    let paused = firstVisit ? false : !!slide._clockPaused;
-    if (rem <= 0) { rem = 0; paused = true; }    /* a finished level holds at 0:00, never auto-advances on revisit */
+    const rem = this.duration, paused = false;
 
-    /* level-change alert: on the "Next up" screen, or on arriving straight at a level (⏭ skips that screen).
-       Once per level; never for Level 1 (that's the start of the game). */
-    if (firstVisit && this.sound){
-      const lid = slide.dataset.lid;
-      if (lid && this._alerted !== lid && (this.type === 'transition' || (this.type === 'level' && this.p.current > 1))){ this._alerted = lid; levelAlert(); }
-    }
+    /* level-change alert = the "Next up" screen (reached by the timer running out OR by ⏭) */
+    if (this.type === 'transition' && this.sound) levelAlert();
 
     this.paused = paused;
     this.remaining = rem;
@@ -1535,8 +1529,8 @@ function setSlideDuration(sl, secs){
   const old = parseInt(sl.dataset.timer || '0', 10);
   if (old === secs) return;
   sl.dataset.timer = secs;
-  if (!sl._clockStarted){ const d = sl.querySelector('[data-clock]'); if (d) d.textContent = fmtClock(secs); return; }
-  const live = clock.activeSlide === sl;
+  const live = typeof clock !== 'undefined' && clock.activeSlide === sl;
+  if (!live){ const d = sl.querySelector('[data-clock]'); if (d) d.textContent = fmtClock(secs); return; }   /* not on screen: no timer to adjust */
   const remOld = live ? (clock.paused ? clock.remaining : clock.deadline - performance.now()) : (sl._clockMs || 0);
   const rem = Math.max(0, secs * 1000 - (old * 1000 - remOld));
   if (live){
@@ -1805,8 +1799,9 @@ function buildMoneyPile(){
    ============================================================ */
 function makeChimeWav(){
   /* level-change alert = "time pips": three short 1 kHz pips and one longer one (radio time signal) */
-  const sr = 22050, n = Math.floor(sr * 1.45);
-  const pips = [[0, .1, .02], [.3, .1, .02], [.6, .1, .02], [.9, .45, .08]];   /* start, length, release (s) */
+  const sr = 22050, n = Math.floor(sr * 1.5);
+  const pips = [[0, .12, .015], [.3, .12, .015], [.6, .12, .015], [.9, .5, .06]];   /* start, length, release (s) */
+  const raw = new Float32Array(n);
   const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
   const wr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
   wr(0,'RIFF'); dv.setUint32(4, 36 + n * 2, true); wr(8,'WAVE'); wr(12,'fmt ');
@@ -1818,12 +1813,15 @@ function makeChimeWav(){
     let s = 0;
     for (const [st, len, rel] of pips){
       const u = t - st; if (u < 0 || u > len) continue;
-      const e = Math.min(1, u / .004) * (u < len - rel ? 1 : Math.max(0, (len - u) / rel));
-      s += 0.5 * e * (Math.sin(2*Math.PI*1000*u) + 0.1 * Math.sin(2*Math.PI*2000*u));
+      const e = Math.min(1, u / .003) * (u < len - rel ? 1 : Math.max(0, (len - u) / rel));
+      const w = 2 * Math.PI * 1000 * u;                       /* 1 kHz + odd harmonics = a sharper pip that cuts through music */
+      s += e * (Math.sin(w) + Math.sin(3 * w) / 3 + Math.sin(5 * w) / 5 + Math.sin(7 * w) / 7);
     }
-    s = Math.max(-1, Math.min(1, s));
-    dv.setInt16(44 + i * 2, s * 32767, true);
+    raw[i] = s;
   }
+  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(raw[i]));
+  const g = 0.97 / (peak || 1);                                /* as loud as it can go without distorting */
+  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.round(raw[i] * g * 32767), true);
   let bin = ''; const bytes = new Uint8Array(buf);
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
   return 'data:audio/wav;base64,' + btoa(bin);
@@ -1872,7 +1870,7 @@ class SoundFx {
   playTransition(session){
     if (this.muted) return;
     try { if (navigator.audioSession && session) navigator.audioSession.type = session; } catch (e) {}
-    try { this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+    try { this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
   }
 }
 
@@ -2423,14 +2421,18 @@ const clock = new TournamentClock(presentation);
 clock.sound = sound;                       /* play the casino cue on each transition */
 document.getElementById('pauseBtn').addEventListener('click', () => clock.togglePause());  /* touch pause for iPad */
 document.getElementById('startBtn').addEventListener('click', () => presentation.goTo(1));  /* cover -> Level 1 */
-/* ⏮ ⏭ jump level to level (skipping the 5-second "Next up" screens); arrow keys still step one slide */
+/* ⏭ = what the timer does when it runs out: level → its 5-second "Next up" screen (beeps) → next level.
+       On a "Next up" screen, ⏭ starts that level now.  Cover → Level 1.  Last level → Heads up.
+   ⏮ = back to the previous LEVEL, restarted from full time (skips "Next up" screens; no beeps).
+   Arrow keys do the same as the buttons. */
 function jumpLevel(dir){
-  const S = presentation.slides, cur = presentation.current, isLv = i => S[i] && S[i].dataset.type === 'level';
-  let i = cur + dir;
-  while (i > 0 && i < S.length && S[i].dataset.type === 'transition') i += dir;   /* skip the flash screens */
-  if (dir < 0 && i > 0 && !isLv(i)){ for (let k = i; k > 0; k--) if (isLv(k)){ i = k; break; } }
-  i = Math.max(0, Math.min(S.length - 1, i));
-  if (i !== cur) presentation.goTo(i);
+  const S = presentation.slides, cur = presentation.current, type = i => S[i] && S[i].dataset.type;
+  let target = cur + dir;
+  if (dir < 0 && type(cur)){                         /* from a level / Next-up screen: previous LEVEL (or the cover) */
+    target = cur - 1;
+    while (target > 0 && type(target) !== 'level') target--;
+  }
+  if (target >= 0 && target < S.length && target !== cur) presentation.goTo(target);
 }
 document.getElementById('prevBtn').addEventListener('click', () => jumpLevel(-1));
 document.getElementById('nextBtn').addEventListener('click', () => jumpLevel(1));

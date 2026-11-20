@@ -526,6 +526,38 @@ body.tv-open .nav-dots{ display:none; }
 .tv-seat .seat-avatar.has-photo::after{ content:''; }
 .poker-table.many .tv-seat .seat-chips{ font-size:clamp(.85rem,1.2vw,1.1rem); }
 
+/* PHONES — iPad hosts, players join by QR; emojis float up, chip changes show a toast with Undo */
+#phonesBtn .dot{ position:absolute; top:6px; right:6px; width:8px; height:8px; border-radius:50%; background:#3ddc84; box-shadow:0 0 0 2px rgba(8,8,10,.8); }
+#phonesBtn{ position:relative; }
+.ph-card{ width:min(620px, 94vw); }
+.ph-body{ display:flex; gap:clamp(1rem,3vw,1.8rem); align-items:flex-start; }
+.ph-qr{ background:#fff; padding:10px; border-radius:12px; width:clamp(170px,26vw,230px); flex-shrink:0; }
+.ph-qr svg, .ph-qr img{ display:block; width:100%; height:auto; }
+.ph-info{ flex:1; min-width:0; display:flex; flex-direction:column; gap:.6em; color:var(--cream); }
+.ph-room{ font-size:clamp(1.6rem,3.4vw,2.4rem); font-weight:700; letter-spacing:.18em; color:var(--gold-light); }
+.ph-url{ font-size:var(--label-size); color:rgba(246,239,217,.65); overflow-wrap:anywhere; letter-spacing:.02em; }
+.ph-status{ font-size:clamp(.85rem,1.3vw,1rem); }
+.ph-status.ok{ color:#9fe3b3; } .ph-status.bad{ color:#f4b4b1; }
+.ph-list{ display:flex; flex-wrap:wrap; gap:.35em; }
+.ph-list span{ background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.1); border-radius:999px; padding:.2em .7em; font-size:clamp(.8rem,1.2vw,.95rem); }
+.ph-list span::before{ content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:#3ddc84; margin-right:.45em; vertical-align:middle; }
+@media (max-width:560px){ .ph-body{ flex-direction:column; align-items:center; } }
+.emoji-layer{ position:fixed; inset:0; pointer-events:none; z-index:9450; overflow:hidden; }
+.emoji-fly{ position:absolute; bottom:-120px; display:flex; flex-direction:column; align-items:center; animation:emojiUp 3.4s cubic-bezier(.2,.7,.3,1) forwards; }
+.emoji-fly .e{ font-size:clamp(3rem,7vw,5.5rem); line-height:1; filter:drop-shadow(0 6px 12px rgba(0,0,0,.45)); }
+.emoji-fly .n{ margin-top:.2em; font-size:clamp(.8rem,1.4vw,1.1rem); letter-spacing:.12em; text-transform:uppercase; font-weight:600; color:var(--cream);
+  background:rgba(8,8,10,.7); border:1px solid rgba(232,184,75,.5); border-radius:999px; padding:.15em .7em; }
+@keyframes emojiUp{ 0%{ transform:translateY(0) scale(.6); opacity:0; } 12%{ opacity:1; transform:translateY(-14vh) scale(1.05); }
+  80%{ opacity:1; } 100%{ transform:translateY(-78vh) scale(1); opacity:0; } }
+.toast-layer{ position:fixed; left:clamp(1.2rem,3vw,2.4rem); top:calc(clamp(1.5rem,3.2vh,2.2rem) + env(safe-area-inset-top,0px)); z-index:9460;
+  display:flex; flex-direction:column; gap:.45rem; align-items:flex-start; pointer-events:none; max-width:min(440px, 60vw); }   /* top-left: the one corner nothing else uses */
+body.tv-open .toast-layer{ top:calc(clamp(1.5rem,3.2vh,2.2rem) + 4.2rem); }   /* below the table view's Clock button */
+.toast{ pointer-events:auto; display:flex; align-items:center; gap:.8em; background:rgba(8,8,10,.9); border:1.5px solid rgba(232,184,75,.6); border-radius:12px;
+  padding:.5em .6em .5em 1em; color:var(--cream); font-size:clamp(.95rem,1.5vw,1.15rem); box-shadow:0 10px 26px rgba(0,0,0,.45); animation:npIn .3s var(--ease-expo); }
+.toast b{ color:var(--gold-light); }
+.toast button{ font-family:var(--font-display); font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--ink); background:var(--gold);
+  border:none; border-radius:8px; padding:.4em .8em; min-height:40px; cursor:pointer; }
+
 /* MUSIC tab + Spotify mini-player (bottom-right, above the slide counter) */
 .set-in.music-in{ width:min(100%, 24em); text-align:left; font-weight:500; flex:1; min-width:12em; }
 .music-chk{ display:flex; align-items:center; gap:.55em; cursor:pointer; }
@@ -708,6 +740,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   <button id="settingsBtn" class="fs-btn" aria-label="Settings" title="Settings: blinds, players, chips (R)" data-ico="gear"></button>
   <button id="muteBtn" class="fs-btn" aria-label="Toggle sound" title="Sound on/off (M)" data-ico="sound"></button>
   <button id="musicBtn" class="fs-btn" aria-label="Music" title="Music: show / hide the Spotify player" data-ico="music"></button>
+  <button id="phonesBtn" class="fs-btn" aria-label="Phones" title="Players' phones: QR code to join" data-ico="phone"></button>
   <button id="fullscreenBtn" class="fs-btn" aria-label="Enter fullscreen" title="Fullscreen (⌘ F / F)" data-ico="full"></button>
 </div>
 
@@ -756,6 +789,27 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   </div>
   <div class="np-big-game" id="npBigGame"></div>
 </div>
+
+<!-- PHONES panel (📱 in the bottom bar): QR code players scan to follow the game on their phones -->
+<div class="rebuy-overlay" id="phonesPanel" aria-hidden="true">
+  <div class="rebuy-card ph-card" role="dialog" aria-label="Players' phones">
+    <div class="rebuy-head"><span class="rebuy-title">📱 Players' phones</span><button class="rebuy-close" id="phClose" aria-label="Close">✕</button></div>
+    <div class="ph-body">
+      <div class="ph-qr" id="phQr" aria-label="QR code to join"></div>
+      <div class="ph-info">
+        <span class="rebuy-hint" style="margin:0;text-align:left">Scan with the phone camera · same Wi-Fi as this iPad</span>
+        <span class="ph-room" id="phRoom">—</span>
+        <span class="ph-url" id="phUrl"></span>
+        <span class="ph-status" id="phStatus">Starting…</span>
+        <div class="ph-list" id="phList"></div>
+        <label class="music-chk"><input type="checkbox" id="phAllowChips"> Players can change their own chips</label>
+      </div>
+    </div>
+    <div class="set-actions" style="margin-top:1em"><span class="rebuy-hint" style="margin:0">Phones reconnect by themselves · keep this iPad on the clock</span><button class="set-btn" id="phNewRoom">New room code</button></div>
+  </div>
+</div>
+<div class="emoji-layer" id="emojiLayer" aria-hidden="true"></div>
+<div class="toast-layer" id="toastLayer" aria-live="polite"></div>
 
 <!-- TABLE VIEW (TABLE button on the chip strip, or T) -->
 <div class="table-view" id="tableView" aria-hidden="true" aria-label="Table view">
@@ -948,7 +1002,8 @@ const ICON = {
   music: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 17.5V5.5l10-2v12"/><circle cx="6.5" cy="17.5" r="2.5" fill="currentColor"/><circle cx="16.5" cy="15.5" r="2.5" fill="currentColor"/></svg>',
   full:  '<svg class="ico" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>',
   table: '<svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="5.5"/><circle cx="12" cy="3.6" r="1.4" fill="currentColor"/><circle cx="12" cy="20.4" r="1.4" fill="currentColor"/><circle cx="1.9" cy="12" r="1.4" fill="currentColor"/><circle cx="22.1" cy="12" r="1.4" fill="currentColor"/></svg>',
-  clock: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>'
+  clock: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+  phone: '<svg class="ico" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>'
 };
 function setIcon(el, name){ if (el && el.dataset.icoNow !== name){ el.innerHTML = ICON[name] || ''; el.dataset.icoNow = name; } }
 document.querySelectorAll('[data-ico]').forEach(el => setIcon(el, el.dataset.ico));
@@ -1156,6 +1211,7 @@ class TournamentClock {
     const pb = document.getElementById('pauseBtn');
     if (pb) { setIcon(pb, on ? 'play' : 'pause'); pb.title = on ? 'Resume (Space)' : 'Pause (Space)'; }
     if (typeof music !== 'undefined') music.onClockPause(on);   /* Spotify follows the clock (if switched on) */
+    if (typeof phones !== 'undefined') phones.push();           /* phones see the new screen / pause at once */
   }
   render(ms) {
     if (this.type === 'transition') {
@@ -1370,6 +1426,7 @@ function syncBankUI(except){
   renderHeadsUp(); renderWinner();
   if (typeof playerCard !== 'undefined') playerCard.fill(except);
   if (typeof tableView !== 'undefined') tableView.renderSeats();
+  if (typeof phones !== 'undefined') phones.push();
   saveState();
 }
 function initialOf(name){ const t = String(name || '').trim(); return t ? t[0].toUpperCase() : '?'; }
@@ -1588,6 +1645,7 @@ function levelsChanged(structural){
   renderLevelSlides();
   if (structural){ presentation.refresh(); renderStrips(); renderBlindRows(); }
   syncCoverMins();
+  if (typeof phones !== 'undefined') phones.push();
   saveState();
 }
 function syncCoverMins(){
@@ -2369,6 +2427,151 @@ const tableView = {
 };
 
 /* ============================================================
+   PHONES — the iPad is the host. Players scan a QR code, pick their
+   name and follow the game live on their phone (join.html). Phones
+   connect straight to this iPad (WebRTC via PeerJS; the free public
+   PeerJS server only introduces them — no account, no database).
+   The room code stays the same until "New room code", so phones and
+   a reloaded iPad always find each other again.
+   ============================================================ */
+const PEERJS_SRC = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
+const QR_SRC = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
+const PH_KEY = 'poker_phones_v1';
+const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
+function loadScript(src){ return new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')){ ok(); return; }
+  const s = document.createElement('script'); s.src = src; s.async = true; s.dataset.phones = ''; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
+const phones = {
+  peer: null, conns: new Map(), room: '', enabled: false, allowChips: true, retryT: null, pushT: null, beatT: null, status: '', lastEmoji: new Map(),
+  el(id){ return document.getElementById(id); },
+  load(){ let st = null; try { st = JSON.parse(localStorage.getItem(PH_KEY) || 'null'); } catch (e) {}
+    this.room = (st && st.room) || this.newCode(); this.enabled = !!(st && st.enabled); this.allowChips = st && typeof st.allowChips === 'boolean' ? st.allowChips : true; },
+  save(){ try { localStorage.setItem(PH_KEY, JSON.stringify({ room: this.room, enabled: this.enabled, allowChips: this.allowChips })); } catch (e) {} },
+  newCode(){ const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let c = ''; const r = crypto.getRandomValues(new Uint8Array(6)); r.forEach(x => c += a[x % a.length]); return c; },
+  hostId(){ return 'pokerclock-' + this.room; },
+  joinUrl(){ return location.origin + location.pathname.replace(/[^/]*$/, '') + 'join.html?room=' + this.room; },
+  init(){
+    this.load();
+    this.el('phonesBtn').addEventListener('click', () => this.open());
+    this.el('phClose').addEventListener('click', () => this.close());
+    this.el('phonesPanel').addEventListener('click', (e) => { if (e.target === this.el('phonesPanel')) this.close(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.isOpen()){ this.close(); e.stopImmediatePropagation(); } });
+    const ac = this.el('phAllowChips'); ac.checked = this.allowChips;
+    ac.addEventListener('change', () => { this.allowChips = ac.checked; this.save(); this.push(); });
+    this.el('phNewRoom').addEventListener('click', () => { if (!confirm('Make a new room code? Phones on the old code will need to scan the new QR.')) return;
+      this.room = this.newCode(); this.save(); this.restart(); this.renderPanel(); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && this.enabled) this.ensure(); });
+    window.addEventListener('online', () => { if (this.enabled) this.ensure(); });
+    /* page closing / reloading: hand the room back at once, so the reloaded iPad can take it again straight away */
+    window.addEventListener('pagehide', () => { try { if (this.peer) this.peer.destroy(); } catch (e) {} });
+    if (this.enabled) this.start();
+  },
+  isOpen(){ return this.el('phonesPanel').classList.contains('open'); },
+  async open(){ const o = this.el('phonesPanel'); o.classList.add('open'); o.setAttribute('aria-hidden', 'false');
+    if (!this.enabled){ this.enabled = true; this.save(); }
+    this.renderPanel(); this.ensure(); },
+  close(){ const o = this.el('phonesPanel'); o.classList.remove('open'); o.setAttribute('aria-hidden', 'true'); },
+  async renderPanel(){
+    this.el('phRoom').textContent = this.room.toUpperCase(); this.el('phUrl').textContent = this.joinUrl();
+    try { await loadScript(QR_SRC); const q = qrcode(0, 'M'); q.addData(this.joinUrl()); q.make(); this.el('phQr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 0, scalable: true }); }
+    catch (e) { this.el('phQr').textContent = 'QR needs internet'; }
+    this.renderList();
+  },
+  setStatus(t, cls){ this.status = t; const el = this.el('phStatus'); if (el){ el.textContent = t; el.className = 'ph-status' + (cls ? ' ' + cls : ''); }
+    const b = this.el('phonesBtn'); let dot = b.querySelector('.dot'); const live = cls === 'ok' && this.players().length > 0;
+    if (live && !dot){ dot = document.createElement('span'); dot.className = 'dot'; b.appendChild(dot); } else if (!live && dot) dot.remove(); },
+  players(){ const seen = new Set(); const out = []; this.conns.forEach(c => { if (c.name && c.c.open && !seen.has(c.name)){ seen.add(c.name); out.push(c.name); } }); return out; },
+  renderList(){ const L = this.el('phList'); if (!L) return; const names = this.players();
+    L.innerHTML = names.map(n => '<span>' + escapeHtml(n) + '</span>').join('') || '<span style="opacity:.6">No phones yet</span>';
+    if (this.peer && this.peer.open) this.setStatus('✓ Live · ' + names.length + ' phone' + (names.length === 1 ? '' : 's') + ' connected', 'ok'); },
+  ensure(){ if (!this.peer || this.peer.destroyed) this.start(); else if (this.peer.disconnected){ try { this.peer.reconnect(); } catch (e) { this.restart(); } } },
+  restart(){ try { if (this.peer) this.peer.destroy(); } catch (e) {} this.peer = null; this.conns.clear(); this.start(); },
+  async start(){
+    clearTimeout(this.retryT);
+    if (this.peer && !this.peer.destroyed) return;
+    this.setStatus('Starting…');
+    try { await loadScript(PEERJS_SRC); } catch (e) { this.setStatus('Needs internet to start — retrying…', 'bad'); this.retryT = setTimeout(() => this.start(), 4000); return; }
+    const p = new Peer(this.hostId(), { debug: 0 }); this.peer = p;
+    p.on('open', () => { this.renderList(); if (!this.beatT) this.beatT = setInterval(() => this.push(true), 5000); });
+    p.on('connection', (c) => this.attach(c));
+    p.on('disconnected', () => { this.setStatus('Reconnecting…', 'bad'); setTimeout(() => { if (p === this.peer && !p.destroyed && p.disconnected){ try { p.reconnect(); } catch (e) {} } }, 1000); });
+    p.on('error', (err) => {
+      if (p !== this.peer) return;
+      const t = err && err.type;
+      if (t === 'peer-unavailable') return;                               /* a phone that left — harmless */
+      this.setStatus(t === 'unavailable-id' ? 'Room still closing from last time — retrying…' : 'Connection problem — retrying…', 'bad');
+      try { p.destroy(); } catch (e) {} this.peer = null;
+      clearTimeout(this.retryT); this.retryT = setTimeout(() => this.start(), t === 'unavailable-id' ? 3000 : 2000);
+    });
+  },
+  attach(c){
+    c.on('open', () => { this.conns.set(c.connectionId, { c, name: null }); this.send(c, this.snapshot()); });
+    c.on('data', (d) => this.onData(c, d));
+    const gone = () => { this.conns.delete(c.connectionId); this.renderList(); this.setStatus(this.status, this.peer && this.peer.open ? 'ok' : 'bad'); };
+    c.on('close', gone); c.on('error', gone);
+  },
+  send(c, msg){ try { if (c.open) c.send(msg); } catch (e) {} },
+  broadcast(msg){ this.conns.forEach(x => this.send(x.c, msg)); },
+  nameIndex(name){ return bank.names.findIndex(n => n === name); },
+  onData(c, d){
+    if (!d || typeof d !== 'object') return;
+    const me = this.conns.get(c.connectionId); if (!me) return;
+    if (d.t === 'hello'){ me.name = typeof d.name === 'string' && this.nameIndex(d.name) >= 0 ? d.name : null; this.send(c, this.snapshot()); this.renderList(); return; }
+    if (d.t === 'ping'){ this.send(c, { t: 'pong' }); return; }
+    if (d.t === 'photos'){ this.send(c, { t: 'photos', rev: this.photoRev(), photos: bank.photos.slice() }); return; }
+    if (d.t === 'chips'){
+      const i = this.nameIndex(me.name);
+      if (!this.allowChips || i < 0 || d.name !== me.name){ this.send(c, this.snapshot()); return; }
+      const v = clampInt(d.value, 0, 1e9, bank.chips[i]); const before = bank.chips[i];
+      if (v === before){ this.send(c, this.snapshot()); return; }
+      bank.chips[i] = v; syncBankUI();
+      this.toast('<b>' + escapeHtml(me.name) + '</b> → ' + (v ? fmtMoney(v) + ' chips' : 'OUT'), () => { const k = this.nameIndex(me.name); if (k >= 0){ bank.chips[k] = before; syncBankUI(); } });
+      return;
+    }
+    if (d.t === 'emoji'){
+      if (!EMOJIS.includes(d.e) || !me.name) return;
+      const now = Date.now(); if (now - (this.lastEmoji.get(me.name) || 0) < 1200) return; this.lastEmoji.set(me.name, now);
+      this.showEmoji(d.e, me.name); this.broadcast({ t: 'emoji', e: d.e, name: me.name });
+    }
+  },
+  photoRev(){ return bank.photos.map(x => x ? x.length : 0).join('.'); },
+  snapshot(){
+    const P = presentation, sl = P.slides[P.current], type = sl.dataset.type || (P.current === 0 ? 'cover' : (sl.id === 'huSlide' ? 'headsup' : 'winner'));
+    const idx = sl.dataset.lid ? levels.findIndex(l => l.id === sl.dataset.lid) : -1, lv = idx >= 0 ? levels[idx] : (type === 'cover' ? levels[0] : null);
+    const nx = type === 'transition' ? null : (idx >= 0 ? levels[idx + 1] : null);
+    let remaining = null, paused = false;
+    if (clock.el && clock.activeSlide === sl){ remaining = Math.max(0, Math.round(clock.paused ? clock.remaining : clock.deadline - performance.now())); paused = clock.paused; }
+    return { t: 'state', type, levelNo: idx >= 0 ? idx + 1 : (type === 'cover' ? 1 : 0), levelsTotal: levels.length, sb: lv ? lv.sb : null, bb: lv ? lv.bb : null,
+      mins: lv ? lv.mins : null, next: nx ? { n: idx + 2, sb: nx.sb, bb: nx.bb } : null, remaining, paused,
+      players: bank.names.map((n, i) => ({ name: n, chips: bank.chips[i], buyin: bank.buyins[i] })), pot: potTotal(), allowChips: this.allowChips, photoRev: this.photoRev() };
+  },
+  /* state to every phone: on every change (debounced) + a heartbeat every 5 s */
+  push(beat){ if (!this.conns.size) return; if (beat){ this.broadcast(this.snapshot()); return; }
+    clearTimeout(this.pushT); this.pushT = setTimeout(() => this.broadcast(this.snapshot()), 120); },
+  showEmoji(e, name){
+    const L = this.el('emojiLayer'), f = document.createElement('div'); f.className = 'emoji-fly';
+    f.style.left = (8 + Math.random() * 78) + '%';
+    f.innerHTML = '<span class="e">' + e + '</span><span class="n">' + escapeHtml(name) + '</span>';
+    L.appendChild(f); setTimeout(() => f.remove(), 3600);
+    while (L.children.length > 14) L.firstChild.remove();
+  },
+  toast(html, undo){
+    const L = this.el('toastLayer'), t = document.createElement('div'); t.className = 'toast';
+    t.innerHTML = '<span>' + html + '</span>' + (undo ? '<button type="button">Undo</button>' : '');
+    if (undo) t.querySelector('button').addEventListener('click', () => { undo(); t.remove(); });
+    L.appendChild(t); setTimeout(() => t.remove(), 7000);
+    while (L.children.length > 3) L.firstChild.remove();
+  }
+};
+
+/* ============================================================
+   KEEP THE SCREEN ON while the clock is open (iPadOS 16.4+)
+   ============================================================ */
+const wake = { lock: null,
+  async get(){ try { if ('wakeLock' in navigator && !document.hidden && !this.lock){ this.lock = await navigator.wakeLock.request('screen'); this.lock.addEventListener('release', () => { this.lock = null; }); } } catch (e) {} },
+  init(){ ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => this.get(), { passive: true })); document.addEventListener('visibilitychange', () => { if (!document.hidden) this.get(); }); this.get(); }
+};
+
+/* ============================================================
    SAVE A CONFIGURED COPY (⌘S) — bakes the blinds, names, buy-ins,
    photos and chips into a downloadable file you can open anywhere.
    ============================================================ */
@@ -2392,7 +2595,9 @@ function exportDeck() {
   docCopy.style.removeProperty('--np-art'); docCopy.style.removeProperty('--np-art-big'); docCopy.style.removeProperty('--np-art-soft');
   const bd = docCopy.querySelector('body'); if (bd){ bd.classList.remove('np-glow-on', 'np-side-on', 'np-side-live'); bd.style.removeProperty('--strip-h'); bd.style.removeProperty('--strip-bottom'); }
   const nps = docCopy.querySelector('#npSide'); if (nps) nps.classList.remove('show');
-  docCopy.querySelectorAll('script[data-music-api], script[src*="open.spotify.com"]').forEach(s => s.remove());
+  docCopy.querySelectorAll('script[data-music-api], script[src*="open.spotify.com"], script[data-phones]').forEach(s => s.remove());
+  ['#emojiLayer', '#toastLayer', '#phQr', '#phList'].forEach(sel => { const x = docCopy.querySelector(sel); if (x) x.innerHTML = ''; });
+  const php = docCopy.querySelector('#phonesPanel'); if (php) php.classList.remove('open');
   const html = '<!DOCTYPE html>\n' + docCopy.outerHTML;
   slides.forEach(s => s.classList.remove('active')); if (liveActive) liveActive.classList.add('active');
   const blob = new Blob([html], { type: 'text/html' });
@@ -2443,6 +2648,8 @@ storeReady = true;
 syncBankUI();                              /* paint pot, avatars and the chip strips */
 music.init();                              /* Spotify mini-player (only shows once a link is set) */
 playerCard.init();                         /* tap a player to edit photo / name / chips */
+phones.init();                             /* 📱 players follow the game on their phones */
+wake.init();                               /* keep the iPad screen on */
 tableView.init();                          /* TABLE button / T: the table mid-game */
 spotify.init();                            /* Spotify app "Now playing" (finishes a login if we just came back from Spotify) */
 syncCoverMins();

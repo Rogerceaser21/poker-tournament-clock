@@ -29,6 +29,8 @@ async function check(name, fn){
     localStorage.setItem('poker_clock_state_v1', JSON.stringify({ v: 1, levels: [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 })),
       names: ['Ann', 'Bob', 'Cat', 'Dan'], buyins: [500, 500, 500, 500], photos: [null, null, null, null], chips: [700, 700, 700, 700], startStack: 700 }));
     localStorage.setItem('poker_phones_v1', JSON.stringify({ room, enabled: true, allowChips: true })); }, ROOM);
+  await host.addInitScript(() => { window.__sfx = []; const o = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function(){ if (!this.muted && this.src && this.src.includes('/sounds/')) window.__sfx.push(this.src); return o.apply(this, arguments); }; });
   await host.goto(BASE + 'Poker%20Tournament%20Clock.html');
 
   await check('iPad goes live as host (room ' + ROOM + ')', async () =>
@@ -83,10 +85,21 @@ async function check(name, fn){
     !!(await until(() => host.evaluate(() => [...document.querySelectorAll('#emojiLayer .emoji-fly')].some(f => f.textContent.includes('🔥') && f.textContent.includes('Bob'))), 3000)));
   await check('…and Ann\'s phone sees it too', async () =>
     !!(await until(() => phones[0].p.evaluate(() => [...document.querySelectorAll('.fly')].some(f => f.textContent.includes('🔥'))), 3000)));
+  await check('…and the iPad plays its sound (🔥 → wow)', async () =>
+    !!(await until(() => host.evaluate(() => (window.__sfx || []).some(x => x.endsWith('sounds/wow.m4a'))), 3000)) || await host.evaluate(() => window.__sfx));
+  await check('All 8 emoji sounds load on the iPad (real audio, right length)', async () => {
+    const r = await host.evaluate(() => Promise.all(Object.entries(EMOJI_SOUNDS).map(([e, n]) => new Promise(ok => {
+      const a = new Audio('sounds/' + n + '.m4a'); a.preload = 'auto';
+      a.addEventListener('loadedmetadata', () => ok([e, n, +a.duration.toFixed(2)])); a.addEventListener('error', () => ok([e, n, 'ERROR'])); setTimeout(() => ok([e, n, 'TIMEOUT']), 8000); }))));
+    return r.every(x => typeof x[2] === 'number' && x[2] > 0.3 && x[2] < 5) || r; });
+  await host.evaluate(() => { emojiSfx.on = false; window.__sfx = []; }); await wait(1300);
+  await phones[1].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '🤯' }); }); await wait(900);
+  await check('Emoji sounds switched off → no sound', async () => (await host.evaluate(() => window.__sfx.length)) === 0 || await host.evaluate(() => window.__sfx));
+  await host.evaluate(() => { emojiSfx.on = true; }); await wait(1300);
   await phones[1].p.click('[data-e="😂"]'); await phones[1].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '💀' }); });
   await check('Emoji spam is limited (max 1 per 1.2 s per player)', async () => {
     await wait(600); const n = await host.evaluate(() => [...document.querySelectorAll('#emojiLayer .emoji-fly')].filter(f => f.textContent.includes('Bob')).length);
-    return n <= 2 || 'Bob emojis on screen: ' + n; });
+    return n <= 3 || 'Bob emojis on screen: ' + n; });
 
   /* ---- own chips ---- */
   await phones[2].p.click('[data-step="500"]');

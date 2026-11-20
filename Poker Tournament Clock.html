@@ -2051,16 +2051,19 @@ const music = {
 const SPOTIFY_CLIENT_ID = '1af2112558374cc08c7dd725e9be0654';
 const SPOTIFY_REDIRECT = 'https://rogerceaser21.github.io/poker-tournament-clock/Poker%20Tournament%20Clock.html';
 const SP_AUTH_KEY = 'poker_spotify_auth_v1', SP_PKCE_KEY = 'poker_spotify_pkce_v1';
+const SP_PREMIUM_KEY = 'poker_spotify_premium_v2', SP_PREMIUM_OLD = 'poker_spotify_auth_v1_premium';   /* v1 flag was set by ANY 403 (wrong): its value is ignored and the key deleted */
 const SP_SCOPES = 'user-read-currently-playing user-read-playback-state user-modify-playback-state';
 function spRedirectUri(){ return location.hostname.endsWith('github.io') ? SPOTIFY_REDIRECT : location.origin + location.pathname; }
 function b64url(bytes){ let s = ''; bytes.forEach(b => s += String.fromCharCode(b)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function spPremiumRequired(r){ return !!(r && r.data && r.data.error && r.data.error.reason === 'PREMIUM_REQUIRED'); }
 const spotify = {
-  auth: null, name: '', now: null, premium: null, pausedByClock: false, backoffUntil: 0, pollT: null, tickT: null, busy: false, flash: '',
+  auth: null, name: '', now: null, premium: null, pausedByClock: false, backoffUntil: 0, pollT: null, tickT: null, busy: false, flash: '', lastError: null,
   el(id){ return document.getElementById(id); },
   load(){ try { this.auth = JSON.parse(localStorage.getItem(SP_AUTH_KEY) || 'null'); } catch (e) { this.auth = null; }
-          try { this.premium = JSON.parse(localStorage.getItem(SP_AUTH_KEY + '_premium') || 'null'); } catch (e) {} },
+          try { localStorage.removeItem(SP_PREMIUM_OLD); } catch (e) {}
+          try { this.premium = JSON.parse(localStorage.getItem(SP_PREMIUM_KEY) || 'null'); } catch (e) {} },
   save(){ try { this.auth ? localStorage.setItem(SP_AUTH_KEY, JSON.stringify(this.auth)) : localStorage.removeItem(SP_AUTH_KEY);
-                localStorage.setItem(SP_AUTH_KEY + '_premium', JSON.stringify(this.premium)); } catch (e) {} },
+                localStorage.setItem(SP_PREMIUM_KEY, JSON.stringify(this.premium)); } catch (e) {} },
   connected(){ return !!(this.auth && this.auth.refresh); },
   async init(){
     this.load();
@@ -2122,10 +2125,11 @@ const spotify = {
     let res; try { res = await fetch('https://api.spotify.com/v1' + path, { method, headers: { Authorization: 'Bearer ' + t } }); } catch (e) { return { status: 0 }; }
     if (res.status === 401 && retry && this.auth){ this.auth.exp = 0; return this.api(method, path, false); }
     if (res.status === 429) this.backoffUntil = Date.now() + (parseInt(res.headers.get('Retry-After') || '10', 10) * 1000);
-    let data = null; if (res.status === 200){ try { data = await res.json(); } catch (e) {} }
+    let data = null; if (res.status === 200 || res.status >= 400){ try { data = await res.json(); } catch (e) {} }   /* errors too: Spotify says WHY in { error: { reason } } */
+    if (res.status >= 400){ const e = (data && data.error) || {}; this.lastError = { status: res.status, reason: e.reason || '', message: e.message || '', path, at: Date.now() }; }
     return { status: res.status, data };
   },
-  async fetchName(){ const r = await this.api('GET', '/me'); if (r.data){ this.name = r.data.display_name || r.data.id || ''; this.syncSettings(); } },
+  async fetchName(){ const r = await this.api('GET', '/me'); if (r.status === 200 && r.data){ this.name = r.data.display_name || r.data.id || ''; this.syncSettings(); } },
   start(){
     this.stop();
     this.poll();
@@ -2249,7 +2253,11 @@ const spotify = {
       try { window.location.href = 'spotify:'; } catch (e) {}
       return false;
     }
-    if (r.status === 403){ this.premium = false; this.save(); this.render(); this.setStatus('Play / pause / skip from the clock need Spotify Premium — the song still shows.', 'bad'); return false; }
+    if (r.status === 403){
+      /* ONLY Spotify's own "PREMIUM_REQUIRED" means no Premium; other 403s (e.g. pause while already paused = "Restriction violated") keep the buttons */
+      if (spPremiumRequired(r)){ this.premium = false; this.save(); this.render(); this.setStatus('Play / pause / skip from the clock need Spotify Premium — the song still shows.', 'bad'); }
+      else setTimeout(() => this.poll(), 700);                                  /* resync the play/pause state */
+      return false; }
     if (r.status >= 200 && r.status < 300){ if (this.premium !== true){ this.premium = true; this.save(); }
       if (this.now && (action === 'toggle' || action === 'play' || action === 'pause')){ this.now.progress += this.now.playing ? Date.now() - this.now.at : 0; this.now.at = Date.now(); this.now.playing = action === 'play' || (action === 'toggle' && !was); this.render(); }
       setTimeout(() => this.poll(), 700); return true; }
@@ -2305,7 +2313,7 @@ const musicDip = {
     if (sp.premium !== false){
       const r = await sp.api('PUT', '/me/player/pause');
       if (r.status >= 200 && r.status < 300){ sp.premium = true; this.mode = 'pause'; this.startedAt = Date.now(); this.extend(ms); return 'playback'; }
-      if (r.status === 403){ sp.premium = false; sp.save(); sp.render(); }
+      if (r.status === 403){ if (spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); } else setTimeout(() => sp.poll(), 700); }
     }
     return 'ambient';
   },

@@ -115,6 +115,21 @@ const TESTS = [
     await wait(1200); await p.click('#startBtn'); await wait(700); spotifyCalls.length = 0; await press(p, '#nextBtn'); await wait(2400);
     const calls = spotifyCalls.filter(c => /pause|play$/.test(c));
     return (calls[0] === 'PUT /me/player/pause' && calls[1] === 'PUT /me/player/play' && calls.length === 2) || { calls }; }, { spotify: true }],
+  ['Spotify 403 that is NOT Premium-required keeps the ⏮ ⏯ ⏭ buttons', async ({ p }) => {
+    await p.context().route('https://api.spotify.com/v1/me/player/pause', r => r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }) }));
+    await wait(1200); await p.evaluate(() => spotify.control('pause')); await wait(1200);
+    const r = await p.evaluate(() => ({ premium: spotify.premium, hidden: ['npCtl', 'npSideCtl', 'npBigCtl'].map(i => document.getElementById(i).classList.contains('none')), err: spotify.lastError && spotify.lastError.reason }));
+    return (r.premium !== false && r.hidden.every(h => !h) && r.err === 'UNKNOWN') || r; }, { spotify: true }],
+  ['Spotify 403 with reason PREMIUM_REQUIRED hides the ⏮ ⏯ ⏭ buttons', async ({ p }) => {
+    await p.context().route('https://api.spotify.com/v1/me/player/pause', r => r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { status: 403, message: 'Premium required', reason: 'PREMIUM_REQUIRED' } }) }));
+    await wait(1200); await p.evaluate(() => spotify.control('pause')); await wait(1200);
+    const r = await p.evaluate(() => ({ premium: spotify.premium, hidden: ['npCtl', 'npSideCtl', 'npBigCtl'].map(i => document.getElementById(i).classList.contains('none')) }));
+    return (r.premium === false && r.hidden.every(h => h)) || r; }, { spotify: true }],
+  ['Old stored Premium=false (v1 key) is ignored after reload and the old key is removed', async ({ p }) => {
+    await wait(1200); await p.evaluate(() => localStorage.setItem('poker_spotify_auth_v1_premium', 'false'));
+    await p.reload(); await wait(1500);
+    const r = await p.evaluate(() => ({ premium: spotify.premium, old: localStorage.getItem('poker_spotify_auth_v1_premium'), hidden: ['npCtl', 'npSideCtl', 'npBigCtl'].map(i => document.getElementById(i).classList.contains('none')) }));
+    return (r.premium !== false && r.old === null && r.hidden.every(h => !h)) || r; }, { spotify: true }],
 ];
 
 (async () => {

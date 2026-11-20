@@ -697,8 +697,8 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
 
 <!-- controls pill -->
 <div class="font-scale-ctrl" id="fontScaleCtrl" aria-label="Controls">
-  <button id="prevBtn" class="fs-btn" aria-label="Previous slide" title="Previous slide">‹</button>
-  <button id="nextBtn" class="fs-btn" aria-label="Next slide" title="Next slide">›</button>
+  <button id="prevBtn" class="fs-btn" aria-label="Previous level" title="Previous level" data-ico="prev"></button>
+  <button id="nextBtn" class="fs-btn" aria-label="Next level" title="Next level" data-ico="next"></button>
   <span class="ctrl-divider" aria-hidden="true"></span>
   <button id="fontScaleDown" aria-label="Decrease font size" title="Smaller (⌘ ,)">A−</button>
   <span id="fontScaleLabel">100%</span>
@@ -825,7 +825,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
       <div class="set-row"><button class="rebuy-add" id="spConnect">Connect Spotify</button><button class="set-btn" id="spDisconnect">Disconnect</button></div>
       <div class="set-row music-status" id="spStatus"></div>
       <div class="rebuy-hint" style="text-align:left">Connect once on each iPad / computer, before the game (the page reloads). Then play music in the Spotify app as normal. ⏮ ⏯ ⏭ need Spotify Premium.</div>
-      <div class="set-row" style="margin-top:.8em"><label class="music-chk"><input type="checkbox" id="musicPauseChk"> Pause the music when I pause the clock</label></div>
+      <div class="set-row" style="margin-top:.8em"><label class="music-chk"><input type="checkbox" id="musicPauseChk"> Pause the music when I pause the clock <span style="opacity:.6">(not recommended on iPad — a paused Spotify falls asleep)</span></label></div>
       <div class="set-row"><label class="music-chk"><input type="checkbox" id="musicGlowChk"> Album colours glow behind the timer</label></div>
       <div class="rebuy-hint" style="text-align:left">Tap the Now playing card for the big view (the level, time and blinds stay at the bottom).</div>
       <div class="set-sub">Or play a playlist inside the clock</div>
@@ -1614,7 +1614,7 @@ function saveState(){
       localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1,
         levels: levels.map(l => ({ id: l.id, sb: l.sb, bb: l.bb, mins: l.mins })),
         names: bank.names, buyins: bank.buyins, photos: bank.photos, chips: bank.chips, startStack: bank.startStack,
-        music: musicState.url, musicPause: musicState.pauseWithClock, musicOpen: musicState.open, musicGlow: musicState.glow, musicView: musicState.view }));
+        music: musicState.url, musicPause: musicState.pauseWithClock, musicPauseUser: musicState.pauseSetByUser, musicOpen: musicState.open, musicGlow: musicState.glow, musicView: musicState.view }));
     } catch (e) {}
   }, 250);
 }
@@ -1636,7 +1636,8 @@ function loadState(){
     if (fit(st.chips)) bank.chips = st.chips.map(v => clampInt(v, 0, 1e9, 0));
   }
   if (typeof st.music === 'string') musicState.url = st.music;
-  if (typeof st.musicPause === 'boolean') musicState.pauseWithClock = st.musicPause;
+  if (typeof st.musicPause === 'boolean' && (st.musicPauseUser || !IS_IOS)) musicState.pauseWithClock = st.musicPause;
+  musicState.pauseSetByUser = !!st.musicPauseUser;
   if (typeof st.musicOpen === 'boolean') musicState.open = st.musicOpen;
   if (typeof st.musicGlow === 'boolean') musicState.glow = st.musicGlow;
   if (st.musicView === 'side' || st.musicView === 'card') musicState.view = st.musicView;
@@ -1798,8 +1799,9 @@ function buildMoneyPile(){
    switch and suspended between transitions. Self-contained, no files.
    ============================================================ */
 function makeChimeWav(){
-  const sr = 22050, n = Math.floor(sr * 0.95);
-  const env = (t, t0, tau) => t < t0 ? 0 : Math.exp(-(t - t0) / tau);
+  /* level-change alert = "time pips": three short 1 kHz pips and one longer one (radio time signal) */
+  const sr = 22050, n = Math.floor(sr * 1.45);
+  const pips = [[0, .1, .02], [.3, .1, .02], [.6, .1, .02], [.9, .45, .08]];   /* start, length, release (s) */
   const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
   const wr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
   wr(0,'RIFF'); dv.setUint32(4, 36 + n * 2, true); wr(8,'WAVE'); wr(12,'fmt ');
@@ -1809,11 +1811,11 @@ function makeChimeWav(){
   for (let i = 0; i < n; i++){
     const t = i / sr;
     let s = 0;
-    s += 0.18 * Math.sin(2*Math.PI*2400*t) * env(t, 0,    0.06);   /* chip clink */
-    s += 0.14 * Math.sin(2*Math.PI*3100*t) * env(t, 0.03, 0.05);
-    s += 0.10 * Math.sin(2*Math.PI*2400*t) * env(t, 0.14, 0.05);
-    s += 0.22 * Math.sin(2*Math.PI*659.25*t) * env(t, 0.18, 0.36); /* E5 chime */
-    s += 0.24 * Math.sin(2*Math.PI*987.77*t) * env(t, 0.34, 0.52); /* B5 chime */
+    for (const [st, len, rel] of pips){
+      const u = t - st; if (u < 0 || u > len) continue;
+      const e = Math.min(1, u / .004) * (u < len - rel ? 1 : Math.max(0, (len - u) / rel));
+      s += 0.5 * e * (Math.sin(2*Math.PI*1000*u) + 0.1 * Math.sin(2*Math.PI*2000*u));
+    }
     s = Math.max(-1, Math.min(1, s));
     dv.setInt16(44 + i * 2, s * 32767, true);
   }
@@ -1823,6 +1825,10 @@ function makeChimeWav(){
 }
 class SoundFx {
   constructor(){
+    /* iPad: by default any sound from Safari STOPS other apps' audio (Spotify), and a paused Spotify
+       gets frozen by iPadOS. "ambient" makes the alert play OVER the music instead (iPadOS 17+).
+       Trade-off: ambient sounds follow the silent switch. */
+    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
     this.muted = false; this.unlocked = false;
     this.audio = new Audio();
     this.audio.preload = 'auto';
@@ -1847,9 +1853,11 @@ class SoundFx {
   _unlock(){
     const a = this.audio;
     try {
+      a.muted = true;                                   /* silent unlock: never blip (or pause Spotify) on the first tap */
       const p = a.play();
-      if (p && p.then) p.then(() => { a.pause(); a.currentTime = 0; this.unlocked = true; }).catch(() => {});
-      else { a.pause(); a.currentTime = 0; this.unlocked = true; }
+      const done = () => { a.pause(); a.currentTime = 0; a.muted = false; this.unlocked = true; };
+      if (p && p.then) p.then(done).catch(() => { a.muted = false; });
+      else done();
     } catch (e) {}
   }
   toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} } }
@@ -1866,7 +1874,9 @@ class SoundFx {
    Spotify developer account is needed. Full songs need the viewer
    logged in to Spotify in this browser; otherwise 30-second previews.
    ============================================================ */
-const musicState = { url: '', pauseWithClock: true, open: true, glow: true, view: 'card' };
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+/* pausing Spotify on an iPad lets iPadOS freeze it, so "pause music with the clock" is off there unless switched on */
+const musicState = { url: '', pauseWithClock: !IS_IOS, pauseSetByUser: false, open: true, glow: true, view: 'card' };
 function parseSpotify(input){
   const s = String(input || '').trim();
   let m = s.match(/open\.spotify\.com\/(?:intl-[a-z]{2}(?:-[a-z]{2})?\/)?(?:embed\/)?(playlist|album|track|artist|show|episode)\/([A-Za-z0-9]{10,})/i);
@@ -1889,7 +1899,7 @@ const music = {
     this.el('musicClear').addEventListener('click', () => { inp.value = ''; this.setUrl(''); });
     const chk = this.el('musicPauseChk');
     chk.checked = musicState.pauseWithClock;
-    chk.addEventListener('change', () => { musicState.pauseWithClock = chk.checked; saveState(); });
+    chk.addEventListener('change', () => { musicState.pauseWithClock = chk.checked; musicState.pauseSetByUser = true; saveState(); });
     this.apply();
   },
   setUrl(raw){
@@ -2070,7 +2080,11 @@ const spotify = {
         art: (imgs[imgs.length > 1 ? imgs.length - 2 : 0] || {}).url || '', artBig: (imgs[0] || {}).url || '', artSmall: (imgs[imgs.length - 1] || {}).url || '',
         playing: !!r.data.is_playing,
         progress: r.data.progress_ms || 0, duration: it.duration_ms || 0, at: Date.now() };
-    } else if (r.status === 204 || (r.status === 200 && !(r.data && r.data.item))) this.now = null;
+      this.now.gone = false;
+    } else if (r.status === 204 || (r.status === 200 && !(r.data && r.data.item))){
+      /* Spotify went quiet (on iPad a paused Spotify gets frozen within seconds): keep the last song on screen */
+      if (this.now){ if (this.now.playing){ this.now.progress += Date.now() - this.now.at; this.now.at = Date.now(); } this.now.playing = false; this.now.gone = true; }
+    }
     else if (r.status === 0 && !this.connected()) this.now = null;
     this.render();
   },
@@ -2145,12 +2159,12 @@ const spotify = {
     this.el('npBigCtl').classList.toggle('none', this.premium === false);
     const sArt = this.el('npSideArt'); if (sArt.getAttribute('src') !== big){ if (big) sArt.src = big; else sArt.removeAttribute('src'); }
     this.el('npSideTitle').textContent = n.title; this.el('npSideArtist').textContent = n.artist;
-    this.el('npSideK').textContent = n.playing ? 'Now playing' : 'Paused';
+    this.el('npSideK').textContent = n.playing ? 'Now playing' : (n.gone ? 'Paused · tap ▶ to reopen Spotify' : 'Paused');
     setIcon(this.el('npSideToggle'), n.playing ? 'pause' : 'play');
     this.el('npSideCtl').classList.toggle('none', this.premium === false);
     const art = this.el('npArt'); if (art.getAttribute('src') !== n.art){ if (n.art) art.src = n.art; else art.removeAttribute('src'); }
     this.el('npTitle').textContent = n.title; this.el('npArtist').textContent = n.artist;
-    this.el('npK').textContent = n.playing ? 'Now playing' : 'Paused';
+    this.el('npK').textContent = n.playing ? 'Now playing' : (n.gone ? 'Paused · tap ▶' : 'Paused');
     card.classList.toggle('paused', !n.playing);
     setIcon(this.el('npToggle'), n.playing ? 'pause' : 'play');
     this.el('npCtl').classList.toggle('none', this.premium === false);
@@ -2162,7 +2176,12 @@ const spotify = {
     const [m, path] = map[action === 'toggle' ? (was ? 'pause' : 'play') : action] || [];
     if (!m) return;
     const r = await this.api(m, path);
-    if (r.status === 404){ this.setStatus('Spotify isn’t playing on any device right now — start a song in the Spotify app first.', 'bad'); return false; }
+    if (r.status === 404 || ((action === 'play' || (action === 'toggle' && !was)) && this.now && this.now.gone && r.status >= 400)){
+      /* nothing awake to send "play" to (iPad froze Spotify): open the Spotify app instead — one tap on play there */
+      this.setStatus('Spotify was asleep — opened the Spotify app. Tap play there.', 'bad');
+      try { window.location.href = 'spotify:'; } catch (e) {}
+      return false;
+    }
     if (r.status === 403){ this.premium = false; this.save(); this.render(); this.setStatus('Play / pause / skip from the clock need Spotify Premium — the song still shows.', 'bad'); return false; }
     if (r.status >= 200 && r.status < 300){ if (this.premium !== true){ this.premium = true; this.save(); }
       if (this.now && (action === 'toggle' || action === 'play' || action === 'pause')){ this.now.progress += this.now.playing ? Date.now() - this.now.at : 0; this.now.at = Date.now(); this.now.playing = action === 'play' || (action === 'toggle' && !was); this.render(); }
@@ -2352,8 +2371,17 @@ const clock = new TournamentClock(presentation);
 clock.sound = sound;                       /* play the casino cue on each transition */
 document.getElementById('pauseBtn').addEventListener('click', () => clock.togglePause());  /* touch pause for iPad */
 document.getElementById('startBtn').addEventListener('click', () => presentation.goTo(1));  /* cover -> Level 1 */
-document.getElementById('prevBtn').addEventListener('click', () => presentation.prev());
-document.getElementById('nextBtn').addEventListener('click', () => presentation.next());
+/* ⏮ ⏭ jump level to level (skipping the 5-second "Next up" screens); arrow keys still step one slide */
+function jumpLevel(dir){
+  const S = presentation.slides, cur = presentation.current, isLv = i => S[i] && S[i].dataset.type === 'level';
+  let i = cur + dir;
+  while (i > 0 && i < S.length && S[i].dataset.type === 'transition') i += dir;   /* skip the flash screens */
+  if (dir < 0 && i > 0 && !isLv(i)){ for (let k = i; k > 0; k--) if (isLv(k)){ i = k; break; } }
+  i = Math.max(0, Math.min(S.length - 1, i));
+  if (i !== cur) presentation.goTo(i);
+}
+document.getElementById('prevBtn').addEventListener('click', () => jumpLevel(-1));
+document.getElementById('nextBtn').addEventListener('click', () => jumpLevel(1));
 
 buildMoneyPile();
 renderSeats();                             /* cover seats for however many players there are */

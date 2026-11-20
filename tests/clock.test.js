@@ -17,15 +17,26 @@ async function newPage(browserType, { spotify = false } = {}) {
   const p = await ctx.newPage();
   const errors = []; p.on('pageerror', e => errors.push(e.message));
   const spotifyCalls = [];
-  await ctx.route('https://api.spotify.com/v1/**', r => {
-    const u = r.request().url(), path = u.split('/v1')[1], m = r.request().method();
-    if (!path.startsWith('/me/player?')) spotifyCalls.push(m + ' ' + path.split('?')[0]);
-    if (path === '/me') return r.fulfill({ status: 200, contentType: 'application/json', body: '{"display_name":"Test"}' });
-    if (path.startsWith('/me/player?')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: true, progress_ms: 1000,
+  /* fake Spotify that keeps state like the real one: pause → paused (a 2nd pause = 403 "Restriction violated"), play → playing.
+     log = every call with its send time t and reply time done (ms) */
+  const fake = { playing: true, playDelay: 0 }, log = [];
+  await ctx.route('https://api.spotify.com/v1/**', async r => {
+    const u = r.request().url(), path = u.split('/v1')[1], m = r.request().method(), e = { c: m + ' ' + path.split('?')[0], t: Date.now(), done: 0 };
+    log.push(e);
+    if (!path.startsWith('/me/player?')) spotifyCalls.push(e.c);
+    const reply = async (o) => { if (e.c === 'PUT /me/player/play' && fake.playDelay) await wait(fake.playDelay); e.done = Date.now(); return r.fulfill(o); };
+    if (path === '/me') return reply({ status: 200, contentType: 'application/json', body: '{"display_name":"Test"}' });
+    if (path.startsWith('/me/player?')) return reply({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: fake.playing, progress_ms: 1000,
       device: { id: 'ipad', type: 'Tablet', volume_percent: 70, supports_volume: false },
       item: { id: 't', name: 'Song', duration_ms: 200000, artists: [{ name: 'Artist' }], album: { images: [{ url: 'x' }] } } }) });
-    return r.fulfill({ status: 204, body: '' });
+    if (e.c === 'PUT /me/player/pause'){ if (!fake.playing) return reply({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }) }); fake.playing = false; }
+    if (e.c === 'PUT /me/player/play'){ const res = reply({ status: 204, body: '' }); await res; fake.playing = true; return; }
+    return reply({ status: 204, body: '' });
   });
+  /* spy: every meme sound started / ended (page clock) */
+  await p.addInitScript(() => { window.__sfx = []; window.__ends = []; const o = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function(){ if (!this.muted && this.src && this.src.includes('/sounds/')){ const n = this.src.split('/').pop(); window.__sfx.push({ n, t: Date.now() });
+      this.addEventListener('ended', () => window.__ends.push({ n, t: Date.now() }), { once: true }); } return o.apply(this, arguments); }; });
   await p.addInitScript(([levels, spotify]) => {
     if (sessionStorage.getItem('seeded')) return; sessionStorage.setItem('seeded', '1'); localStorage.clear();
     localStorage.setItem('poker_clock_state_v1', JSON.stringify({ v: 1, levels, names: ['Ann', 'Bob', 'Cat'], buyins: [500, 500, 500], photos: [null, null, null], chips: [700, 700, 700], startStack: 700 }));
@@ -37,7 +48,7 @@ async function newPage(browserType, { spotify = false } = {}) {
     window.__alerts = 0; const a = window.levelAlert; window.levelAlert = (...x) => { window.__alerts++; return a(...x); };
     window.__sounds = 0; const s = sound.playTransition.bind(sound); sound.playTransition = (...x) => { window.__sounds++; return s(...x); };
   });
-  return { b, p, errors, spotifyCalls };
+  return { b, p, errors, spotifyCalls, fake, log };
 }
 const state = p => p.evaluate(() => {
   const sl = presentation.slides[presentation.current], type = sl.dataset.type || (sl.id || (presentation.current === 0 ? 'cover' : 'other'));
@@ -46,6 +57,11 @@ const state = p => p.evaluate(() => {
     left, full: clock.el ? Math.round(clock.duration / 1000) : null, paused: clock.paused, alerts: window.__alerts, sounds: window.__sounds };
 });
 const press = async (p, sel) => { await p.click(sel); await wait(650); };
+/* music-dip checks: only the pause / play calls, and "no two pauses in a row, each pause after the play before it came back" */
+const dips = log => log.filter(e => /\/me\/player\/(pause|play)$/.test(e.c)).map(e => ({ c: e.c.endsWith('pause') ? 'pause' : 'play', t: e.t, done: e.done }));
+const clean = d => d.every((e, i) => e.c !== 'pause' || (i === 0 || (d[i - 1].c === 'play' && d[i - 1].done && e.t >= d[i - 1].done)));
+const until = async (fn, ms) => { const end = Date.now() + ms; while (Date.now() < end){ const v = await fn(); if (v) return v; await wait(50); } return null; };
+const emoji = (p, e) => p.evaluate(e => emojiSfx.play(e), e);
 const expireNow = p => p.evaluate(() => { clock.deadline = performance.now() + 120; });
 
 const TESTS = [
@@ -125,6 +141,34 @@ const TESTS = [
     await wait(1200); await p.evaluate(() => spotify.control('pause')); await wait(1200);
     const r = await p.evaluate(() => ({ premium: spotify.premium, hidden: ['npCtl', 'npSideCtl', 'npBigCtl'].map(i => document.getElementById(i).classList.contains('none')) }));
     return (r.premium === false && r.hidden.every(h => h)) || r; }, { spotify: true }],
+  ['Music dip: two sounds 300 ms apart → ONE pause, ONE play, play after the last sound ended', async ({ p, log }) => {
+    await wait(1200); log.length = 0; emoji(p, '😂'); await wait(300); emoji(p, '😭'); await wait(6500);
+    const d = dips(log), ends = await p.evaluate(() => window.__ends), last = Math.max(0, ...ends.map(e => e.t)), play = d.find(e => e.c === 'play');
+    return (d.length === 2 && d[0].c === 'pause' && d[1].c === 'play' && ends.length === 2 && play.t >= last && clean(d)) || { d, ends }; }, { spotify: true }],
+  ['Music dip: a sound while the "play" reply is on its way → no 2nd pause before it, still dips after', async ({ p, log, fake }) => {
+    await wait(1200); fake.playDelay = 600; log.length = 0; emoji(p, '🤡');
+    await until(() => dips(log).some(e => e.c === 'play'), 4000); await wait(100); emoji(p, '🤡'); await wait(3500);
+    const d = dips(log);
+    return (d.map(e => e.c).join() === 'pause,play,pause,play' && clean(d)) || { d }; }, { spotify: true }],
+  ['Music dip: Spotify not playing → no pause sent at all', async ({ p, log, fake }) => {
+    fake.playing = false; await p.evaluate(() => spotify.poll()); await wait(1200); log.length = 0; emoji(p, '🤡'); await wait(2000);
+    const d = dips(log), sfx = await p.evaluate(() => window.__sfx.length);
+    return (d.length === 0 && sfx === 1) || { d, sfx }; }, { spotify: true }],
+  ['Music dip: a poll seeing "paused" mid-dip → music back, shows playing, next sound still dips', async ({ p, log }) => {
+    await wait(1200); log.length = 0; emoji(p, '🤡');
+    await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000); await p.evaluate(() => spotify.poll());
+    await until(() => dips(log).some(e => e.c === 'play' && e.done), 4000); emoji(p, '🤡'); await wait(2500);
+    const d = dips(log), r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent }));
+    return (d.map(e => e.c).join() === 'pause,play,pause,play' && clean(d) && r.playing === true && r.k === 'Now playing') || { d, r }; }, { spotify: true }],
+  ['Music dip: a 403 that is NOT Premium-required on the dip\'s pause keeps the buttons, sound still plays, no play sent', async ({ p, log }) => {
+    await p.context().route('https://api.spotify.com/v1/me/player/pause', r => { log.push({ c: 'PUT /me/player/pause', t: Date.now(), done: Date.now() }); return r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }) }); });
+    await wait(1200); log.length = 0; emoji(p, '🤡'); await wait(2000);
+    const d = dips(log), r = await p.evaluate(() => ({ premium: spotify.premium, hidden: ['npCtl', 'npSideCtl', 'npBigCtl'].map(i => document.getElementById(i).classList.contains('none')), sfx: window.__sfx.length }));
+    return (d.map(e => e.c).join() === 'pause' && r.premium !== false && r.hidden.every(h => !h) && r.sfx === 1) || { d, r }; }, { spotify: true }],
+  ['Music dip: a long sound (😭 4.5 s) is not cut — play ≥ 4.4 s after the pause', async ({ p, log }) => {
+    await wait(1200); log.length = 0; emoji(p, '😭'); await wait(6500);
+    const d = dips(log), gap = d.length === 2 ? d[1].t - d[0].t : null;
+    return (d.length === 2 && d[0].c === 'pause' && d[1].c === 'play' && gap >= 4400) || { d, gap }; }, { spotify: true }],
   ['Old stored Premium=false (v1 key) is ignored after reload and the old key is removed', async ({ p }) => {
     await wait(1200); await p.evaluate(() => localStorage.setItem('poker_spotify_auth_v1_premium', 'false'));
     await p.reload(); await wait(1500);

@@ -1926,10 +1926,10 @@ class SoundFx {
   applyBtn(){ setIcon(this.btn, this.muted ? 'mute' : 'sound'); this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
   /* session: 'ambient' = plays over other apps' music (muted by the iPad's silent mode);
               'playback' = full alert, plays even on silent, but stops other apps' music */
-  playTransition(session){
-    if (this.muted) return;
+  playTransition(session){                               /* → the play() promise, or false when nothing will play */
+    if (this.muted) return false;
     try { if (navigator.audioSession && session) navigator.audioSession.type = session; } catch (e) {}
-    try { this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
+    try { this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); return p; } catch (e) { return false; }
   }
 }
 
@@ -2140,21 +2140,23 @@ const spotify = {
   stop(){ clearInterval(this.pollT); clearInterval(this.tickT); this.pollT = this.tickT = null; },
   async poll(){
     if (this.busy || document.hidden || Date.now() < this.backoffUntil || !this.connected()) return;
-    this.busy = true;
+    this.busy = true; const t0 = Date.now();
     const r = await this.api('GET', '/me/player?additional_types=track,episode');      /* = currently playing + the device it plays on */
-    if (r.status === 200 && r.data && r.data.device) this.device = { id: r.data.device.id, type: r.data.device.type, volume: r.data.device.volume_percent, canVolume: !!r.data.device.supports_volume };
+    /* a poll that overlaps our own music dip must not overrule it (Spotify reports OUR pause / OUR turned-down volume) */
+    const dipP = typeof musicDip !== 'undefined' && musicDip.ours('pause', t0), dipV = typeof musicDip !== 'undefined' && musicDip.ours('volume', t0);
+    if (r.status === 200 && r.data && r.data.device) this.device = { id: r.data.device.id, type: r.data.device.type, volume: dipV ? musicDip.restoreVol : r.data.device.volume_percent, canVolume: !!r.data.device.supports_volume };
     else if (r.status === 204) this.device = null;
     this.busy = false;
     if (r.status === 200 && r.data && r.data.item){
       const it = r.data.item, imgs = (it.album && it.album.images) || it.images || [];
       this.now = { id: it.id, title: it.name, artist: it.artists ? it.artists.map(a => a.name).join(', ') : (it.show ? it.show.name : ''),
         art: (imgs[imgs.length > 1 ? imgs.length - 2 : 0] || {}).url || '', artBig: (imgs[0] || {}).url || '', artSmall: (imgs[imgs.length - 1] || {}).url || '',
-        playing: !!r.data.is_playing,
+        playing: !!r.data.is_playing || dipP,
         progress: r.data.progress_ms || 0, duration: it.duration_ms || 0, at: Date.now() };
       this.now.gone = false;
     } else if (r.status === 204 || (r.status === 200 && !(r.data && r.data.item))){
       /* Spotify went quiet (on iPad a paused Spotify gets frozen within seconds): keep the last song on screen */
-      if (this.now){ if (this.now.playing){ this.now.progress += Date.now() - this.now.at; this.now.at = Date.now(); } this.now.playing = false; this.now.gone = true; }
+      if (this.now && !dipP){ if (this.now.playing){ this.now.progress += Date.now() - this.now.at; this.now.at = Date.now(); } this.now.playing = false; this.now.gone = true; }
     }
     else if (r.status === 0 && !this.connected()) this.now = null;
     this.render();
@@ -2289,53 +2291,93 @@ const spotify = {
    ============================================================ */
 const PIPS_MS = 1500;
 /* MUSIC DIP — shared by the level alert and the emoji sounds.
-   begin(ms) dips Spotify for at least ms and says which audio mode our sound should use:
+   begin(ms) → a hold { mode, release } (or null when dropped). mode = the audio mode our sound should use:
      speaker / computer → volume down to 25 %  → our sound plays over it ('ambient')
      iPad / phone + Premium → pause             → our sound plays at full volume ('playback', even on silent)
      otherwise → nothing to dip                 → 'ambient' over the music (or 'playback' when nothing plays)
-   Several sounds in a row share ONE dip; the music comes back after the last one. A dip never lasts
-   more than 6 s, so iPadOS doesn't put a paused Spotify to sleep. */
+   The caller calls release() when its sound really ended (ended / error / play refused); each hold also
+   lets go by itself ms + 1.5 s later, so a lost event never keeps the music paused.
+   Rules: one dip at a time — begin and end run through ONE promise chain, so there is never a 2nd pause,
+   never a pause while the "play" is still on its way, never a play without our pause before it.
+   Several sounds share ONE dip; the music comes back ~150 ms after the LAST one ended.
+   A dip lasts at most 9 s (iPadOS freezes a Spotify left paused). A sound that would end after that waits
+   and plays in the next dip, ~2 s after the music is back (max 4 waiting; the level alert jumps the queue). */
 const musicDip = {
-  mode: null, until: 0, startedAt: 0, restoreVol: null, t: null, pending: null, MAX: 6000,
+  MAX: 9000, TAIL: 150, GAP: 2000, QMAX: 4,
+  mode: null, sfx: 'ambient', startedAt: 0, restoreVol: null, holds: new Set(), chain: Promise.resolve(), queue: [],
+  ending: null, backAt: { pause: 0, volume: 0 }, tailT: null, capT: null, qT: null,
   live(){ const sp = spotify; return sp.connected() && sp.now && sp.now.playing && !sp.now.gone; },
-  async begin(ms){
-    if (this.pending) await this.pending;
-    if (this.mode){ this.extend(ms); return this.mode === 'pause' ? 'playback' : 'ambient'; }
-    if (!this.live()) return 'playback';                                  /* no music to protect: full sound */
-    this.pending = this._start(ms); const mode = await this.pending; this.pending = null; return mode;
+  /* did OUR dip (kind 'pause' / 'volume') cover a poll that started at t0? then the dip's state is the truth */
+  ours(kind, t0){ return this.mode === kind || this.ending === kind || this.backAt[kind] >= t0; },
+  run(fn){ this.chain = this.chain.then(fn).catch(() => {}); return this.chain; },
+  begin(ms, front){ return new Promise(ok => this.run(() => this.join(ms, !!front, ok, false))); },
+  async join(ms, front, ok, drained){
+    const dipping = this.mode === 'pause' || this.mode === 'volume';
+    if ((dipping && Date.now() + ms > this.startedAt + this.MAX) || (!this.mode && !drained && this.queue.length)){
+      if (front) this.queue.unshift({ ms, front, ok });                     /* the level alert is never dropped */
+      else if (this.queue.length < this.QMAX) this.queue.push({ ms, front, ok });
+      else ok(null);
+      return;
+    }
+    clearTimeout(this.tailT);
+    if (!this.mode){
+      if (!this.live()){ this.mode = 'none'; this.sfx = 'playback'; }    /* no music to protect: full sound */
+      else await this.start();
+    }
+    ok(this.hold(ms));
   },
-  async _start(ms){
+  async start(){
     const sp = spotify, d = sp.device;
     if (d && d.canVolume && d.volume != null && sp.premium !== false){
-      const r = await sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(d.volume, 100) * 0.25));
-      if (r.status >= 200 && r.status < 300){ this.mode = 'volume'; this.restoreVol = d.volume; this.startedAt = Date.now(); this.extend(ms); return 'ambient'; }
+      const v = d.volume, r = await sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(v, 100) * 0.25));
+      if (r.status >= 200 && r.status < 300){ this.mode = 'volume'; this.sfx = 'ambient'; this.restoreVol = v; this.capped(); return; }
     }
     if (sp.premium !== false){
       const r = await sp.api('PUT', '/me/player/pause');
-      if (r.status >= 200 && r.status < 300){ sp.premium = true; this.mode = 'pause'; this.startedAt = Date.now(); this.extend(ms); return 'playback'; }
+      if (r.status >= 200 && r.status < 300){ sp.premium = true; this.mode = 'pause'; this.sfx = 'playback'; this.capped(); return; }
       if (r.status === 403){ if (spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); } else setTimeout(() => sp.poll(), 700); }
     }
-    return 'ambient';
+    this.mode = 'none'; this.sfx = 'ambient';                              /* couldn't dip: play over the music */
   },
-  extend(ms){
-    this.until = Math.min(Math.max(this.until, Date.now() + ms), this.startedAt + this.MAX);
-    clearTimeout(this.t); this.t = setTimeout(() => this.end(), Math.max(0, this.until - Date.now()));
+  capped(){ this.startedAt = Date.now(); clearTimeout(this.capT); this.capT = setTimeout(() => [...this.holds].forEach(h => h.release()), this.MAX); },
+  hold(ms){
+    const h = { mode: this.sfx, done: false, t: null };
+    h.renew = (n) => { if (h.done) return; clearTimeout(h.t); h.t = setTimeout(h.release, n + 1500); };
+    h.release = () => { if (h.done) return; h.done = true; clearTimeout(h.t); this.holds.delete(h); if (!this.holds.size) this.idle(); };
+    this.holds.add(h); h.renew(ms); return h;
+  },
+  /* the last of our sounds is over */
+  idle(){
+    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
+    if (this.mode === 'none'){ this.mode = null; if (this.queue.length) this.later(0); return; }
+    clearTimeout(this.tailT); this.tailT = setTimeout(() => this.run(() => this.end()), this.TAIL);
   },
   async end(){
-    const sp = spotify, m = this.mode, d = sp.device; this.mode = null; this.until = 0;
-    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
-    if (m === 'volume') await sp.api('PUT', '/me/player/volume?volume_percent=' + this.restoreVol);
-    else if (m === 'pause'){
+    if (this.holds.size || (this.mode !== 'pause' && this.mode !== 'volume')) return;
+    const sp = spotify, m = this.mode, d = sp.device; clearTimeout(this.capT);
+    this.ending = m; this.mode = null;
+    if (m === 'volume'){
+      const r = await sp.api('PUT', '/me/player/volume?volume_percent=' + this.restoreVol);
+      if (r.status >= 200 && r.status < 300){ if (d) d.volume = this.restoreVol; this.backAt.volume = Date.now(); }
+    } else {
       let back = await sp.api('PUT', '/me/player/play');
       if (back.status === 404 && d && d.id) back = await sp.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(d.id));
+      if (back.status >= 200 && back.status < 300){ this.backAt.pause = Date.now();
+        if (sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); } }
     }
+    this.ending = null;
     setTimeout(() => sp.poll(), 800);
-  }
+    if (this.queue.length) this.later(this.GAP);
+  },
+  /* the sounds that didn't fit start the next dip */
+  later(ms){ clearTimeout(this.qT); this.qT = setTimeout(() => { this.queue.splice(0).forEach(q => this.run(() => this.join(q.ms, q.front, q.ok, true))); }, ms); }
 };
 async function levelAlert(){
   if (sound.muted) return;
-  const mode = await musicDip.begin(PIPS_MS + 150);
-  sound.playTransition(mode);
+  const h = await musicDip.begin(PIPS_MS + 150, true); if (!h) return;
+  const a = sound.audio; a.addEventListener('ended', h.release, { once: true }); a.addEventListener('error', h.release, { once: true });
+  const p = sound.playTransition(h.mode);
+  if (p === false) h.release(); else if (p && p.catch) p.catch(h.release);
 }
 
 window.onSpotifyIframeApiReady = (IFrameAPI) => { music.api = IFrameAPI; if (music.uri && !music.ctrl) music.create(); };
@@ -2475,9 +2517,12 @@ const emojiSfx = {
   /* pause the music (or turn it down), play the sound, music back after it — see musicDip */
   async play(e){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const a = this.get(e); if (!a) return;
     const ms = (isFinite(a.duration) && a.duration > 0 ? a.duration * 1000 : 2500) + 200;
-    const mode = typeof musicDip !== 'undefined' ? await musicDip.begin(ms) : 'ambient';
-    try { if (navigator.audioSession) navigator.audioSession.type = mode; } catch (x) {}
-    try { a.muted = false; a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (x) {} }
+    const h = await musicDip.begin(ms); if (!h) return;                  /* dropped: too many sounds waiting (the emoji still flies) */
+    try { if (navigator.audioSession) navigator.audioSession.type = h.mode; } catch (x) {}
+    /* the music comes back when THIS sound really ended (or failed / was refused) */
+    try { a.muted = false; a.currentTime = 0; a.addEventListener('ended', h.release, { once: true }); a.addEventListener('error', h.release, { once: true });
+      if (!(isFinite(a.duration) && a.duration > 0)) a.addEventListener('loadedmetadata', () => h.renew(a.duration * 1000 + 200), { once: true });
+      const p = a.play(); if (p && p.catch) p.catch(h.release); } catch (x) { h.release(); } }
 };
 ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { once: true, passive: true }));
 const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];

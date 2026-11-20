@@ -206,6 +206,14 @@ const TESTS = [
     const heard = await until(() => p.evaluate(() => window.__sounds > 0), 8000), dt = Date.now() - t0; await wait(7500);
     const d = dips(log);
     return (heard && dt < 2000 && clean(d) && d.length && d[d.length - 1].c === 'play' && fake.playing) || { dt, d, playing: fake.playing }; }, { spotify: true }],
+  ['Music dip: slow resume (play answers after 6 s) → 4 emojis + level alert fired together ALL start within 2 s', async ({ p, log, fake }) => {
+    await wait(1200); fake.playDelay = 6000; log.length = 0; emoji(p, '🤡');
+    await until(() => dips(log).some(e => e.c === 'play'), 4000); await wait(100);
+    const t0 = await p.evaluate(() => { window.__alertAt = 0; const o = sound.playTransition.bind(sound); sound.playTransition = (...x) => { window.__alertAt = Date.now(); return o(...x); };
+      const t = Date.now(); window.__sfx.length = 0; ['😂', '🔥', '💀', '👏'].forEach(e => emojiSfx.play(e)); window.levelAlert(); return t; });
+    await wait(9000);
+    const r = await p.evaluate(() => ({ sfx: window.__sfx.map(x => x.t), alert: window.__alertAt })), late = [...r.sfx, r.alert].map(t => t ? t - t0 : null), d = dips(log);
+    return (r.sfx.length === 4 && late.every(x => x !== null && x < 2000) && clean(d) && d.map(e => e.c).join() === 'pause,play' && fake.playing) || { late, d, playing: fake.playing }; }, { spotify: true }],
   ['Old stored Premium=false (v1 key) is ignored after reload and the old key is removed', async ({ p }) => {
     await wait(1200); await p.evaluate(() => localStorage.setItem('poker_spotify_auth_v1_premium', 'false'));
     await p.reload(); await wait(1500);

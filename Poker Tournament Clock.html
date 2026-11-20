@@ -2322,8 +2322,9 @@ const musicDip = {
       else ok(null);
       return;
     }
-    /* the music is on its way back: wait max 1.5 s for that reply; during a retry WAIT just re-join (Spotify is still dipped) */
-    if (this.ending && this.flying){ await Promise.race([this.flying, new Promise(r => setTimeout(r, 1500))]); await null; }
+    /* the music is on its way back: wait max 1.5 s for that reply, ONCE per reply (later sounds don't wait again);
+       during a retry WAIT just re-join (Spotify is still dipped) */
+    if (this.ending && this.flying && this.mode !== 'resuming'){ await Promise.race([this.flying, new Promise(r => setTimeout(r, 1500))]); await null; }
     if (this.ending && this.cancelWait){ const m = this.ending; this.cancelWait(); this.ending = null; this.mode = m; this.sfx = m === 'pause' ? 'playback' : 'ambient'; this.capped(); }
     clearTimeout(this.tailT);
     if (this.ending){ this.mode = 'resuming'; this.sfx = 'ambient'; }    /* "play" still on its way: play over (the music may be back) */

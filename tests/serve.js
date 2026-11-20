@@ -13,7 +13,16 @@ function start(port = +(process.env.PORT || 8791)) {
       if (!f.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
       fs.readFile(f, (err, data) => {
         if (err) { res.writeHead(404); return res.end('not found'); }
-        res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-store' }); res.end(data);
+        const total = data.length, h = { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'no-store', 'Accept-Ranges': 'bytes' };
+        const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');            /* Safari's engine refuses audio from a server without byte ranges */
+        if (req.headers.range && !m) { res.writeHead(416, { 'Content-Range': 'bytes */' + total }); return res.end(); }
+        if (m) {
+          let s = m[1] === '' ? total - +m[2] : +m[1], e = m[1] === '' || m[2] === '' ? total - 1 : Math.min(+m[2], total - 1);
+          if (m[1] === '' && m[2] === '' || s < 0) s = NaN;
+          if (!(s <= e) || s >= total) { res.writeHead(416, { 'Content-Range': 'bytes */' + total }); return res.end(); }
+          res.writeHead(206, { ...h, 'Content-Range': 'bytes ' + s + '-' + e + '/' + total, 'Content-Length': e - s + 1 }); return res.end(data.subarray(s, e + 1));
+        }
+        res.writeHead(200, { ...h, 'Content-Length': total }); res.end(data);
       });
     });
     srv.on('error', (e) => e.code === 'EADDRINUSE' ? ok(null) : bad(e));   /* something already serves it: use that */

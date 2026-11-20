@@ -3,4 +3,4 @@
 *.tmp
 node_modules/
 .claude/
-handoff/*.tmp
+handoff/

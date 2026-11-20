@@ -1922,7 +1922,8 @@ class SoundFx {
       if (p && p.then) this._p = p.then(done, bad); else done();
     } catch (e) { this._unl = false; a.muted = false; }
   }
-  toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} if (typeof emojiSfx !== 'undefined') emojiSfx.stop(); } }
+  toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} const h = this._hold; this._hold = null; if (h) h.release();   /* beep stopped: music back now */
+    if (typeof emojiSfx !== 'undefined') emojiSfx.stop(); } }
   applyBtn(){ setIcon(this.btn, this.muted ? 'mute' : 'sound'); this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
   /* session: 'ambient' = plays over other apps' music (muted by the iPad's silent mode);
               'playback' = full alert, plays even on silent, but stops other apps' music */
@@ -2410,7 +2411,7 @@ async function levelAlert(){
   const h = await musicDip.begin(PIPS_MS + 150, true, () => !sound.muted); if (!h) return;
   if (sound._unl) await Promise.race([sound._p, new Promise(r => setTimeout(r, 300))]);   /* its silent unlock (this same tap) is on its way: let it settle, max 0.3 s */
   if (sound.muted){ h.release(); return; }
-  const a = sound.audio; a.addEventListener('ended', h.release, { once: true }); a.addEventListener('error', h.release, { once: true });
+  const a = sound.audio; sound._hold = h; a.addEventListener('ended', h.release, { once: true }); a.addEventListener('error', h.release, { once: true });   /* mute releases it too */
   const p = sound.playTransition(h.mode);
   if (p === false) h.release(); else if (p && p.catch) p.catch(h.release);
 }
@@ -2562,7 +2563,9 @@ const emojiSfx = {
   /* this play is over: free the player, music back (only if it is still THIS play's player) */
   done(a, j){ if (!j || a._job !== j) return; a._job = null; const r = a._rel; a._rel = null; if (r) r(); },
   /* sound off / Emoji sounds off: stop every emoji sound now, music back right away */
-  stop(){ this.all().forEach(a => { const j = a._job; if (!j) return; if (j.on){ try { a.pause(); a.currentTime = 0; a.muted = false; } catch (x) {} } this.done(a, j); }); },
+  stop(){ this.all().forEach(a => { const j = a._job;   /* any player still sounding (also one whose NEW play is waiting for its dip turn); a silent unlock is left to finish */
+    if (!a.paused && !a._try){ try { a.pause(); a.currentTime = 0; a.muted = false; } catch (x) {} }
+    if (j) this.done(a, j); }); },                                       /* waiting plays are dropped: their dip turn sees the job gone and releases */
   /* iPad: a player plays by itself later only if play() was called ON IT during a tap — so on every tap, each player not yet
      unlocked plays silently once, then stops. Refused → the next tap tries again. Never touches a sound that is really playing. */
   unlock(){ this.all().forEach(a => { if (a._ok || a._job || a._try) return;

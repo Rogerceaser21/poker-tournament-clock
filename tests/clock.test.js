@@ -282,6 +282,21 @@ const TESTS = [
     const stop = await until(() => p.evaluate(() => emojiSfx.pool['fail-horn'].every(a => a.paused)), 2000), dt = Date.now() - t0;
     const back = await until(() => dips(log).find(e => e.c === 'play'), 3000), d = dips(log);
     return (stop && dt <= 200 && back && back.t - t0 <= 1000 && d.map(e => e.c).join() === 'pause,play') || { dt, back: back && back.t - t0, d }; }, { spotify: true }],
+  ['Emoji: mute while a 3rd 😭 reuses a playing player and still waits for its dip turn → no emoji player plays 250 ms later', async ({ p }) => {
+    await wait(600); emoji(p, '😭'); await wait(300); emoji(p, '😭'); await wait(500);
+    await p.evaluate(() => { musicDip.run(() => new Promise(r => setTimeout(r, 1500))); emojiSfx.play('😭'); });   /* dip chain busy 1.5 s: the 3rd waits */
+    await wait(100); await p.evaluate(() => sound.toggleMute()); await wait(250);
+    const r = await p.evaluate(() => emojiSfx.all().filter(a => !a.paused && !a.muted).map(a => a.src.split('/').pop() + '@' + a.currentTime.toFixed(2)));
+    await wait(1800); const later = await p.evaluate(() => emojiSfx.all().filter(a => !a.paused && !a.muted).length);
+    return (r.length === 0 && later === 0) || { r, later }; }],
+  ['Beep: mute while the level beep plays → the music is back within ~1 s; the next alert still dips and sounds', async ({ p, log }) => {
+    await wait(1200); log.length = 0; p.evaluate(() => window.levelAlert());
+    await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000); await wait(200);
+    const t0 = Date.now(); await p.evaluate(() => sound.toggleMute());
+    const back = await until(() => dips(log).find(e => e.c === 'play'), 4000);
+    await wait(1500); await p.evaluate(() => sound.toggleMute()); await wait(2200); log.length = 0; const s0 = await p.evaluate(() => window.__sounds);
+    p.evaluate(() => window.levelAlert()); await wait(3500); const d = dips(log), s1 = await p.evaluate(() => window.__sounds);
+    return (back && back.t - t0 <= 1000 && d.map(e => e.c).join() === 'pause,play' && s1 === s0 + 1) || { back: back && back.t - t0, d, s0, s1 }; }, { spotify: true }],
   ['Beep: a real beep that played counts the beep player as unlocked (unlock never ran)', async ({ p }) => {
     await p.evaluate(() => { sound._unlock = () => {}; window.levelAlert(); }); await wait(1500);
     const r = await p.evaluate(() => ({ unlocked: sound.unlocked, n: emojiSfx.unlockedCount, emoji: emojiSfx.all().filter(a => a._ok).length }));

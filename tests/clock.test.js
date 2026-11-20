@@ -306,6 +306,26 @@ const TESTS = [
     await p.reload(); await wait(1500);
     const r = await p.evaluate(() => ({ premium: spotify.premium, old: localStorage.getItem('poker_spotify_auth_v1_premium'), hidden: ['npCtl', 'npSideCtl', 'npBigCtl'].map(i => document.getElementById(i).classList.contains('none')) }));
     return (r.premium !== false && r.old === null && r.hidden.every(h => !h)) || r; }, { spotify: true }],
+  ['Phones panel: hidden Status block — hidden by default, a click opens it with Spotify device / Premium / last error / sounds / last sounds, a 2nd click hides it', async ({ p }) => {
+    await p.context().route('https://api.spotify.com/v1/me/player/pause', r => r.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }) }));
+    await wait(1200); await p.evaluate(() => { spotify.premium = true; });
+    await p.evaluate(() => spotify.control('pause')); await wait(800);
+    await p.click('#phonesBtn'); await wait(500);
+    const hid = await p.evaluate(() => document.getElementById('phDiag').hidden && getComputedStyle(document.getElementById('phDiag')).display === 'none');
+    await p.click('#phDiagToggle'); await wait(300);
+    const vis = await p.evaluate(() => getComputedStyle(document.getElementById('phDiag')).display !== 'none');
+    await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 8000);
+    await emoji(p, '🤡'); await wait(2500);
+    const t = await p.evaluate(() => document.getElementById('phDiag').textContent);
+    const L = t.split('\n'), box = await p.evaluate(() => { const d = document.getElementById('phDiag').getBoundingClientRect(), c = document.querySelector('.ph-card').getBoundingClientRect(); return d.right <= c.right && d.left >= c.left; });
+    await p.click('#phDiagToggle'); await wait(200);
+    const hid2 = await p.evaluate(() => getComputedStyle(document.getElementById('phDiag')).display === 'none');
+    return (hid && vis && hid2 && box && /^Spotify: Tablet, volume control no, Premium yes$/.test(L[0]) && /^Last Spotify error: 403 UNKNOWN \/me\/player\/pause, \d+ s ago$/.test(L[1])
+      && L[2] === 'Sounds unlocked: 17 of 17' && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4]) && /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6) || { hid, vis, hid2, box, t }; }, { spotify: true }],
+  ['Phones panel: Status block says "Spotify: not connected" when Spotify is not connected (and "none" errors, sounds not unlocked yet)', async ({ p }) => {
+    await p.click('#phonesBtn'); await wait(500); await p.click('#phDiagToggle'); await wait(300);
+    const t = await p.evaluate(() => document.getElementById('phDiag').textContent), L = t.split('\n');
+    return (L[0] === 'Spotify: not connected' && L[1] === 'Last Spotify error: none' && /^Sounds unlocked: \d+ of 17( — tap the screen once)?$/.test(L[2]) && L[5] === 'Last sounds: none yet') || { t }; }],
 ];
 
 (async () => {

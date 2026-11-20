@@ -537,6 +537,9 @@ body.tv-open .nav-dots{ display:none; }
 .ph-room{ font-size:clamp(1.6rem,3.4vw,2.4rem); font-weight:700; letter-spacing:.18em; color:var(--gold-light); }
 .ph-url{ font-size:var(--label-size); color:rgba(246,239,217,.65); overflow-wrap:anywhere; letter-spacing:.02em; }
 .ph-status{ font-size:clamp(.85rem,1.3vw,1rem); }
+.ph-diag-link{ align-self:flex-start; background:none; border:0; padding:0; color:inherit; opacity:.6; font:inherit; font-size:.8rem; text-decoration:underline; cursor:pointer; }
+.ph-diag{ margin:0; font:.78rem/1.45 ui-monospace,Menlo,monospace; opacity:.75; white-space:pre-wrap; overflow-wrap:anywhere; max-width:100%; }
+.ph-diag[hidden]{ display:none; }
 .ph-status.ok{ color:#9fe3b3; } .ph-status.bad{ color:#f4b4b1; }
 .ph-list{ display:flex; flex-wrap:wrap; gap:.35em; }
 .ph-list span{ background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.1); border-radius:999px; padding:.2em .7em; font-size:clamp(.8rem,1.2vw,.95rem); }
@@ -804,6 +807,8 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
         <div class="ph-list" id="phList"></div>
         <label class="music-chk"><input type="checkbox" id="phAllowChips"> Players can change their own chips</label>
         <label class="music-chk"><input type="checkbox" id="phEmojiSounds"> Emoji sounds on this iPad (💀 FAAAH, 🤯 boom…) — the music pauses for them</label>
+        <button class="ph-diag-link" id="phDiagToggle" type="button">Status</button>
+        <pre class="ph-diag" id="phDiag" hidden></pre>
       </div>
     </div>
     <div class="set-actions" style="margin-top:1em"><span class="rebuy-hint" style="margin:0">Phones reconnect by themselves · keep this iPad on the clock</span><button class="set-btn" id="phNewRoom">New room code</button></div>
@@ -2600,7 +2605,7 @@ const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
 function loadScript(src){ return new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')){ ok(); return; }
   const s = document.createElement('script'); s.src = src; s.async = true; s.dataset.phones = ''; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
 const phones = {
-  peer: null, conns: new Map(), room: '', enabled: false, allowChips: true, retryT: null, pushT: null, beatT: null, status: '', lastEmoji: new Map(),
+  peer: null, conns: new Map(), room: '', enabled: false, allowChips: true, retryT: null, pushT: null, beatT: null, diagT: null, status: '', lastEmoji: new Map(),
   el(id){ return document.getElementById(id); },
   load(){ let st = null; try { st = JSON.parse(localStorage.getItem(PH_KEY) || 'null'); } catch (e) {}
     this.room = (st && st.room) || this.newCode(); this.enabled = !!(st && st.enabled); this.allowChips = st && typeof st.allowChips === 'boolean' ? st.allowChips : true;
@@ -2619,6 +2624,8 @@ const phones = {
     ac.addEventListener('change', () => { this.allowChips = ac.checked; this.save(); this.push(); });
     const es = this.el('phEmojiSounds'); es.checked = emojiSfx.on;
     es.addEventListener('change', () => { emojiSfx.on = es.checked; this.save(); if (es.checked) emojiSfx.play('🤯'); else emojiSfx.stop(); });
+    this.el('phDiagToggle').addEventListener('click', () => { const d = this.el('phDiag'); d.hidden = !d.hidden; clearInterval(this.diagT); this.diagT = null;
+      if (!d.hidden){ this.renderDiag(); this.diagT = setInterval(() => this.renderDiag(), 1000); } });
     this.el('phNewRoom').addEventListener('click', () => { if (!confirm('Make a new room code? Phones on the old code will need to scan the new QR.')) return;
       this.room = this.newCode(); this.save(); this.restart(); this.renderPanel(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden && this.enabled) this.ensure(); });
@@ -2631,7 +2638,17 @@ const phones = {
   async open(){ const o = this.el('phonesPanel'); o.classList.add('open'); o.setAttribute('aria-hidden', 'false');
     if (!this.enabled){ this.enabled = true; this.save(); }
     this.renderPanel(); this.ensure(); },
-  close(){ const o = this.el('phonesPanel'); o.classList.remove('open'); o.setAttribute('aria-hidden', 'true'); },
+  close(){ const o = this.el('phonesPanel'); o.classList.remove('open'); o.setAttribute('aria-hidden', 'true'); clearInterval(this.diagT); this.diagT = null; this.el('phDiag').hidden = true; },
+  /* hidden "Status" block: why a sound or the Spotify pause might fail (read-only, plain text) */
+  renderDiag(){ const sp = spotify, d = sp.device, er = sp.lastError, L = [];
+    L.push(!sp.connected() ? 'Spotify: not connected' : 'Spotify: ' + (d ? d.type : 'no device') + ', volume control ' + (d && d.canVolume ? 'yes' : 'no') + ', Premium ' + (sp.premium === true ? 'yes' : sp.premium === false ? 'no' : 'unknown'));
+    L.push(er ? 'Last Spotify error: ' + [er.status, er.reason || er.message, er.path].filter(Boolean).join(' ') + ', ' + Math.round((Date.now() - er.at) / 1000) + ' s ago' : 'Last Spotify error: none');
+    const n = emojiSfx.unlockedCount; L.push('Sounds unlocked: ' + n + ' of ' + emojiSfx.total + (n < emojiSfx.total ? ' — tap the screen once' : ''));
+    L.push('Audio mode: ' + (navigator.audioSession ? navigator.audioSession.type : 'n/a'));
+    L.push('Music pause: ' + (musicDip.mode || 'idle'));
+    const ls = emojiSfx.log.slice(-5).reverse().map(x => x.e + ' ' + (x.ok ? 'ok' : x.err));
+    L.push('Last sounds: ' + (ls.join(', ') || 'none yet'));
+    this.el('phDiag').textContent = L.join('\n'); },
   async renderPanel(){
     this.el('phRoom').textContent = this.room.toUpperCase(); this.el('phUrl').textContent = this.joinUrl();
     try { await loadScript(QR_SRC); const q = qrcode(0, 'M'); q.addData(this.joinUrl()); q.make(); this.el('phQr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 0, scalable: true }); }

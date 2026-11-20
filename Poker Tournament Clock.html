@@ -1107,7 +1107,12 @@ class TournamentClock {
     let paused = firstVisit ? false : !!slide._clockPaused;
     if (rem <= 0) { rem = 0; paused = true; }    /* a finished level holds at 0:00, never auto-advances on revisit */
 
-    if (this.type === 'transition' && firstVisit && this.sound) this.sound.playTransition();  /* cue only on first arrival */
+    /* level-change alert: on the "Next up" screen, or on arriving straight at a level (⏭ skips that screen).
+       Once per level; never for Level 1 (that's the start of the game). */
+    if (firstVisit && this.sound){
+      const lid = slide.dataset.lid;
+      if (lid && this._alerted !== lid && (this.type === 'transition' || (this.type === 'level' && this.p.current > 1))){ this._alerted = lid; levelAlert(); }
+    }
 
     this.paused = paused;
     this.remaining = rem;
@@ -1862,8 +1867,11 @@ class SoundFx {
   }
   toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} } }
   applyBtn(){ setIcon(this.btn, this.muted ? 'mute' : 'sound'); this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
-  playTransition(){
+  /* session: 'ambient' = plays over other apps' music (muted by the iPad's silent mode);
+              'playback' = full alert, plays even on silent, but stops other apps' music */
+  playTransition(session){
     if (this.muted) return;
+    try { if (navigator.audioSession && session) navigator.audioSession.type = session; } catch (e) {}
     try { this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
   }
 }
@@ -2072,7 +2080,9 @@ const spotify = {
   async poll(){
     if (this.busy || document.hidden || Date.now() < this.backoffUntil || !this.connected()) return;
     this.busy = true;
-    const r = await this.api('GET', '/me/player/currently-playing?additional_types=track,episode');
+    const r = await this.api('GET', '/me/player?additional_types=track,episode');      /* = currently playing + the device it plays on */
+    if (r.status === 200 && r.data && r.data.device) this.device = { id: r.data.device.id, type: r.data.device.type, volume: r.data.device.volume_percent, canVolume: !!r.data.device.supports_volume };
+    else if (r.status === 204) this.device = null;
     this.busy = false;
     if (r.status === 200 && r.data && r.data.item){
       const it = r.data.item, imgs = (it.album && it.album.images) || it.images || [];
@@ -2205,6 +2215,48 @@ const spotify = {
     this.setStatus(c ? '✓ Connected' + (this.name ? ' as ' + this.name : '') + '. Play something in the Spotify app — it shows top-right. 🎵 shows / hides it.' : 'Not connected.', c ? 'ok' : '');
   }
 };
+/* ============================================================
+   LEVEL ALERT — the pips, with the music dipped around them:
+   1. Spotify on a speaker / computer → turn it down, pips, back up
+   2. Spotify on the iPad / phone (no remote volume there) + Premium →
+      pause, pips, play again straight away (~1.5 s gap)
+   3. otherwise → pips over the music (ambient; silent mode mutes)
+   ============================================================ */
+const PIPS_MS = 1500;
+let alertBusy = false;
+async function levelAlert(){
+  if (sound.muted || alertBusy) return;
+  const sp = spotify, wait = ms => new Promise(r => setTimeout(r, ms));
+  const live = sp.connected() && sp.now && sp.now.playing && !sp.now.gone;
+  if (!live){ sound.playTransition('playback'); return; }               /* no music to protect: full alert, even on silent */
+  alertBusy = true;
+  try {
+    const d = sp.device;
+    if (d && d.canVolume && d.volume != null && sp.premium !== false){  /* 1. turn it down */
+      const r = await sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(d.volume, 100) * 0.25));
+      if (r.status >= 200 && r.status < 300){
+        sound.playTransition('ambient'); await wait(PIPS_MS + 150);
+        await sp.api('PUT', '/me/player/volume?volume_percent=' + d.volume);
+        return;
+      }
+    }
+    if (sp.premium !== false){                                            /* 2. pause → pips → play */
+      const r = await sp.api('PUT', '/me/player/pause');
+      if (r.status >= 200 && r.status < 300){
+        sp.premium = true;
+        sound.playTransition('playback'); await wait(PIPS_MS + 100);
+        try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
+        let back = await sp.api('PUT', '/me/player/play');
+        if (back.status === 404 && d && d.id) back = await sp.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(d.id));
+        setTimeout(() => sp.poll(), 800);
+        return;
+      }
+      if (r.status === 403){ sp.premium = false; sp.save(); sp.render(); }
+    }
+    sound.playTransition('ambient');                                      /* 3. over the music */
+  } finally { alertBusy = false; }
+}
+
 window.onSpotifyIframeApiReady = (IFrameAPI) => { music.api = IFrameAPI; if (music.uri && !music.ctrl) music.create(); };
 /* tapping the Spotify player moves keyboard focus into its iframe, which would swallow
    Space / arrows / R / M. Hand focus straight back to the clock after each tap. */

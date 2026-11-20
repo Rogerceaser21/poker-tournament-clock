@@ -25,10 +25,18 @@ async function check(name, fn){
   const hb = await HOST_BROWSER.launch(HOST_BROWSER === chromium ? { args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] } : {});
   const hctx = await hb.newContext({ viewport: { width: 1180, height: 820 }, userAgent: HOST_BROWSER === webkit ? IPAD_UA : undefined });
   const host = await hctx.newPage(); const hostErr = []; host.on('pageerror', e => hostErr.push(e.message));
+  const spCalls = []; let spPlaying = true;
+  await hctx.route('https://api.spotify.com/v1/**', r => { const path = r.request().url().split('/v1')[1], m = r.request().method();
+    if (/\/me\/player\/(pause|play)/.test(path)){ spCalls.push({ c: m + ' ' + path.split('?')[0], at: Date.now() }); spPlaying = path.includes('/play'); return r.fulfill({ status: 204, body: '' }); }
+    if (path === '/me') return r.fulfill({ status: 200, contentType: 'application/json', body: '{"display_name":"Host"}' });
+    if (path.startsWith('/me/player?')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: spPlaying, progress_ms: 1000,
+      device: { id: 'ipad', type: 'Tablet', volume_percent: 70, supports_volume: false }, item: { id: 't', name: 'Song', duration_ms: 200000, artists: [{ name: 'A' }], album: { images: [{ url: 'x' }] } } }) });
+    return r.fulfill({ status: 204, body: '' }); });
   await host.addInitScript((room) => { if (sessionStorage.getItem('seeded')) return; sessionStorage.setItem('seeded', '1'); localStorage.clear();
     localStorage.setItem('poker_clock_state_v1', JSON.stringify({ v: 1, levels: [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 })),
       names: ['Ann', 'Bob', 'Cat', 'Dan'], buyins: [500, 500, 500, 500], photos: [null, null, null, null], chips: [700, 700, 700, 700], startStack: 700 }));
-    localStorage.setItem('poker_phones_v1', JSON.stringify({ room, enabled: true, allowChips: true })); }, ROOM);
+    localStorage.setItem('poker_phones_v1', JSON.stringify({ room, enabled: true, allowChips: true }));
+    localStorage.setItem('poker_spotify_auth_v1', JSON.stringify({ access: 'AT', refresh: 'RT', exp: Date.now() + 3e6 })); }, ROOM);
   await host.addInitScript(() => { window.__sfx = []; const o = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function(){ if (!this.muted && this.src && this.src.includes('/sounds/')) window.__sfx.push(this.src); return o.apply(this, arguments); }; });
   await host.goto(BASE + 'Poker%20Tournament%20Clock.html');
@@ -119,6 +127,20 @@ async function check(name, fn){
   await host.evaluate(() => { phones.allowChips = true; phones.push(true); });
   await phones[0].p.evaluate(() => send({ t: 'chips', name: 'Bob', value: 5 })); await wait(800);
   await check('A phone can\'t change someone else\'s chips', async () => (await host.evaluate(() => bank.chips[1])) === 700);
+
+  /* ---- emoji sound pauses the music, then it comes back ---- */
+  await wait(7000); spCalls.length = 0; spPlaying = true; await host.evaluate(() => spotify.poll()); await wait(600);
+  await phones[1].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '💀' }); });
+  await check('💀 from a phone → music pauses, FAAAH plays, music comes back after it (~2 s)', async () => {
+    await until(() => spCalls.length >= 2, 6000);
+    const r = { calls: spCalls.map(x => x.c), gapMs: spCalls[1] ? spCalls[1].at - spCalls[0].at : null };
+    return (r.calls[0] === 'PUT /me/player/pause' && r.calls[1] === 'PUT /me/player/play' && r.gapMs >= 1700 && r.gapMs <= 3200) || r; });
+  await wait(1500); spCalls.length = 0; spPlaying = true; await host.evaluate(() => spotify.poll()); await wait(600);
+  await phones[0].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '🤯' }); });
+  await phones[2].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '🤡' }); });
+  await check('Two emojis at once → ONE pause, ONE play (music back after both)', async () => {
+    await wait(4500); const r = spCalls.map(x => x.c);
+    return (r.length === 2 && r[0].includes('pause') && r[1].includes('play')) || r; });
 
   /* ---- reconnecting ---- */
   const hostLevel = () => host.evaluate(() => { const s = presentation.slides[presentation.current]; return (s.querySelector('.lv') || s.querySelector('.trans-level') || {}).textContent; });

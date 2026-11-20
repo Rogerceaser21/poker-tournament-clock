@@ -803,7 +803,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
         <span class="ph-status" id="phStatus">Starting…</span>
         <div class="ph-list" id="phList"></div>
         <label class="music-chk"><input type="checkbox" id="phAllowChips"> Players can change their own chips</label>
-        <label class="music-chk"><input type="checkbox" id="phEmojiSounds"> Emoji sounds on this iPad (💀 FAAAH, 🤯 boom…)</label>
+        <label class="music-chk"><input type="checkbox" id="phEmojiSounds"> Emoji sounds on this iPad (💀 FAAAH, 🤯 boom…) — the music pauses for them</label>
       </div>
     </div>
     <div class="set-actions" style="margin-top:1em"><span class="rebuy-hint" style="margin:0">Phones reconnect by themselves · keep this iPad on the clock</span><button class="set-btn" id="phNewRoom">New room code</button></div>
@@ -2280,38 +2280,54 @@ const spotify = {
    3. otherwise → pips over the music (ambient; silent mode mutes)
    ============================================================ */
 const PIPS_MS = 1500;
-let alertBusy = false;
-async function levelAlert(){
-  if (sound.muted || alertBusy) return;
-  const sp = spotify, wait = ms => new Promise(r => setTimeout(r, ms));
-  const live = sp.connected() && sp.now && sp.now.playing && !sp.now.gone;
-  if (!live){ sound.playTransition('playback'); return; }               /* no music to protect: full alert, even on silent */
-  alertBusy = true;
-  try {
-    const d = sp.device;
-    if (d && d.canVolume && d.volume != null && sp.premium !== false){  /* 1. turn it down */
+/* MUSIC DIP — shared by the level alert and the emoji sounds.
+   begin(ms) dips Spotify for at least ms and says which audio mode our sound should use:
+     speaker / computer → volume down to 25 %  → our sound plays over it ('ambient')
+     iPad / phone + Premium → pause             → our sound plays at full volume ('playback', even on silent)
+     otherwise → nothing to dip                 → 'ambient' over the music (or 'playback' when nothing plays)
+   Several sounds in a row share ONE dip; the music comes back after the last one. A dip never lasts
+   more than 6 s, so iPadOS doesn't put a paused Spotify to sleep. */
+const musicDip = {
+  mode: null, until: 0, startedAt: 0, restoreVol: null, t: null, pending: null, MAX: 6000,
+  live(){ const sp = spotify; return sp.connected() && sp.now && sp.now.playing && !sp.now.gone; },
+  async begin(ms){
+    if (this.pending) await this.pending;
+    if (this.mode){ this.extend(ms); return this.mode === 'pause' ? 'playback' : 'ambient'; }
+    if (!this.live()) return 'playback';                                  /* no music to protect: full sound */
+    this.pending = this._start(ms); const mode = await this.pending; this.pending = null; return mode;
+  },
+  async _start(ms){
+    const sp = spotify, d = sp.device;
+    if (d && d.canVolume && d.volume != null && sp.premium !== false){
       const r = await sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(d.volume, 100) * 0.25));
-      if (r.status >= 200 && r.status < 300){
-        sound.playTransition('ambient'); await wait(PIPS_MS + 150);
-        await sp.api('PUT', '/me/player/volume?volume_percent=' + d.volume);
-        return;
-      }
+      if (r.status >= 200 && r.status < 300){ this.mode = 'volume'; this.restoreVol = d.volume; this.startedAt = Date.now(); this.extend(ms); return 'ambient'; }
     }
-    if (sp.premium !== false){                                            /* 2. pause → pips → play */
+    if (sp.premium !== false){
       const r = await sp.api('PUT', '/me/player/pause');
-      if (r.status >= 200 && r.status < 300){
-        sp.premium = true;
-        sound.playTransition('playback'); await wait(PIPS_MS + 100);
-        try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
-        let back = await sp.api('PUT', '/me/player/play');
-        if (back.status === 404 && d && d.id) back = await sp.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(d.id));
-        setTimeout(() => sp.poll(), 800);
-        return;
-      }
+      if (r.status >= 200 && r.status < 300){ sp.premium = true; this.mode = 'pause'; this.startedAt = Date.now(); this.extend(ms); return 'playback'; }
       if (r.status === 403){ sp.premium = false; sp.save(); sp.render(); }
     }
-    sound.playTransition('ambient');                                      /* 3. over the music */
-  } finally { alertBusy = false; }
+    return 'ambient';
+  },
+  extend(ms){
+    this.until = Math.min(Math.max(this.until, Date.now() + ms), this.startedAt + this.MAX);
+    clearTimeout(this.t); this.t = setTimeout(() => this.end(), Math.max(0, this.until - Date.now()));
+  },
+  async end(){
+    const sp = spotify, m = this.mode, d = sp.device; this.mode = null; this.until = 0;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
+    if (m === 'volume') await sp.api('PUT', '/me/player/volume?volume_percent=' + this.restoreVol);
+    else if (m === 'pause'){
+      let back = await sp.api('PUT', '/me/player/play');
+      if (back.status === 404 && d && d.id) back = await sp.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(d.id));
+    }
+    setTimeout(() => sp.poll(), 800);
+  }
+};
+async function levelAlert(){
+  if (sound.muted) return;
+  const mode = await musicDip.begin(PIPS_MS + 150);
+  sound.playTransition(mode);
 }
 
 window.onSpotifyIframeApiReady = (IFrameAPI) => { music.api = IFrameAPI; if (music.uri && !music.ctrl) music.create(); };
@@ -2448,8 +2464,11 @@ const emojiSfx = {
   unlock(){ if (this.unlocked) return; this.unlocked = true;
     Object.keys(EMOJI_SOUNDS).forEach(e => { const a = this.get(e); try { a.muted = true; const p = a.play(); const back = () => { a.pause(); a.currentTime = 0; a.muted = false; };
       if (p && p.then) p.then(back).catch(() => { a.muted = false; }); else back(); } catch (x) {} }); },
-  play(e){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const a = this.get(e); if (!a) return;
-    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (x) {}   /* over the music, never pausing Spotify */
+  /* pause the music (or turn it down), play the sound, music back after it — see musicDip */
+  async play(e){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const a = this.get(e); if (!a) return;
+    const ms = (isFinite(a.duration) && a.duration > 0 ? a.duration * 1000 : 2500) + 200;
+    const mode = typeof musicDip !== 'undefined' ? await musicDip.begin(ms) : 'ambient';
+    try { if (navigator.audioSession) navigator.audioSession.type = mode; } catch (x) {}
     try { a.muted = false; a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(() => {}); } catch (x) {} }
 };
 ['pointerdown', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { once: true, passive: true }));

@@ -95,6 +95,12 @@ async function check(name, fn){
     !!(await until(() => phones[0].p.evaluate(() => [...document.querySelectorAll('.fly')].some(f => f.textContent.includes('🔥'))), 3000)));
   await check('…and the iPad plays its sound (🔥 → wow)', async () =>
     !!(await until(() => host.evaluate(() => (window.__sfx || []).some(x => x.endsWith('sounds/wow.m4a'))), 3000)) || await host.evaluate(() => window.__sfx));
+  await wait(1400);   /* past the 1.2 s per-player limit */
+  await phones[1].p.click('[data-e="🔥"]');
+  await check('…same phone, same emoji again after 1.2 s → the iPad plays the sound a 2nd time (two plays recorded)', async () => {
+    await until(() => host.evaluate(() => (window.__sfx || []).filter(x => x.endsWith('sounds/wow.m4a')).length >= 2), 3000);
+    const n = await host.evaluate(() => (window.__sfx || []).filter(x => x.endsWith('sounds/wow.m4a')).length);
+    return n === 2 || 'wow plays recorded: ' + n; });
   await check('All 8 emoji sounds load on the iPad (real audio, right length)', async () => {
     const r = await host.evaluate(() => Promise.all(Object.entries(EMOJI_SOUNDS).map(([e, n]) => new Promise(ok => {
       const a = new Audio('sounds/' + n + '.m4a'); a.preload = 'auto';

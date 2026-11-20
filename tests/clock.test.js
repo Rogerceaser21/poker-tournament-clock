@@ -206,6 +206,13 @@ const TESTS = [
     await p.evaluate(() => spotify.poll()); await wait(600); emoji(p, '🤡'); await wait(2500);
     const v = log.filter(e => e.c === 'PUT /me/player/volume').map(e => e.v + ':' + e.st);
     return (v.join() === '18:204,70:500,70:500,70:500,18:204,70:204' && fake.vol === 70) || { v, vol: fake.vol }; }, { spotify: true }],
+  ['Music dip: slow pause (answers after 6 s) → 4 emojis + level alert fired together ALL start within 2 s, one pause + one play', async ({ p, log, fake }) => {
+    await wait(1200); fake.pauseDelay = 6000; log.length = 0;
+    const t0 = await p.evaluate(() => { window.__alertAt = 0; const o = sound.playTransition.bind(sound); sound.playTransition = (...x) => { window.__alertAt = Date.now(); return o(...x); };
+      const t = Date.now(); window.__sfx.length = 0; ['😂', '🔥', '💀', '👏'].forEach(e => emojiSfx.play(e)); window.levelAlert(); return t; });
+    await wait(12000);
+    const r = await p.evaluate(() => ({ sfx: window.__sfx.map(x => x.t), alert: window.__alertAt })), late = [...r.sfx, r.alert].map(t => t ? t - t0 : null), d = dips(log);
+    return (r.sfx.length === 4 && late.every(x => x !== null && x < 2000) && clean(d) && d.map(e => e.c).join() === 'pause,play' && fake.playing) || { late, d, playing: fake.playing }; }, { spotify: true }],
   ['Music dip: slow resume (play answers after 6 s) → a level alert right after the sound still starts within 2 s, music ends playing', async ({ p, log, fake }) => {
     await wait(1200); fake.playDelay = 6000; log.length = 0; emoji(p, '🤡');
     await until(() => dips(log).some(e => e.c === 'play'), 4000); await wait(100);

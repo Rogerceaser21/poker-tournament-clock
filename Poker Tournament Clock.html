@@ -2144,7 +2144,7 @@ const spotify = {
     const r = await this.api('GET', '/me/player?additional_types=track,episode');      /* = currently playing + the device it plays on */
     /* a poll that overlaps our own music dip must not overrule it (Spotify reports OUR pause / OUR turned-down volume) */
     const dipP = typeof musicDip !== 'undefined' && musicDip.ours('pause', t0), dipV = typeof musicDip !== 'undefined' && musicDip.ours('volume', t0);
-    if (r.status === 200 && r.data && r.data.device) this.device = { id: r.data.device.id, type: r.data.device.type, volume: dipV ? musicDip.restoreVol : r.data.device.volume_percent, canVolume: !!r.data.device.supports_volume };
+    if (r.status === 200 && r.data && r.data.device) this.device = { id: r.data.device.id, type: r.data.device.type, volume: typeof musicDip !== 'undefined' && musicDip.owedVol != null ? musicDip.owedVol : dipV ? musicDip.restoreVol : r.data.device.volume_percent, canVolume: !!r.data.device.supports_volume };
     else if (r.status === 204) this.device = null;
     this.busy = false;
     if (r.status === 200 && r.data && r.data.item){
@@ -2305,7 +2305,7 @@ const PIPS_MS = 1500;
 const musicDip = {
   MAX: 9000, TAIL: 150, GAP: 2000, QMAX: 4,
   mode: null, sfx: 'ambient', startedAt: 0, restoreVol: null, holds: new Set(), chain: Promise.resolve(), queue: [],
-  ending: null, backAt: { pause: 0, volume: 0 }, tailT: null, capT: null, qT: null,
+  ending: null, flying: null, cancelWait: null, owedVol: null, backAt: { pause: 0, volume: 0 }, tailT: null, capT: null, qT: null,
   live(){ const sp = spotify; return sp.connected() && sp.now && sp.now.playing && !sp.now.gone; },
   /* did OUR dip (kind 'pause' / 'volume') cover a poll that started at t0? then the dip's state is the truth */
   ours(kind, t0){ return this.mode === kind || this.ending === kind || this.backAt[kind] >= t0; },
@@ -2322,8 +2322,12 @@ const musicDip = {
       else ok(null);
       return;
     }
+    /* the music is on its way back: wait max 1.5 s for that reply; during a retry WAIT just re-join (Spotify is still dipped) */
+    if (this.ending && this.flying){ await Promise.race([this.flying, new Promise(r => setTimeout(r, 1500))]); await null; }
+    if (this.ending && this.cancelWait){ const m = this.ending; this.cancelWait(); this.ending = null; this.mode = m; this.sfx = m === 'pause' ? 'playback' : 'ambient'; this.capped(); }
     clearTimeout(this.tailT);
-    if (!this.mode){
+    if (this.ending){ this.mode = 'resuming'; this.sfx = 'ambient'; }    /* "play" still on its way: play over (the music may be back) */
+    else if (!this.mode){
       if (!this.live()){ this.mode = 'none'; this.sfx = 'playback'; }    /* no music to protect: full sound */
       else await this.start();
     }
@@ -2339,7 +2343,7 @@ const musicDip = {
   async ask(){
     const sp = spotify, d = sp.device;
     if (d && d.canVolume && d.volume != null && sp.premium !== false){
-      const v = d.volume, r = await sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(v, 100) * 0.25));
+      const v = this.owedVol != null ? this.owedVol : d.volume, r = await sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(v, 100) * 0.25));
       if (r.status >= 200 && r.status < 300){ this.mode = 'volume'; this.sfx = 'ambient'; this.restoreVol = v; this.capped(); return; }
     }
     if (sp.premium !== false){
@@ -2359,30 +2363,42 @@ const musicDip = {
   /* the last of our sounds is over */
   idle(){
     try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
-    if (this.mode === 'starting') return;                                   /* Spotify hasn't answered yet: start() ends it */
+    if (this.mode === 'starting' || this.mode === 'resuming') return;      /* Spotify hasn't answered yet: start() / resume() ends it */
     if (this.mode === 'none'){ this.mode = null; if (this.queue.length) this.later(0); return; }
     clearTimeout(this.tailT); this.tailT = setTimeout(() => this.run(() => this.end()), this.TAIL);
   },
+  /* ends the dip; the resume runs OUTSIDE the chain so it never holds back a new sound */
   async end(){
     if (this.holds.size || (this.mode !== 'pause' && this.mode !== 'volume')) return;
-    const sp = spotify, m = this.mode, d = sp.device; clearTimeout(this.capT);
-    this.ending = m; this.mode = null;
-    /* bring the music back; no answer / 429 / 5xx → try twice more (~1.5 s apart, a 429 waits Retry-After, max 5 s) */
+    const m = this.mode; clearTimeout(this.capT);
+    this.ending = m; this.mode = null; this.resume(m);
+  },
+  /* bring the music back; no answer / 429 / 5xx → try twice more (~1.5 s apart, a 429 waits Retry-After, max 5 s).
+     A sound that comes in meanwhile re-joins the dip instead (Spotify is still dipped), and the resume is sent after it. */
+  async resume(m){
+    const sp = spotify, d = sp.device;
     const send = m === 'volume' ? () => sp.api('PUT', '/me/player/volume?volume_percent=' + this.restoreVol)
       : async () => { const b = await sp.api('PUT', '/me/player/play'); return b.status === 404 && d && d.id ? sp.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(d.id)) : b; };
-    let back = await send();
-    for (let i = 0; i < 2 && (back.status === 0 || back.status === 429 || back.status >= 500); i++){
-      await new Promise(r => setTimeout(r, back.status === 429 ? Math.min(5000, Math.max(1000, sp.backoffUntil - Date.now())) : 1500));
-      back = await send();
+    for (let i = 0; ; i++){
+      this.flying = send(); const back = await this.flying; this.flying = null;
+      const ok = back.status >= 200 && back.status < 300, retry = !ok && i < 2 && (back.status === 0 || back.status === 429 || back.status >= 500);
+      if (retry && this.holds.size){ this.ending = null; this.mode = m; this.sfx = m === 'pause' ? 'playback' : 'ambient'; this.capped(); return; }
+      if (retry){
+        const go = await new Promise(r => { const t = setTimeout(() => r(true), back.status === 429 ? Math.min(5000, Math.max(1000, sp.backoffUntil - Date.now())) : 1500);
+          this.cancelWait = () => { clearTimeout(t); r(false); }; });
+        this.cancelWait = null; if (!go) return;                            /* a sound re-joined the dip */
+        continue;
+      }
+      this.ending = null;
+      if (m === 'volume'){ if (ok){ if (d) d.volume = this.restoreVol; this.owedVol = null; this.backAt.volume = Date.now(); } else this.owedVol = this.restoreVol; }   /* still owed: the next dip restores THIS, not the lowered level */
+      else if (ok){ this.backAt.pause = Date.now();
+        if (sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); } }
+      else if (sp.now){ sp.now.playing = false; sp.render(); }            /* music stayed paused: show it, tap ▶; the next sound sends no pause */
+      if (this.mode === 'resuming') this.mode = this.holds.size ? 'none' : null;
+      setTimeout(() => sp.poll(), 800);
+      if (this.queue.length) this.later(this.GAP);
+      return;
     }
-    const ok = back.status >= 200 && back.status < 300;
-    if (m === 'volume'){ if (ok){ if (d) d.volume = this.restoreVol; this.backAt.volume = Date.now(); } }
-    else if (ok){ this.backAt.pause = Date.now();
-      if (sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); } }
-    else if (sp.now){ sp.now.playing = false; sp.render(); }              /* music stayed paused: show it, tap ▶; the next sound sends no pause */
-    this.ending = null;
-    setTimeout(() => sp.poll(), 800);
-    if (this.queue.length) this.later(this.GAP);
   },
   /* the sounds that didn't fit start the next dip */
   later(ms){ clearTimeout(this.qT); this.qT = setTimeout(() => { this.queue.splice(0).forEach(q => this.run(() => this.join(q, true))); }, ms); }

@@ -244,30 +244,38 @@ body{
 .next-up b{ font-weight:700; color:var(--cream); font-variant-numeric:tabular-nums; }
 .next-up.final{ border-style:solid; color:var(--gold-light); }
 /* CHIP COUNT STRIP — every level shows each player's photo, name and stack,
-   biggest stack first; the leader's pill is gold, busted players (0 chips) fade to OUT.
-   Tap a number to type a new count. */
-.chip-strip{ display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:clamp(.35rem,.8vw,.8rem); max-width:100%;
-  background:rgba(8,8,10,.5); border:1px solid rgba(232,184,75,.5); border-radius:999px; padding:.4em .5em .4em 1.2em; margin-top:clamp(.5rem,2vh,1.4rem); }
+   biggest stack first; the leader's card is gold, busted players (0 chips) fade to OUT.
+   Tap a player to edit them (photo / name / chips); the TABLE button opens the table view. */
+.chip-strip{ display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:clamp(.3rem,.6vw,.6rem); max-width:100%;
+  background:rgba(6,12,9,.45); border:1px solid rgba(255,255,255,.08); border-radius:18px; padding:.4em .5em; margin-top:clamp(.5rem,2vh,1.4rem);
+  box-shadow:0 10px 30px rgba(0,0,0,.25); }
 .chip-strip:empty{ display:none; }
-.cs-hd{ font-size:var(--label-size); letter-spacing:.22em; text-transform:uppercase; color:var(--gold-light); line-height:1.25; text-align:left; margin-right:.4em; }
+.cs-hd{ display:flex; align-items:center; gap:.55em; font-family:var(--font-display); font-size:var(--label-size); letter-spacing:.2em; text-transform:uppercase;
+  color:var(--gold-light); line-height:1.25; text-align:left; margin-right:.2em; background:rgba(232,184,75,.1); border:1px solid rgba(232,184,75,.45);
+  border-radius:12px; padding:.45em .8em .45em .6em; cursor:pointer; min-height:44px; }
+.cs-hd:hover{ background:rgba(232,184,75,.2); } .cs-hd:active{ transform:scale(.97); }
+.cs-hd .ico{ width:1.9em; height:1.9em; stroke-width:1.6; flex-shrink:0; }
 .cs-hd b{ display:block; color:var(--cream); font-weight:600; letter-spacing:.08em; }
-.cs-pl{ display:flex; align-items:center; gap:.5em; padding:.3em .9em .3em .3em; border-radius:999px; background:rgba(0,0,0,.28); border:1px solid rgba(232,184,75,.35); }
-.cs-ava{ width:clamp(44px,4vw,64px); aspect-ratio:1; border-radius:50%; border:3px solid var(--gold-deep); background:#cdbf9a center/cover no-repeat;
-  box-shadow:var(--bevel), 0 6px 14px rgba(0,0,0,.4); flex-shrink:0; }
+.cs-pl{ font-family:var(--font-display); text-align:left; color:inherit; display:flex; align-items:center; gap:.55em; padding:.32em .85em .32em .32em; border-radius:12px; background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.07); cursor:pointer; transition:background .15s ease, transform .15s ease; }
+.cs-pl:hover{ background:rgba(255,255,255,.12); } .cs-pl:active{ transform:scale(.97); }
+.cs-ava{ width:clamp(40px,3.6vw,56px); aspect-ratio:1; border-radius:50%; border:2px solid rgba(232,184,75,.85); background:#26302a center/cover no-repeat;
+  flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:clamp(.9rem,1.3vw,1.2rem); color:var(--gold-light); }
+.cs-ava:not(.has-photo)::after{ content:attr(data-initial); }
 .cs-tx{ display:flex; flex-direction:column; align-items:flex-start; line-height:1.05; }
-.cs-nm{ font-size:clamp(.8rem,1.15vw,1.05rem); letter-spacing:.1em; text-transform:uppercase; color:rgba(246,239,217,.85); white-space:nowrap; }
-.cs-ct{ font-weight:700; font-size:clamp(1.15rem,2vw,1.8rem); color:var(--cream); font-variant-numeric:tabular-nums; min-width:2ch; text-align:left; }
-.cs-pl.lead{ background:var(--gold); border-color:var(--gold-deep); box-shadow:var(--bevel); }
-.cs-pl.lead .cs-nm{ color:var(--ink-soft); } .cs-pl.lead .cs-ct{ color:var(--ink); }
+.cs-nm{ font-size:clamp(.7rem,.95vw,.9rem); letter-spacing:.12em; text-transform:uppercase; color:rgba(246,239,217,.62); white-space:nowrap; }
+.cs-ct{ font-weight:700; font-size:clamp(1.1rem,1.9vw,1.7rem); color:var(--cream); font-variant-numeric:tabular-nums; min-width:2ch; text-align:left; }
+.cs-pl.lead{ background:linear-gradient(180deg, #f2c75c, #d9a640); border-color:transparent; box-shadow:0 4px 16px rgba(232,184,75,.28); }
+.cs-pl.lead .cs-nm{ color:rgba(20,17,10,.7); } .cs-pl.lead .cs-ct{ color:var(--ink); }
 .cs-pl.lead .cs-ava{ border-color:var(--ink-soft); }
-.cs-pl.out{ opacity:.4; } .cs-pl.out .cs-ava{ filter:grayscale(1) brightness(.75); }
+.cs-pl.out{ opacity:.38; } .cs-pl.out .cs-ava{ filter:grayscale(1) brightness(.75); }
 .cs-pl.out .cs-ct{ font-size:clamp(.8rem,1.1vw,1rem); letter-spacing:.18em; }
-/* 7+ players: tighter pills so the strip stays to two rows */
-.chip-strip.many{ border-radius:22px; gap:clamp(.2rem,.45vw,.5rem); padding:.35em .5em .35em .9em; }
-.chip-strip.many .cs-hd{ margin-right:.2em; }
-.chip-strip.many .cs-pl{ padding:.15em .55em .15em .15em; gap:.3em; }
-.chip-strip.many .cs-ava{ width:clamp(28px,2.6vw,46px); border-width:2px; }
-.chip-strip.many .cs-nm{ font-size:clamp(.66rem,.85vw,.88rem); letter-spacing:.06em; }
+/* 7+ players: tighter cards so the strip stays to one or two rows */
+.chip-strip.many{ gap:clamp(.2rem,.4vw,.45rem); padding:.35em .45em; }
+.chip-strip.many .cs-hd{ padding:.35em .6em .35em .45em; }
+.chip-strip.many .cs-pl{ padding:.18em .55em .18em .18em; gap:.32em; }
+.chip-strip.many .cs-ava{ width:clamp(28px,2.6vw,44px); font-size:clamp(.72rem,1vw,.95rem); }
+.chip-strip.many .cs-nm{ font-size:clamp(.62rem,.8vw,.84rem); letter-spacing:.06em; }
 .chip-strip.many .cs-ct{ font-size:clamp(.9rem,1.4vw,1.35rem); }
 @media (max-width:900px){ .chip-strip{ border-radius:22px; padding:.5em; } .cs-hd{ width:100%; text-align:center; margin:0 0 .2em; } }
 
@@ -350,7 +358,7 @@ body{
 .nav-dots button.active{ background:var(--gold); }
 .slide-counter{ position:fixed; bottom:clamp(.7rem,2vh,1.3rem); right:clamp(1rem,2.5vw,2rem); font-weight:600; font-size:var(--label-size); letter-spacing:.1em; color:var(--cream); background:rgba(0,0,0,.35); border:1px solid rgba(232,184,75,.4); padding:.4em .7em; border-radius:6px; z-index:1000; }
 
-.font-scale-ctrl{ position:fixed; bottom:calc(clamp(.7rem,2vh,1.3rem) + env(safe-area-inset-bottom,0px)); left:clamp(.7rem,2.5vw,2rem); display:flex; align-items:center; gap:clamp(2px,.4vw,5px); z-index:1000;
+.font-scale-ctrl{ position:fixed; bottom:calc(clamp(.7rem,2vh,1.3rem) + env(safe-area-inset-bottom,0px)); left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:clamp(2px,.4vw,5px); z-index:1000;
   background:rgba(8,8,10,.72); border:2px solid rgba(232,184,75,.5); border-radius:12px; box-shadow:var(--bevel); padding:.35em .5em; }
 /* finger-friendly tap targets (~46px) for iPad */
 .font-scale-ctrl button{ background:none; border:none; color:var(--cream); font-family:var(--font-display); font-weight:600; font-size:clamp(.95rem,1.5vw,1.2rem); cursor:pointer; padding:.4em .55em; line-height:1; border-radius:9px; min-width:2.4em; min-height:2.4em; display:inline-flex; align-items:center; justify-content:center; }
@@ -360,6 +368,11 @@ body{
 #fontScaleLabel{ font-weight:600; font-size:clamp(.78rem,1.1vw,.95rem); color:rgba(246,239,217,.85); min-width:3.4em; text-align:center; }
 .font-scale-ctrl .ctrl-divider{ width:1px; height:1.7em; background:rgba(232,184,75,.4); margin:0 3px; }
 .font-scale-ctrl .fs-btn{ font-size:clamp(1.2rem,1.8vw,1.55rem); padding:.3em .5em; }
+/* line icons (not emoji — iPad draws ⏸ / ⚙️ / 🔊 as coloured emoji tiles) */
+.ico{ width:1.05em; height:1.05em; display:block; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.ico.solid{ fill:currentColor; stroke:none; }
+.font-scale-ctrl .fs-btn .ico{ width:.95em; height:.95em; }
+#pauseBtn{ color:var(--gold-light); }
 
 #pauseBadge{ position:fixed; top:clamp(1.6rem,3.6vh,2.4rem); left:50%; transform:translateX(-50%); z-index:9500; display:none;
   font-weight:700; font-size:clamp(1rem,2.4vw,1.7rem); letter-spacing:.22em; text-transform:uppercase; color:var(--ink);
@@ -368,7 +381,7 @@ body.is-paused #pauseBadge{ display:block; animation:badgePulse 1.1s ease-in-out
 @keyframes badgePulse{ 50%{ transform:translateX(-50%) scale(1.06); box-shadow:var(--bevel), 0 10px 30px rgba(0,0,0,.5); } }
 body.is-paused #keyHint{ display:none; }
 
-#keyHint{ position:fixed; bottom:clamp(.7rem,2vh,1.3rem); left:50%; transform:translateX(-50%); z-index:990;
+#keyHint{ position:fixed; top:calc(clamp(1.6rem,3.6vh,2.4rem) + env(safe-area-inset-top,0px)); left:50%; transform:translateX(-50%); z-index:990;
   font-size:var(--label-size); letter-spacing:.08em; color:rgba(246,239,217,.85); background:rgba(8,8,10,.6);
   border:1px solid rgba(232,184,75,.35); border-radius:999px; padding:.45em 1em; transition:opacity .6s ease; pointer-events:none; }
 #keyHint b{ color:var(--gold-light); font-weight:700; }
@@ -461,6 +474,58 @@ button.rebuy-ava{ cursor:pointer; padding:0; }
 .rebuy-row{ flex-wrap:wrap; }
 .rebuy-row.out{ opacity:.55; }
 
+/* PLAYER CARD — tap a player (chip strip or table view) to edit them mid-game */
+.pc-card{ width:min(560px, 94vw); }
+.pc-body{ display:flex; gap:clamp(.9rem,2.4vw,1.6rem); align-items:flex-start; }
+.pc-ava{ width:clamp(96px,14vw,140px); border-width:3px; position:relative; display:flex; align-items:center; justify-content:center;
+  font-size:2.6rem; font-weight:700; color:var(--gold-light); background-color:#26302a; }
+.pc-ava:not(.has-photo)::after{ content:attr(data-initial); }
+.pc-ava::before{ content:'Change photo'; position:absolute; bottom:-1.7em; left:50%; transform:translateX(-50%); white-space:nowrap; font-size:var(--label-size);
+  letter-spacing:.14em; text-transform:uppercase; color:rgba(246,239,217,.65); }
+.pc-fields{ flex:1; min-width:0; display:flex; flex-direction:column; gap:.75em; }
+.pc-lbl{ display:flex; flex-direction:column; gap:.3em; font-size:var(--label-size); letter-spacing:.18em; text-transform:uppercase; color:var(--gold-light); }
+.set-in.pc-name{ width:100%; text-align:left; font-weight:600; letter-spacing:.02em; text-transform:none; }
+.pc-chips{ display:flex; gap:.4em; align-items:stretch; }
+.set-in.pc-num{ flex:1 1 0; width:0; min-width:0; font-size:clamp(1.3rem,2.4vw,1.7rem); }
+.pc-step{ font-family:var(--font-display); font-weight:700; font-size:clamp(.95rem,1.5vw,1.15rem); color:var(--ink); background:var(--gold); border:2px solid var(--gold-deep);
+  border-radius:8px; min-width:62px; min-height:44px; cursor:pointer; box-shadow:var(--bevel); }
+.pc-step:active{ transform:scale(.94); }
+.pc-quick{ display:flex; gap:.4em; flex-wrap:wrap; }
+.pc-buy{ display:flex; align-items:center; gap:.6em; flex-wrap:wrap; color:var(--cream); font-size:clamp(.95rem,1.5vw,1.15rem); }
+.pc-buy b{ color:var(--gold-light); }
+@media (max-width:560px){ .pc-body{ flex-direction:column; align-items:center; } .pc-fields{ width:100%; } }
+/* TABLE VIEW — mid-game: the poker table with everyone's chips, the level / time / blinds in the middle */
+.table-view{ position:fixed; inset:0; z-index:950; display:none; flex-direction:column; align-items:center; justify-content:center;
+  padding:var(--slide-pad); padding-top:calc(clamp(1.5rem,3.2vh,2.2rem) + 5.6rem); padding-bottom:calc(var(--slide-pad) + 4.2rem); overflow:hidden;   /* top: room for the Clock button + Spotify card */
+  background:radial-gradient(125% 105% at 50% 38%, var(--felt-top) 0%, var(--felt-bot) 62%, var(--felt-edge) 100%); }
+.table-view.open{ display:flex; animation:npIn .35s var(--ease-expo); }
+body.tv-open .nav-dots{ display:none; }
+.tv-back{ position:absolute; z-index:3; top:calc(clamp(1.5rem,3.2vh,2.2rem) + env(safe-area-inset-top,0px)); left:clamp(1.2rem,3vw,2.4rem);
+  display:flex; align-items:center; gap:.5em; font-family:var(--font-display); font-weight:600; font-size:clamp(.95rem,1.5vw,1.15rem); letter-spacing:.12em; text-transform:uppercase;
+  color:var(--cream); background:rgba(8,8,10,.6); border:2px solid var(--gold-deep); border-radius:12px; padding:.5em .9em; min-height:46px; cursor:pointer; }
+.tv-back:hover{ background:rgba(232,184,75,.2); }
+.tv-back .ico{ width:1.3em; height:1.3em; }
+.table-view .table-wrap{ flex:1; }
+.tv-center{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:clamp(.1rem,.8vh,.5rem); text-align:center; pointer-events:none; }
+.tv-level{ font-weight:700; font-size:clamp(1rem, min(2.4vw,3.6vh), 1.9rem); letter-spacing:.08em; color:var(--gold-light); }
+.tv-level span{ font-weight:400; color:rgba(246,239,217,.6); }
+.tv-timer{ font-weight:700; font-size:clamp(2.6rem, min(9vw,13vh), 7.5rem); line-height:.9; color:var(--cream); font-variant-numeric:tabular-nums;
+  text-shadow:0 5px 0 rgba(0,0,0,.35); }
+.tv-timer.paused{ color:var(--amber); animation:pausePulse 1.1s ease-in-out infinite; }
+.tv-blinds{ font-size:clamp(1rem, min(2.4vw,3.6vh), 1.9rem); color:var(--cream); letter-spacing:.06em; }
+.tv-blinds b{ color:var(--gold-light); font-variant-numeric:tabular-nums; }
+.tv-next, .tv-pot{ font-size:clamp(.75rem, min(1.3vw,2vh), 1.05rem); letter-spacing:.12em; text-transform:uppercase; color:rgba(246,239,217,.7); }
+.tv-next b, .tv-pot b{ color:var(--cream); }
+.tv-seat{ cursor:pointer; font-family:var(--font-display); text-align:center; }
+.tv-seat .seat-chips{ font-weight:700; font-size:clamp(1rem,1.6vw,1.35rem); color:var(--ink); font-variant-numeric:tabular-nums; }
+.tv-seat .seat-chips small{ font-size:.6em; letter-spacing:.14em; color:var(--gold-deep); margin-left:.25em; }
+.tv-seat.out{ opacity:.45; filter:grayscale(.6); }
+.tv-seat.lead{ background:linear-gradient(180deg, #f6d27a, #e2b24f); }
+.tv-seat .seat-avatar{ cursor:pointer; color:var(--gold-light); font-weight:700; font-size:1.3em; background-color:#26302a; }
+.tv-seat .seat-avatar::after{ content:attr(data-initial); opacity:1; color:var(--gold-light); font-size:1em; }
+.tv-seat .seat-avatar.has-photo::after{ content:''; }
+.poker-table.many .tv-seat .seat-chips{ font-size:clamp(.85rem,1.2vw,1.1rem); }
+
 /* MUSIC tab + Spotify mini-player (bottom-right, above the slide counter) */
 .set-in.music-in{ width:min(100%, 24em); text-align:left; font-weight:500; flex:1; min-width:12em; }
 .music-chk{ display:flex; align-items:center; gap:.55em; cursor:pointer; }
@@ -488,7 +553,7 @@ button.rebuy-ava{ cursor:pointer; padding:0; }
 .np-bar i{ display:block; height:100%; width:0; background:var(--gold); transition:width 1s linear; }
 .np-ctl{ display:flex; gap:.15em; }
 .np-ctl.none{ display:none; }
-.np-ctl button{ background:none; border:none; color:var(--cream); font-size:1.15rem; cursor:pointer; min-width:38px; min-height:40px; border-radius:8px; }
+.np-ctl button{ background:none; border:none; color:var(--cream); font-size:1.15rem; display:inline-flex; align-items:center; justify-content:center; cursor:pointer; min-width:38px; min-height:40px; border-radius:8px; }
 .np-ctl button:hover{ background:rgba(232,184,75,.22); }
 .np-card{ cursor:pointer; }
 .np-card .np-art{ transition:transform .2s ease; } .np-card:hover .np-art{ transform:scale(1.05); }
@@ -549,8 +614,8 @@ button.rebuy-ava{ cursor:pointer; padding:0; }
 }
 /* ALBUM GLOW — soft blur of the cover art behind the active level (⚙️ → Music to switch off) */
 .np-glow{ position:absolute; inset:-8%; z-index:1; pointer-events:none; display:none; opacity:0;
-  background:var(--np-art, none) center/cover no-repeat; filter:blur(48px) saturate(1.5); transform:scale(1.1); transition:opacity 1.2s ease; }
-body.np-glow-on .slide.active .np-glow{ display:block; opacity:.34; }
+  background:var(--np-art, none) center/cover no-repeat; filter:blur(36px) saturate(1.6) brightness(.72); transform:scale(1.1); transition:opacity 1.2s ease; }
+body.np-glow-on .slide.active .np-glow{ display:block; opacity:.5; }
 .set-sub{ font-weight:600; letter-spacing:.14em; text-transform:uppercase; font-size:clamp(.8rem,1.2vw,.95rem); color:var(--gold-light);
   margin:.4em 0 .6em; padding-top:.7em; border-top:1px solid rgba(232,184,75,.3); }
 .set-sub:first-child{ border-top:none; padding-top:0; margin-top:0; }
@@ -635,11 +700,11 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   <span id="fontScaleLabel">100%</span>
   <button id="fontScaleUp" aria-label="Increase font size" title="Larger (⌘ .)">A+</button>
   <span class="ctrl-divider" aria-hidden="true"></span>
-  <button id="pauseBtn" class="fs-btn" aria-label="Pause or resume the timer" title="Pause / resume (Space)">⏸</button>
-  <button id="settingsBtn" class="fs-btn" aria-label="Settings" title="Settings: blinds, players, chips (R)">⚙️</button>
-  <button id="muteBtn" class="fs-btn" aria-label="Toggle sound" title="Sound on/off (M)">🔊</button>
-  <button id="musicBtn" class="fs-btn" aria-label="Music" title="Music: show / hide the Spotify player">🎵</button>
-  <button id="fullscreenBtn" class="fs-btn" aria-label="Enter fullscreen" title="Fullscreen (⌘ F / F)">⛶</button>
+  <button id="pauseBtn" class="fs-btn" aria-label="Pause or resume the timer" title="Pause / resume (Space)" data-ico="pause"></button>
+  <button id="settingsBtn" class="fs-btn" aria-label="Settings" title="Settings: blinds, players, chips (R)" data-ico="gear"></button>
+  <button id="muteBtn" class="fs-btn" aria-label="Toggle sound" title="Sound on/off (M)" data-ico="sound"></button>
+  <button id="musicBtn" class="fs-btn" aria-label="Music" title="Music: show / hide the Spotify player" data-ico="music"></button>
+  <button id="fullscreenBtn" class="fs-btn" aria-label="Enter fullscreen" title="Fullscreen (⌘ F / F)" data-ico="full"></button>
 </div>
 
 <!-- MUSIC DOCK (top-right): "Now playing" from the Spotify app + optional in-page player -->
@@ -647,7 +712,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
 <div class="np-card none" id="nowPlaying" aria-live="polite">
   <img class="np-art" id="npArt" alt="">
   <div class="np-tx"><span class="np-k" id="npK">Now playing</span><span class="np-title" id="npTitle"></span><span class="np-artist" id="npArtist"></span><div class="np-bar"><i id="npBar"></i></div></div>
-  <div class="np-ctl" id="npCtl"><button data-sp="previous" aria-label="Previous song">⏮</button><button data-sp="toggle" id="npToggle" aria-label="Play or pause">⏯</button><button data-sp="next" aria-label="Next song">⏭</button></div>
+  <div class="np-ctl" id="npCtl"><button data-sp="previous" aria-label="Previous song" data-ico="prev"></button><button data-sp="toggle" id="npToggle" aria-label="Play or pause" data-ico="pause"></button><button data-sp="next" aria-label="Next song" data-ico="next"></button></div>
 </div>
 <div class="music-panel none" id="musicPanel" aria-label="Music player">
   <div class="music-head">
@@ -669,7 +734,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   <span class="np-side-title" id="npSideTitle"></span>
   <span class="np-side-artist" id="npSideArtist"></span>
   <div class="np-bar"><i id="npSideBar"></i></div>
-  <div class="np-ctl np-side-ctl" id="npSideCtl"><button data-sp="previous" aria-label="Previous song">⏮</button><button data-sp="toggle" id="npSideToggle" aria-label="Play or pause">⏯</button><button data-sp="next" aria-label="Next song">⏭</button></div>
+  <div class="np-ctl np-side-ctl" id="npSideCtl"><button data-sp="previous" aria-label="Previous song" data-ico="prev"></button><button data-sp="toggle" id="npSideToggle" aria-label="Play or pause" data-ico="pause"></button><button data-sp="next" aria-label="Next song" data-ico="next"></button></div>
 </aside>
 
 <!-- BIG NOW-PLAYING VIEW (full screen) -->
@@ -683,10 +748,43 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
       <span class="np-big-title" id="npBigTitle"></span>
       <span class="np-big-artist" id="npBigArtist"></span>
       <div class="np-bar"><i id="npBigBar"></i></div>
-      <div class="np-ctl np-big-ctl" id="npBigCtl"><button data-sp="previous" aria-label="Previous song">⏮</button><button data-sp="toggle" id="npBigToggle" aria-label="Play or pause">⏯</button><button data-sp="next" aria-label="Next song">⏭</button></div>
+      <div class="np-ctl np-big-ctl" id="npBigCtl"><button data-sp="previous" aria-label="Previous song" data-ico="prev"></button><button data-sp="toggle" id="npBigToggle" aria-label="Play or pause" data-ico="pause"></button><button data-sp="next" aria-label="Next song" data-ico="next"></button></div>
     </div>
   </div>
   <div class="np-big-game" id="npBigGame"></div>
+</div>
+
+<!-- TABLE VIEW (TABLE button on the chip strip, or T) -->
+<div class="table-view" id="tableView" aria-hidden="true" aria-label="Table view">
+  <button class="tv-back" id="tvBack" aria-label="Back to the clock"><span data-ico="clock"></span>Clock</button>
+  <div class="table-wrap"><div class="poker-table" id="tvTable">
+    <div class="tv-center">
+      <span class="tv-level" id="tvLevel"></span>
+      <span class="tv-timer" id="tvTimer"></span>
+      <span class="tv-blinds" id="tvBlinds"></span>
+      <span class="tv-next" id="tvNext"></span>
+      <span class="tv-pot">Pot · <b>AED <span data-pot-amount>3,000</span></b></span>
+    </div>
+  </div></div>
+</div>
+
+<!-- PLAYER CARD (tap a player on the chip strip or the table view) -->
+<div class="rebuy-overlay" id="playerCard" aria-hidden="true">
+  <div class="rebuy-card pc-card" role="dialog" aria-label="Edit player">
+    <div class="rebuy-head"><span class="rebuy-title" id="pcTitle">Player</span><button class="rebuy-close" id="pcClose" aria-label="Close">✕</button></div>
+    <div class="pc-body">
+      <button class="rebuy-ava pc-ava" id="pcAva" data-seat="0" aria-label="Change photo" title="Tap to change the photo"></button>
+      <div class="pc-fields">
+        <label class="pc-lbl">Name <input class="set-in pc-name" id="pcName" type="text" maxlength="24" autocomplete="off" spellcheck="false"></label>
+        <div class="pc-lbl">Chips
+          <div class="pc-chips"><button class="pc-step" data-pc-step="-100">−100</button><input class="set-in pc-num" id="pcChips" type="number" inputmode="numeric" min="0"><button class="pc-step" data-pc-step="100">+100</button></div>
+          <div class="pc-quick"><button class="set-btn" data-pc-step="-500">−500</button><button class="set-btn" data-pc-step="500">+500</button><button class="set-btn danger" id="pcOut">Out (0 chips)</button></div>
+        </div>
+        <div class="pc-buy">Buy-in <b>AED <span id="pcBuyin">500</span></b> <button class="rebuy-add" id="pcRebuy">＋ Rebuy</button></div>
+      </div>
+    </div>
+    <div class="set-actions" style="margin-top:1.6em"><span class="rebuy-hint" style="margin:0">Saves as you type · the clock keeps running</span><button class="rebuy-add" id="pcDone">Done</button></div>
+  </div>
 </div>
 
 <!-- hidden file picker for avatar uploads (one, reused) -->
@@ -833,6 +931,25 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
 </div>
 
 <script>
+/* ============================================================
+   ICONS — small inline SVGs (iPad turns ⏸ ⚙️ 🔊 into emoji tiles)
+   ============================================================ */
+const ICON = {
+  pause: '<svg class="ico solid" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1.2"/><rect x="14" y="4.5" width="4" height="15" rx="1.2"/></svg>',
+  play:  '<svg class="ico solid" viewBox="0 0 24 24"><path d="M7.5 4.8v14.4a1 1 0 0 0 1.5.86l11.4-7.2a1 1 0 0 0 0-1.72L9 3.94a1 1 0 0 0-1.5.86z"/></svg>',
+  prev:  '<svg class="ico solid" viewBox="0 0 24 24"><rect x="4.5" y="5" width="2.6" height="14" rx="1"/><path d="M19 6.1v11.8a.9.9 0 0 1-1.4.75L9.4 12.75a.9.9 0 0 1 0-1.5l8.2-5.9A.9.9 0 0 1 19 6.1z"/></svg>',
+  next:  '<svg class="ico solid" viewBox="0 0 24 24"><rect x="16.9" y="5" width="2.6" height="14" rx="1"/><path d="M5 6.1v11.8a.9.9 0 0 0 1.4.75l8.2-5.9a.9.9 0 0 0 0-1.5L6.4 5.35A.9.9 0 0 0 5 6.1z"/></svg>',
+  gear:  '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.04 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.04H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.04z"/></svg>',
+  sound: '<svg class="ico" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>',
+  mute:  '<svg class="ico" viewBox="0 0 24 24"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
+  music: '<svg class="ico" viewBox="0 0 24 24"><path d="M9 17.5V5.5l10-2v12"/><circle cx="6.5" cy="17.5" r="2.5" fill="currentColor"/><circle cx="16.5" cy="15.5" r="2.5" fill="currentColor"/></svg>',
+  full:  '<svg class="ico" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>',
+  table: '<svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="5.5"/><circle cx="12" cy="3.6" r="1.4" fill="currentColor"/><circle cx="12" cy="20.4" r="1.4" fill="currentColor"/><circle cx="1.9" cy="12" r="1.4" fill="currentColor"/><circle cx="22.1" cy="12" r="1.4" fill="currentColor"/></svg>',
+  clock: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>'
+};
+function setIcon(el, name){ if (el && el.dataset.icoNow !== name){ el.innerHTML = ICON[name] || ''; el.dataset.icoNow = name; } }
+document.querySelectorAll('[data-ico]').forEach(el => setIcon(el, el.dataset.ico));
+
 /* ============================================================
    SLIDE PRESENTATION CONTROLLER (house controller, trimmed:
    Space is NOT a "next" key here — it's reassigned to pause/resume
@@ -1035,7 +1152,7 @@ class TournamentClock {
     document.body.classList.toggle('is-paused', on);
     if (this.el) this.el.classList.toggle('paused', on);
     const pb = document.getElementById('pauseBtn');
-    if (pb) { pb.textContent = on ? '▶' : '⏸'; pb.title = on ? 'Resume (Space)' : 'Pause (Space)'; }
+    if (pb) { setIcon(pb, on ? 'play' : 'pause'); pb.title = on ? 'Resume (Space)' : 'Pause (Space)'; }
     if (typeof music !== 'undefined') music.onClockPause(on);   /* Spotify follows the clock (if switched on) */
   }
   render(ms) {
@@ -1249,8 +1366,11 @@ function syncBankUI(except){
   renderStrips();
   document.querySelectorAll('.seat-avatar[data-seat], .rebuy-ava[data-seat], .cs-ava[data-seat]').forEach(el => setAvatarEl(el, bank.photos[+el.dataset.seat]));
   renderHeadsUp(); renderWinner();
+  if (typeof playerCard !== 'undefined') playerCard.fill(except);
+  if (typeof tableView !== 'undefined') tableView.renderSeats();
   saveState();
 }
+function initialOf(name){ const t = String(name || '').trim(); return t ? t[0].toUpperCase() : '?'; }
 /* CHIP COUNT STRIP on every level — biggest stack first, busted players last */
 function renderStrips(){
   const order = bank.names.map((_, i) => i).sort((a, b) => (bank.chips[b] || 0) - (bank.chips[a] || 0));
@@ -1258,15 +1378,17 @@ function renderStrips(){
   const avg = live.length ? Math.round(live.reduce((t, i) => t + bank.chips[i], 0) / live.length) : 0;
   /* gold pill only for a clear leader (nobody highlighted while stacks are tied) */
   const lead = live.length === 1 || (live.length > 1 && bank.chips[live[0]] > bank.chips[live[1]]) ? live[0] : -1;
-  const html = '<span class="cs-hd">Chip count<b>Avg ' + fmtMoney(avg) + ' · ' + live.length + ' left</b></span>' +
+  const html = '<button class="cs-hd" data-table-view aria-label="Open the table view">' + ICON.table + '<span>Table<b>Avg ' + fmtMoney(avg) + ' · ' + live.length + ' left</b></span></button>' +
     order.map(i => {
       const out = !(bank.chips[i] > 0);
-      return '<div class="cs-pl' + (i === lead ? ' lead' : '') + (out ? ' out' : '') + '"><span class="cs-ava" data-seat="' + i + '"></span>' +
+      return '<button class="cs-pl' + (i === lead ? ' lead' : '') + (out ? ' out' : '') + '" data-player="' + i + '" aria-label="Edit ' + escapeHtml(bank.names[i]) + '">' +
+        '<span class="cs-ava" data-seat="' + i + '" data-initial="' + escapeHtml(initialOf(bank.names[i])) + '"></span>' +
         '<span class="cs-tx"><span class="cs-nm">' + escapeHtml(bank.names[i]) + '</span>' +
-        '<span class="cs-ct" data-chips="' + i + '" contenteditable="true" inputmode="numeric" title="Tap to change chips">' + (out ? 'OUT' : fmtMoney(bank.chips[i])) + '</span></span></div>';
+        '<span class="cs-ct">' + (out ? 'OUT' : fmtMoney(bank.chips[i])) + '</span></span></button>';
     }).join('');
   document.querySelectorAll('[data-strip]').forEach(el => {
-    if (el.contains(document.activeElement)) return;          /* never re-sort under someone typing */
+    const a = document.activeElement;
+    if (el.contains(a) && (a.isContentEditable || a.tagName === 'INPUT')) return;     /* never re-sort under someone typing */
     el.classList.toggle('many', playerCount() >= 7);
     el.innerHTML = html;
     el.querySelectorAll('.cs-ava[data-seat]').forEach(a => setAvatarEl(a, bank.photos[+a.dataset.seat]));
@@ -1728,7 +1850,7 @@ class SoundFx {
     } catch (e) {}
   }
   toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} } }
-  applyBtn(){ this.btn.textContent = this.muted ? '🔇' : '🔊'; this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
+  applyBtn(){ setIcon(this.btn, this.muted ? 'mute' : 'sound'); this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
   playTransition(){
     if (this.muted) return;
     try { this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (e) {}
@@ -1970,7 +2092,7 @@ const spotify = {
     if (sb && sb !== this._stripB){ this._stripB = sb; document.body.style.setProperty('--strip-bottom', sb); }
   },
   portrait(){ return window.matchMedia && matchMedia('(orientation: portrait)').matches; },
-  openSide(){ if (this.portrait()){ this.openBig(); return; } this.setView('side'); },
+  openSide(){ if (this.portrait() || document.body.classList.contains('tv-open')){ this.openBig(); return; } this.setView('side'); },
   setView(v){ musicState.view = v; saveState(); this.render(); },
   openBig(){ if (!this.now) return; const b = this.el('npBig'); b.classList.add('open'); b.setAttribute('aria-hidden', 'false'); this.render(); this.gameLine(); },
   closeBig(){ const b = this.el('npBig'); b.classList.remove('open'); b.setAttribute('aria-hidden', 'true'); },
@@ -1989,7 +2111,7 @@ const spotify = {
     card.classList.toggle('none', !on);
     document.body.classList.toggle('np-glow-on', on && musicState.glow && !!(n && n.artSmall));
     /* split view: only on level / next-up screens, in landscape, while 🎵 is showing */
-    const sl = document.querySelector('.slide.active'), side = on && musicState.view === 'side' && musicState.open && !this.portrait();
+    const sl = document.querySelector('.slide.active'), side = on && musicState.view === 'side' && musicState.open && !this.portrait() && !document.body.classList.contains('tv-open');
     document.body.classList.toggle('np-side-on', side);
     const live = side && !!(sl && sl.dataset.type);
     document.body.classList.toggle('np-side-live', live);
@@ -2002,18 +2124,18 @@ const spotify = {
     const bArt = this.el('npBigArt'); if (bArt.getAttribute('src') !== big){ if (big) bArt.src = big; else bArt.removeAttribute('src'); }
     this.el('npBigTitle').textContent = n.title; this.el('npBigArtist').textContent = n.artist;
     this.el('npBigK').textContent = n.playing ? 'Now playing' : 'Paused';
-    this.el('npBigToggle').textContent = n.playing ? '⏸' : '▶';
+    setIcon(this.el('npBigToggle'), n.playing ? 'pause' : 'play');
     this.el('npBigCtl').classList.toggle('none', this.premium === false);
     const sArt = this.el('npSideArt'); if (sArt.getAttribute('src') !== big){ if (big) sArt.src = big; else sArt.removeAttribute('src'); }
     this.el('npSideTitle').textContent = n.title; this.el('npSideArtist').textContent = n.artist;
     this.el('npSideK').textContent = n.playing ? 'Now playing' : 'Paused';
-    this.el('npSideToggle').textContent = n.playing ? '⏸' : '▶';
+    setIcon(this.el('npSideToggle'), n.playing ? 'pause' : 'play');
     this.el('npSideCtl').classList.toggle('none', this.premium === false);
     const art = this.el('npArt'); if (art.getAttribute('src') !== n.art){ if (n.art) art.src = n.art; else art.removeAttribute('src'); }
     this.el('npTitle').textContent = n.title; this.el('npArtist').textContent = n.artist;
     this.el('npK').textContent = n.playing ? 'Now playing' : 'Paused';
     card.classList.toggle('paused', !n.playing);
-    this.el('npToggle').textContent = n.playing ? '⏸' : '▶';
+    setIcon(this.el('npToggle'), n.playing ? 'pause' : 'play');
     this.el('npCtl').classList.toggle('none', this.premium === false);
     this.tickBar();
   },
@@ -2061,6 +2183,106 @@ function openSettingsTab(name){
 }
 
 /* ============================================================
+   PLAYER CARD — edit a player's photo, name and chips mid-game
+   ============================================================ */
+const playerCard = {
+  i: -1,
+  el(id){ return document.getElementById(id); },
+  isOpen(){ return this.el('playerCard').classList.contains('open'); },
+  open(i){ if (i < 0 || i >= playerCount()) return; this.i = i; this.fill(); const o = this.el('playerCard'); o.classList.add('open'); o.setAttribute('aria-hidden', 'false'); },
+  close(){ const o = this.el('playerCard'); o.classList.remove('open'); o.setAttribute('aria-hidden', 'true'); if (document.activeElement) document.activeElement.blur(); this.i = -1; },
+  fill(except){
+    if (!this.isOpen() && except !== 'force' && this.i < 0) return;
+    const i = this.i; if (i < 0 || i >= playerCount()) return;
+    const av = this.el('pcAva'); av.dataset.seat = i; av.dataset.initial = initialOf(bank.names[i]); setAvatarEl(av, bank.photos[i]);
+    this.el('pcTitle').textContent = bank.names[i] || 'Player ' + (i + 1);
+    const nm = this.el('pcName'), ch = this.el('pcChips');
+    if (nm !== except && nm !== document.activeElement) nm.value = bank.names[i];
+    if (ch !== except && ch !== document.activeElement) ch.value = bank.chips[i];
+    this.el('pcBuyin').textContent = fmtMoney(bank.buyins[i]);
+  },
+  init(){
+    const o = this.el('playerCard');
+    o.addEventListener('click', (e) => {
+      if (e.target === o) { this.close(); return; }
+      const st = e.target.closest('[data-pc-step]');
+      if (st && this.i >= 0){ bank.chips[this.i] = Math.max(0, (bank.chips[this.i] || 0) + (+st.dataset.pcStep)); syncBankUI(); return; }
+    });
+    this.el('pcClose').addEventListener('click', () => this.close());
+    this.el('pcDone').addEventListener('click', () => this.close());
+    this.el('pcOut').addEventListener('click', () => { if (this.i >= 0){ bank.chips[this.i] = 0; syncBankUI(); } });
+    this.el('pcRebuy').addEventListener('click', () => { if (this.i >= 0){ bank.buyins[this.i] += REBUY_STEP; bank.chips[this.i] += bank.startStack; syncBankUI(); } });
+    this.el('pcName').addEventListener('input', (e) => { if (this.i >= 0){ bank.names[this.i] = e.target.value.trim(); syncBankUI(e.target); } });
+    this.el('pcName').addEventListener('change', (e) => { if (this.i >= 0 && !e.target.value.trim()){ bank.names[this.i] = 'Player ' + (this.i + 1); syncBankUI(); } });
+    this.el('pcChips').addEventListener('input', (e) => { if (this.i >= 0 && e.target.value !== ''){ bank.chips[this.i] = clampInt(e.target.value, 0, 1e9, 0); syncBankUI(e.target); } });
+    this.el('pcChips').addEventListener('change', (e) => { if (this.i >= 0) e.target.value = bank.chips[this.i]; });
+    o.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT'){ e.preventDefault(); e.target.blur(); } });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.isOpen()){ this.close(); e.stopImmediatePropagation(); } });   /* Esc closes only the card */
+    /* tap a player on the chip strip or the table view */
+    document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-player]'); if (b) this.open(+b.dataset.player); });
+  }
+};
+
+/* ============================================================
+   TABLE VIEW — the poker table mid-game, live level / time / blinds
+   in the middle. Opens over the clock; the clock keeps running.
+   ============================================================ */
+const tableView = {
+  t: null,
+  el(id){ return document.getElementById(id); },
+  isOpen(){ return this.el('tableView').classList.contains('open'); },
+  open(){ const v = this.el('tableView'); v.classList.add('open'); v.setAttribute('aria-hidden', 'false'); document.body.classList.add('tv-open');
+    this.renderSeats(); this.tick(); clearInterval(this.t); this.t = setInterval(() => this.tick(), 250); if (typeof spotify !== 'undefined') spotify.render(); },
+  close(){ const v = this.el('tableView'); v.classList.remove('open'); v.setAttribute('aria-hidden', 'true'); document.body.classList.remove('tv-open');
+    clearInterval(this.t); this.t = null; if (typeof spotify !== 'undefined') spotify.render(); },
+  toggle(){ this.isOpen() ? this.close() : this.open(); },
+  renderSeats(){
+    if (!this.isOpen()) return;
+    const table = this.el('tvTable'); table.querySelectorAll('.seat').forEach(el => el.remove());
+    const n = playerCount(); table.classList.toggle('many', n >= 7);
+    const live = bank.chips.map((c, i) => i).filter(i => bank.chips[i] > 0).sort((a, b) => bank.chips[b] - bank.chips[a]);
+    const lead = live.length === 1 || (live.length > 1 && bank.chips[live[0]] > bank.chips[live[1]]) ? live[0] : -1;
+    seatLayout(n).forEach((pos, i) => {
+      const out = !(bank.chips[i] > 0);
+      const seat = document.createElement('button');
+      seat.className = 'seat tv-seat side-' + pos.side + (out ? ' out' : '') + (i === lead ? ' lead' : '');
+      seat.dataset.player = i; seat.style.left = pos.left + '%'; seat.style.top = pos.top + '%';
+      seat.setAttribute('aria-label', 'Edit ' + bank.names[i]);
+      seat.innerHTML = '<span class="seat-avatar" data-initial="' + escapeHtml(initialOf(bank.names[i])) + '"></span><span class="seat-no">' + (i + 1) + '</span>' +
+        '<span class="seat-name">' + escapeHtml(bank.names[i]) + '</span>' +
+        '<span class="seat-chips">' + (out ? 'OUT' : fmtMoney(bank.chips[i]) + '<small>chips</small>') + '</span>';
+      setAvatarEl(seat.querySelector('.seat-avatar'), bank.photos[i]);
+      table.appendChild(seat);
+    });
+  },
+  tick(){
+    const sl = presentation.slides[presentation.current], type = sl && sl.dataset.type;
+    const T = this.el('tvTimer'), L = this.el('tvLevel'), B = this.el('tvBlinds'), N = this.el('tvNext');
+    const idx = sl && sl.dataset.lid ? levels.findIndex(l => l.id === sl.dataset.lid) : -1;
+    const lv = idx >= 0 ? levels[idx] : levels[0], li = idx >= 0 ? idx : 0;
+    let ms = 0;
+    if (type && clock.activeSlide === sl) ms = clock.paused ? clock.remaining : clock.deadline - performance.now();
+    const secs = Math.max(0, Math.ceil(ms / 1000));
+    T.classList.toggle('paused', !!type && clock.paused);
+    if (type === 'transition'){ L.innerHTML = 'Next up'; T.textContent = String(secs); }
+    else if (type === 'level'){ L.innerHTML = 'Level ' + (li + 1) + ' <span>of ' + levels.length + '</span>'; T.textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'); }
+    else { L.innerHTML = presentation.current === 0 ? 'Not started' : 'Game over'; T.textContent = presentation.current === 0 ? fmtClock((levels[0] ? levels[0].mins : 30) * 60) : '—'; }
+    if (lv) B.innerHTML = (type === 'transition' ? 'Level ' + (li + 1) + ' · ' : '') + 'Blinds <b>' + fmtMoney(lv.sb) + ' / ' + fmtMoney(lv.bb) + '</b>';
+    const nx = type === 'transition' ? null : levels[li + 1];
+    N.innerHTML = nx ? 'Next · Level ' + (li + 2) + ' · <b>' + fmtMoney(nx.sb) + ' / ' + fmtMoney(nx.bb) + '</b>' : (type === 'level' ? '<b>Final level</b>' : '');
+  },
+  init(){
+    document.addEventListener('click', (e) => { const b = e.target.closest && e.target.closest('[data-table-view]'); if (b) this.open(); });
+    this.el('tvBack').addEventListener('click', () => this.close());
+    document.addEventListener('keydown', (e) => {
+      if (e.target.isContentEditable || ['INPUT','TEXTAREA'].includes(e.target.tagName)) return;
+      if ((e.key === 't' || e.key === 'T') && !e.metaKey && !e.ctrlKey && !e.altKey){ e.preventDefault(); this.toggle(); }
+      if (e.key === 'Escape' && this.isOpen() && !playerCard.isOpen() && !settingsOverlay.classList.contains('open') && !document.getElementById('npBig').classList.contains('open')) this.close();
+    });
+  }
+};
+
+/* ============================================================
    SAVE A CONFIGURED COPY (⌘S) — bakes the blinds, names, buy-ins,
    photos and chips into a downloadable file you can open anywhere.
    ============================================================ */
@@ -2079,6 +2301,8 @@ function exportDeck() {
   const emb = docCopy.querySelector('#musicEmbed'); if (emb) emb.innerHTML = '';
   const np = docCopy.querySelector('#nowPlaying'); if (np) np.classList.add('none');
   const npb = docCopy.querySelector('#npBig'); if (npb) npb.classList.remove('open');
+  ['#tableView', '#playerCard'].forEach(sel => { const o = docCopy.querySelector(sel); if (o) o.classList.remove('open'); });
+  const tvt = docCopy.querySelector('#tvTable'); if (tvt) tvt.querySelectorAll('.seat').forEach(x => x.remove());
   docCopy.style.removeProperty('--np-art'); docCopy.style.removeProperty('--np-art-big');
   const bd = docCopy.querySelector('body'); if (bd){ bd.classList.remove('np-glow-on', 'np-side-on', 'np-side-live'); bd.style.removeProperty('--strip-h'); bd.style.removeProperty('--strip-bottom'); }
   const nps = docCopy.querySelector('#npSide'); if (nps) nps.classList.remove('show');
@@ -2119,6 +2343,8 @@ renderSeats();                             /* cover seats for however many playe
 storeReady = true;
 syncBankUI();                              /* paint pot, avatars and the chip strips */
 music.init();                              /* Spotify mini-player (only shows once a link is set) */
+playerCard.init();                         /* tap a player to edit photo / name / chips */
+tableView.init();                          /* TABLE button / T: the table mid-game */
 spotify.init();                            /* Spotify app "Now playing" (finishes a login if we just came back from Spotify) */
 syncCoverMins();
 

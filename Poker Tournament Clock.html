@@ -2542,7 +2542,10 @@ const phones = {
     });
   },
   attach(c){
-    c.on('open', () => { this.conns.set(c.connectionId, { c, name: null }); this.send(c, this.snapshot()); });
+    /* register at once — on iPhone/iPad Safari a phone's first message can arrive before 'open' fires */
+    this.conns.set(c.connectionId, { c, name: null });
+    const hi = () => this.send(c, this.snapshot());
+    if (c.open) hi(); else c.on('open', hi);
     c.on('data', (d) => this.onData(c, d));
     const gone = () => { this.conns.delete(c.connectionId); this.renderList(); this.setStatus(this.status, this.peer && this.peer.open ? 'ok' : 'bad'); };
     c.on('close', gone); c.on('error', gone);
@@ -2552,23 +2555,31 @@ const phones = {
   nameIndex(name){ return bank.names.findIndex(n => n === name); },
   onData(c, d){
     if (!d || typeof d !== 'object') return;
-    const me = this.conns.get(c.connectionId); if (!me) return;
-    if (d.t === 'hello'){ me.name = typeof d.name === 'string' && this.nameIndex(d.name) >= 0 ? d.name : null; this.send(c, this.snapshot()); this.renderList(); return; }
+    let me = this.conns.get(c.connectionId);
+    if (!me){ me = { c, name: null }; this.conns.set(c.connectionId, me); }
+    /* every phone message carries its name, so a lost "hello" can never leave a phone nameless */
+    const claimed = typeof d.name === 'string' && this.nameIndex(d.name) >= 0 ? d.name : null;
+    if (d.t === 'hello'){ me.name = claimed; this.send(c, this.snapshot()); this.renderList(); return; }
+    if (claimed && !me.name){ me.name = claimed; this.renderList(); }   /* fills a missing name; switching player only via hello */
+    const ack = (ok, why) => { if (d.id) this.send(c, { t: 'ack', id: d.id, ok, why: why || '' }); };
     if (d.t === 'ping'){ this.send(c, { t: 'pong' }); return; }
     if (d.t === 'photos'){ this.send(c, { t: 'photos', rev: this.photoRev(), photos: bank.photos.slice() }); return; }
     if (d.t === 'chips'){
       const i = this.nameIndex(me.name);
-      if (!this.allowChips || i < 0 || d.name !== me.name){ this.send(c, this.snapshot()); return; }
+      if (!this.allowChips){ ack(false, 'Chip changes are switched off'); this.send(c, this.snapshot()); return; }
+      if (i < 0 || d.name !== me.name){ ack(false, 'Pick your name first'); this.send(c, this.snapshot()); return; }
       const v = clampInt(d.value, 0, 1e9, bank.chips[i]); const before = bank.chips[i];
-      if (v === before){ this.send(c, this.snapshot()); return; }
-      bank.chips[i] = v; syncBankUI();
+      if (v === before){ ack(true); this.send(c, this.snapshot()); return; }
+      bank.chips[i] = v; syncBankUI(); ack(true);
       this.toast('<b>' + escapeHtml(me.name) + '</b> → ' + (v ? fmtMoney(v) + ' chips' : 'OUT'), () => { const k = this.nameIndex(me.name); if (k >= 0){ bank.chips[k] = before; syncBankUI(); } });
       return;
     }
     if (d.t === 'emoji'){
-      if (!EMOJIS.includes(d.e) || !me.name) return;
-      const now = Date.now(); if (now - (this.lastEmoji.get(me.name) || 0) < 1200) return; this.lastEmoji.set(me.name, now);
-      this.showEmoji(d.e, me.name); this.broadcast({ t: 'emoji', e: d.e, name: me.name });
+      if (!EMOJIS.includes(d.e)){ ack(false, 'Unknown emoji'); return; }
+      if (!me.name){ ack(false, 'Pick your name first'); return; }
+      const now = Date.now(); if (now - (this.lastEmoji.get(me.name) || 0) < 1200){ ack(false, 'Too fast — wait a second'); return; }
+      this.lastEmoji.set(me.name, now);
+      this.showEmoji(d.e, me.name); this.broadcast({ t: 'emoji', e: d.e, name: me.name }); ack(true);
     }
   },
   photoRev(){ return bank.photos.map(x => x ? x.length : 0).join('.'); },

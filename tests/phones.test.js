@@ -128,6 +128,19 @@ async function check(name, fn){
   await phones[0].p.evaluate(() => send({ t: 'chips', name: 'Bob', value: 5 })); await wait(800);
   await check('A phone can\'t change someone else\'s chips', async () => (await host.evaluate(() => bank.chips[1])) === 700);
 
+  /* ---- the bug Igor hit on real iPhones: the phone's first "hello" lost → the iPad never learned its name ---- */
+  await host.evaluate(() => phones.conns.forEach(x => { x.name = null; })); await wait(1300);
+  await phones[2].p.click('[data-e="👏"]');
+  await check('iPad lost a phone\'s name → its emoji still arrives (name rides along)', async () =>
+    !!(await until(() => host.evaluate(() => [...document.querySelectorAll('#emojiLayer .emoji-fly')].some(f => f.textContent.includes('👏') && f.textContent.includes('Cat'))), 3000)));
+  await check('…and the phone shows "✓ sent to the table"', async () =>
+    !!(await until(() => phones[2].p.evaluate(() => { const r = document.getElementById('receipt'); return r.classList.contains('show') && r.textContent.includes('✓'); }), 3000)) || await phones[2].p.evaluate(() => document.getElementById('receipt').textContent));
+  await check('…and the iPad lists all 3 names again by itself', async () =>
+    !!(await until(() => host.evaluate(() => phones.players().length === 3), 6000)) || await host.evaluate(() => phones.players()));
+  await wait(1300); await phones[2].p.click('[data-e="👏"]'); await phones[2].p.click('[data-e="👏"]');
+  await check('Tapping too fast → phone says so (not silently dropped)', async () =>
+    !!(await until(() => phones[2].p.evaluate(() => document.getElementById('receipt').textContent.includes('one per second')), 2000)));
+
   /* ---- emoji sound pauses the music, then it comes back ---- */
   await wait(7000); spCalls.length = 0; spPlaying = true; await host.evaluate(() => spotify.poll()); await wait(600);
   await phones[1].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '💀' }); });

@@ -64,6 +64,10 @@ button{ font-family:inherit; cursor:pointer; }
 .fly small{ display:block; font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; color:var(--cream); }
 @keyframes up{ 0%{ transform:translateY(0); opacity:0; } 15%{ opacity:1; } 100%{ transform:translateY(-70vh); opacity:0; } }
 .big-msg{ text-align:center; padding:28px 16px; font-size:1.1rem; color:rgba(246,239,217,.85); }
+/* delivery receipt after an emoji / chip change */
+.receipt{ position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:10; font-size:1rem; letter-spacing:.06em;
+  padding:.5em 1.1em; border-radius:999px; background:rgba(6,12,9,.92); border:1.5px solid rgba(61,220,132,.7); color:#bff0cf; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+.receipt.show{ opacity:1; } .receipt.bad{ border-color:rgba(209,47,42,.8); color:#f4b4b1; }
 </style>
 </head>
 <body>
@@ -103,6 +107,7 @@ button{ font-family:inherit; cursor:pointer; }
   </div>
 </div>
 
+<div class="receipt" id="receipt" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
@@ -151,10 +156,20 @@ function openConn(){
 function retry(){ clearTimeout(retryT); retryT = setTimeout(connect, backoff); backoff = Math.min(5000, backoff * 1.6); }
 function reconnectNow(){ backoff = 1000; if (conn){ try { conn.close(); } catch (e) {} conn = null; } setLive(false); pill('Reconnecting…'); connect(); }
 function send(msg){ try { if (conn && conn.open) conn.send(msg); } catch (e) {} }
-function hello(){ send({ t: 'hello', name: me && me.name ? me.name : null }); }
+function myName(){ return me && me.name ? me.name : null; }
+function hello(){ send({ t: 'hello', name: myName() }); }
+/* receipts: the iPad answers every emoji / chip change; no answer in 3 s = not delivered */
+const pending = new Map(); let rcT = null;
+function receipt(text, bad){ const r = $('receipt'); r.textContent = text; r.className = 'receipt show' + (bad ? ' bad' : ''); clearTimeout(rcT); rcT = setTimeout(() => r.className = 'receipt' + (bad ? ' bad' : ''), bad ? 3200 : 1600); }
+function sendTracked(msg, okText){
+  const id = Math.random().toString(36).slice(2, 10); msg.id = id; msg.name = myName();
+  if (!live || !conn || !conn.open){ receipt('✗ Not connected — reconnecting…', true); reconnectNow(); return; }
+  send(msg);
+  pending.set(id, { okText, t: setTimeout(() => { pending.delete(id); receipt('✗ Not delivered — reconnecting…', true); reconnectNow(); }, 3000) });
+}
 
 /* watchdog: the iPad talks every 5 s; 12 s of silence = the link died (phone slept, Wi-Fi blip) */
-setInterval(() => { if (live && Date.now() - lastMsg > 12000) reconnectNow(); else if (live) send({ t: 'ping' }); }, 4000);
+setInterval(() => { if (live && Date.now() - lastMsg > 12000) reconnectNow(); else if (live) send({ t: 'ping', name: myName() }); }, 4000);
 /* coming back to the phone / tab: check at once instead of waiting for the watchdog */
 const wake = () => { if (document.hidden) return; if (!live || Date.now() - lastMsg > 6000) reconnectNow(); };
 document.addEventListener('visibilitychange', wake);
@@ -167,7 +182,8 @@ function onData(d){
   if (!d || typeof d !== 'object') return;
   if (d.t === 'state'){ state = d; recvAt = performance.now(); if (d.photoRev !== photoRev) send({ t: 'photos' }); render(); return; }
   if (d.t === 'photos'){ photos = d.photos || []; photoRev = d.rev; render(); return; }
-  if (d.t === 'emoji'){ flyEmoji(d.e, d.name); }
+  if (d.t === 'emoji'){ flyEmoji(d.e, d.name); return; }
+  if (d.t === 'ack'){ const p = pending.get(d.id); if (!p) return; clearTimeout(p.t); pending.delete(d.id); receipt(d.ok ? p.okText : '✗ ' + (d.why || 'Not accepted'), !d.ok); }
 }
 
 /* ---------- screens ---------- */
@@ -221,13 +237,16 @@ document.addEventListener('click', (ev) => {
   const pk = ev.target.closest('[data-pick]');
   if (pk){ me = { room: ROOM, name: pk.dataset.pick }; saveMe(); hello(); render(); return; }
   const em = ev.target.closest('[data-e]');
-  if (em && live){ if (Date.now() - lastEmojiSent < 1200) return; lastEmojiSent = Date.now(); send({ t: 'emoji', e: em.dataset.e }); return; }
+  if (em){
+    if (!myName()){ receipt('Pick your name to send emojis', true); me = null; saveMe(); render(); return; }
+    if (Date.now() - lastEmojiSent < 1200){ receipt('Easy — one per second', true); return; }
+    lastEmojiSent = Date.now(); sendTracked({ t: 'emoji', e: em.dataset.e }, '✓ ' + em.dataset.e + ' sent to the table'); return; }
   const st = ev.target.closest('[data-step]');
   if (st){ const i = myIndex(); if (i < 0) return; sendChips(Math.max(0, state.players[i].chips + (+st.dataset.step))); return; }
 });
 function sendChips(v){ const i = myIndex(); if (i < 0 || !live || !state.allowChips) return;
   state.players[i].chips = v; render();                                  /* show it now; the iPad's answer confirms it */
-  send({ t: 'chips', name: me.name, value: v }); }
+  sendTracked({ t: 'chips', value: v }, '✓ Chips updated on the clock'); }
 $('setBtn').addEventListener('click', () => { const v = parseInt($('setVal').value, 10); if (!isNaN(v) && v >= 0){ sendChips(v); $('setVal').value = ''; $('setVal').blur(); } });
 $('outBtn').addEventListener('click', () => { if (confirm('Mark yourself OUT (0 chips)?')) sendChips(0); });
 $('watchOnly').addEventListener('click', () => { me = { room: ROOM, name: null, watch: true }; saveMe(); render(); });

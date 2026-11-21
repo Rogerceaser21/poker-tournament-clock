@@ -2310,17 +2310,20 @@ const PIPS_MS = 1500;
    never a pause while the "play" is still on its way, never a play without our pause before it.
    Several sounds share ONE dip; the music comes back ~150 ms after the LAST one ended.
    PREVIEW music-safety rule (iPadOS puts a Spotify left paused to sleep within a few seconds, then "play" gets a 404):
-   a PAUSE dip lasts at most MAX = 2.85 s, counted from when the pause was SENT: at MAX - TAIL every hold lets go,
-   the "play" goes out at MAX at the latest, still-playing sounds simply carry on over the music.
+   a PAUSE dip lasts at most MAX = 2.85 s, counted from when the pause was SENT: at MAX - SAFE - TAIL every hold lets
+   go, the "play" goes out at MAX - SAFE (2.79 s) at the latest (a hard timer makes sure), still-playing sounds simply
+   carry on over the music. A pause that Spotify answers only after that goes straight back to "play" (no tail; never
+   a "play" before the pause was answered). After the music is back from a pause dip, sounds within GAP (2 s) play
+   over it — no new pause — so a burst gives one pause, then at least 2 s of music.
    A sound longer than LONG (2.7 s) never pauses the music: it plays over it (ambient). A volume dip (speaker /
    computer) stays as before: up to VMAX = 9 s. A sound that would end after its PAUSE dip's limit plays at once,
    over (the music comes back at the limit, the sound carries on) — never a wait, never a 2nd pause for it.
    In a VOLUME dip such a sound still waits and plays in the next dip, ~2 s after the music is back (max 4 waiting;
    the level alert jumps the queue). */
 const musicDip = {
-  MAX: 2850, VMAX: 9000, LONG: 2700, TAIL: 150, GAP: 2000, QMAX: 4, RETRY404: 1000,
+  MAX: 2850, SAFE: 60, VMAX: 9000, LONG: 2700, TAIL: 150, GAP: 2000, QMAX: 4, RETRY404: 1000, RETRYP: 500,
   mode: null, sfx: 'ambient', startedAt: 0, restoreVol: null, holds: new Set(), chain: Promise.resolve(), queue: [],
-  ending: null, flying: null, cancelWait: null, owedVol: null, backAt: { pause: 0, volume: 0 }, tailT: null, capT: null, qT: null,
+  ending: null, flying: null, cancelWait: null, owedVol: null, backAt: { pause: 0, volume: 0 }, tailT: null, capT: null, hardT: null, qT: null,
   live(){ const sp = spotify; return sp.connected() && sp.now && sp.now.playing && !sp.now.gone; },
   /* did OUR dip (kind 'pause' / 'volume') cover a poll that started at t0? then the dip's state is the truth */
   ours(kind, t0){ return this.mode === kind || this.ending === kind || this.backAt[kind] >= t0; },
@@ -2328,7 +2331,7 @@ const musicDip = {
   /* still(): is this sound still wanted? (asked again when a waiting sound's turn comes — e.g. muted meanwhile → no dip, no sound) */
   begin(ms, front, still, noPause){ return new Promise(ok => this.run(() => this.join({ ms, front: !!front, ok, still, noPause: !!noPause }, false))); },
   /* how long after startedAt every hold of THIS dip must have let go */
-  limit(){ return this.mode === 'volume' ? this.VMAX : this.MAX - this.TAIL; },
+  limit(){ return this.mode === 'volume' ? this.VMAX : this.MAX - this.SAFE - this.TAIL; },
   /* a long sound: no dip at all, it plays over the music (full 'playback' when no music plays) */
   over(){ return Promise.resolve({ mode: this.live() ? 'ambient' : 'playback', done: false, release(){}, renew(){} }); },
   /* would a new dip right now be a volume dip (speaker / computer), or is one on? */
@@ -2348,12 +2351,13 @@ const musicDip = {
     }
     /* the music is on its way back: wait max 1.5 s for that reply, ONCE per reply (later sounds don't wait again);
        during a retry WAIT just re-join (Spotify is still dipped) */
-    if (this.ending && this.flying && this.mode !== 'resuming'){ await Promise.race([this.flying, new Promise(r => setTimeout(r, 1500))]); await null; }
+    if (this.ending === 'volume' && this.flying && this.mode !== 'resuming'){ await Promise.race([this.flying, new Promise(r => setTimeout(r, 1500))]); await null; }
     if (this.ending === 'volume' && this.cancelWait){ const m = this.ending; this.cancelWait(); this.ending = null; this.mode = m; this.sfx = m === 'pause' ? 'playback' : 'ambient'; this.capped(); }
     clearTimeout(this.tailT);
     if (this.ending){ this.mode = 'resuming'; this.sfx = 'ambient'; }    /* "play" still on its way: play over (the music may be back) */
     else if (!this.mode){
       if (!this.live()){ this.mode = 'none'; this.sfx = 'playback'; }    /* no music to protect: full sound */
+      else if (Date.now() - this.backAt.pause < this.GAP){ ok(await this.over()); return; }   /* music just came back: 2 s of music before any new pause */
       else await this.start(q.noPause);
     }
     ok(this.hold(ms));
@@ -2378,8 +2382,12 @@ const musicDip = {
     }
     this.mode = 'none'; this.sfx = 'ambient';                              /* couldn't dip: play over the music */
   },
-  capped(t){ this.startedAt = t || Date.now(); clearTimeout(this.capT);
-    this.capT = setTimeout(() => [...this.holds].forEach(h => h.release()), Math.max(0, this.startedAt + this.limit() - Date.now())); },
+  capped(t){ this.startedAt = t || Date.now(); clearTimeout(this.capT); clearTimeout(this.hardT);
+    this.capT = setTimeout(() => [...this.holds].forEach(h => h.release()), Math.max(0, this.startedAt + this.limit() - Date.now()));
+    /* pause dip: the "play" goes out at MAX - SAFE at the latest, whatever the holds / tail / chain are doing
+       (a late pause answer → at once) */
+    if (this.mode === 'pause') this.hardT = setTimeout(() => this.hardEnd(), Math.max(0, this.startedAt + this.MAX - this.SAFE - Date.now())); },
+  hardEnd(){ if (this.mode !== 'pause') return; [...this.holds].forEach(h => h.release()); clearTimeout(this.tailT); this.end(); },
   hold(ms){
     const h = { mode: this.sfx, done: false, t: null };
     h.renew = (n) => { if (h.done) return; clearTimeout(h.t); h.t = setTimeout(h.release, n + 1500); };
@@ -2396,10 +2404,10 @@ const musicDip = {
   /* ends the dip; the resume runs OUTSIDE the chain so it never holds back a new sound */
   async end(){
     if (this.holds.size || (this.mode !== 'pause' && this.mode !== 'volume')) return;
-    const m = this.mode; clearTimeout(this.capT);
+    const m = this.mode; clearTimeout(this.capT); clearTimeout(this.hardT);
     this.ending = m; this.mode = null; this.resume(m);
   },
-  /* bring the music back; no answer / 429 / 5xx → try twice more (~1.5 s apart, a 429 waits Retry-After, max 5 s).
+  /* bring the music back; no answer / 429 / 5xx → try twice more (pause: 0.5 s apart, volume: 1.5 s; a 429 waits Retry-After, max 5 s).
      A "play" that gets 404 (no active device: iPadOS froze Spotify) is tried ONCE more 1 s later (plain play, then the
      device_id form on a 404 again). Volume dip: a sound that comes in meanwhile re-joins the dip instead (the music is
      still turned down), and the resume is sent after it. Pause dip: sounds that come in meanwhile play over, the
@@ -2415,7 +2423,7 @@ const musicDip = {
       if (!ok && back.status === 404 && again404){ again404 = false; i--; await new Promise(r => setTimeout(r, this.RETRY404)); continue; }
       if (retry && this.holds.size && m === 'volume'){ this.ending = null; this.mode = m; this.sfx = m === 'pause' ? 'playback' : 'ambient'; this.capped(); return; }
       if (retry){
-        const go = await new Promise(r => { const t = setTimeout(() => r(true), back.status === 429 ? Math.min(5000, Math.max(1000, sp.backoffUntil - Date.now())) : 1500);
+        const go = await new Promise(r => { const t = setTimeout(() => r(true), back.status === 429 ? Math.min(5000, Math.max(1000, sp.backoffUntil - Date.now())) : m === 'pause' ? this.RETRYP : 1500);
           this.cancelWait = () => { clearTimeout(t); r(false); }; });
         this.cancelWait = null; if (!go) return;                            /* a sound re-joined the dip */
         continue;

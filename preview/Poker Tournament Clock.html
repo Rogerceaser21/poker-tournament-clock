@@ -2311,7 +2311,8 @@ const PIPS_MS = 1500;
    Several sounds share ONE dip; the music comes back ~150 ms after the LAST one ended.
    PREVIEW music-safety rule (iPadOS puts a Spotify left paused to sleep within a few seconds, then "play" gets a 404):
    a PAUSE dip lasts at most MAX = 2.85 s, counted from when the pause was SENT: at MAX - SAFE - TAIL every hold lets
-   go, the "play" goes out at MAX - SAFE (2.79 s) at the latest (a hard timer makes sure), still-playing sounds simply
+   go (2.55 s), the "play" goes out at MAX - SAFE (2.7 s) at the latest (a hard timer makes sure; SAFE = 150 ms
+   leaves room for a timer that fires up to 150 ms late), still-playing sounds simply
    carry on over the music. A pause that Spotify answers only after that goes straight back to "play" (no tail; never
    a "play" before the pause was answered). After the music is back from a pause dip, sounds within GAP (2 s) play
    over it — no new pause — so a burst gives one pause, then at least 2 s of music.
@@ -2321,7 +2322,7 @@ const PIPS_MS = 1500;
    In a VOLUME dip such a sound still waits and plays in the next dip, ~2 s after the music is back (max 4 waiting;
    the level alert jumps the queue). */
 const musicDip = {
-  MAX: 2850, SAFE: 60, VMAX: 9000, LONG: 2700, TAIL: 150, GAP: 2000, QMAX: 4, RETRY404: 1000, RETRYP: 500,
+  MAX: 2850, SAFE: 150, VMAX: 9000, LONG: 2700, TAIL: 150, GAP: 2000, QMAX: 4, RETRY404: 1000, RETRYP: 500,
   mode: null, sfx: 'ambient', startedAt: 0, restoreVol: null, holds: new Set(), chain: Promise.resolve(), queue: [],
   ending: null, flying: null, cancelWait: null, owedVol: null, backAt: { pause: 0, volume: 0 }, tailT: null, capT: null, hardT: null, qT: null,
   live(){ const sp = spotify; return sp.connected() && sp.now && sp.now.playing && !sp.now.gone; },

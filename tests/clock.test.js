@@ -230,7 +230,8 @@ const TESTS = [
     await until(() => dips(log).filter(e => e.c === 'play' && e.done).length === 3, 7000); await wait(100);
     const r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent })); emoji(p, '🤡'); await wait(1500);
     const d = dips(log);
-    return (d.map(e => e.c).join() === 'pause,play,play,play' && r.playing === false && r.k !== 'Now playing') || { d, r }; }, { spotify: true }],
+    /* PREVIEW (round D): after the 3 tries one poll; the fake says paused on our device → ONE last play */
+    return (d.map(e => e.c).join() === (P ? 'pause,play,play,play,play' : 'pause,play,play,play') && r.playing === false && r.k !== 'Now playing') || { d, r }; }, { spotify: true }],
   ['Music dip (speaker): volume restore fails 3 times → next dip still restores the ORIGINAL 70, never lowers from the lowered level', async ({ p, log, fake }) => {
     fake.speaker = true; await p.evaluate(() => spotify.poll()); await wait(1200);
     fake.volFails = 3; log.length = 0; emoji(p, '🤡');
@@ -364,11 +365,11 @@ const TESTS = [
     await p.click('#phDiagToggle'); await wait(200);
     const hid2 = await p.evaluate(() => getComputedStyle(document.getElementById('phDiag')).display === 'none');
     return (hid && vis && hid2 && box && /^Spotify: Tablet, volume control no, Premium yes$/.test(L[0]) && /^Last Spotify error: 403 UNKNOWN \/me\/player\/pause, \d+ s ago$/.test(L[1])
-      && L[2] === 'Sounds unlocked: ' + NPL + ' of ' + NPL && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4]) && /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6) || { hid, vis, hid2, box, t }; }, { spotify: true }],
+      && L[2] === 'Sounds unlocked: ' + NPL + ' of ' + NPL && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4]) && (P ? /^Last beep: none yet$/.test(L[5]) && /^Last sounds: 🤡 ok/.test(L[6]) && L.length === 7 : /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6)) || { hid, vis, hid2, box, t }; }, { spotify: true }],
   ['Phones panel: Status block says "Spotify: not connected" when Spotify is not connected (and "none" errors, sounds not unlocked yet)', async ({ p }) => {
     await p.click('#phonesBtn'); await wait(500); await p.click('#phDiagToggle'); await wait(300);
     const t = await p.evaluate(() => document.getElementById('phDiag').textContent), L = t.split('\n');
-    return (L[0] === 'Spotify: not connected' && L[1] === 'Last Spotify error: none' && new RegExp('^Sounds unlocked: \\d+ of ' + NPL + '( — tap the screen once)?$').test(L[2]) && L[5] === 'Last sounds: none yet') || { t }; }],
+    return (L[0] === 'Spotify: not connected' && L[1] === 'Last Spotify error: none' && new RegExp('^Sounds unlocked: \\d+ of ' + NPL + '( — tap the screen once)?$').test(L[2]) && L[P ? 6 : 5] === 'Last sounds: none yet' && (!P || L[5] === 'Last beep: none yet')) || { t }; }],
 ];
 
 /* ---- PREVIEW only (PREVIEW=1): the music-safety rule, the 404 retry, the PREVIEW tag, the join link ---- */
@@ -441,6 +442,11 @@ const PREVIEW_TESTS = [
     await step('⏮ on Next up', () => p.click('#prevBtn'));
     const want = ['transition', 'level', 'transition', 'level', 'level', 'transition', 'level'];
     return (R.length === 7 && R.every((r, i) => r && r.type === want[i] && r.ms !== null && r.ms <= 50) && R.filter(r => r.type === 'transition').every(r => r.rem > 4500)) || R; }],
+  ['PREVIEW: Status block — after a level change it says "Last beep: <time>, dip pause, session playback, clock thought Spotify playing (poll n s old), pause to play n s, play reply 204"', async ({ p }) => {
+    await wait(1500); await p.click('#startBtn'); await wait(SETTLE); await p.click('#nextBtn'); await wait(3500);
+    await p.click('#phonesBtn'); await wait(400); await p.click('#phDiagToggle'); await wait(1300);
+    const L = (await p.evaluate(() => document.getElementById('phDiag').textContent)).split('\n');
+    return (L.length === 7 && /^Last beep: \d\d:\d\d:\d\d, dip pause, session playback, clock thought Spotify playing \(poll \d+ s old\), pause to play [12]\.\d s, play reply 204$/.test(L[5])) || L; }, { spotify: true }],
   ['PREVIEW: Spotify not connected → phones state says now: null', async ({ p }) => {
     const r = await p.evaluate(() => phones.snapshot().now); return r === null || { r }; }],
   ...[2800, 3500].map(ms => ['PREVIEW: slow pause answer (' + ms + ' ms) → "play" goes out at once after it (no tail), never before it', async ({ p, log, fake }) => {
@@ -504,10 +510,10 @@ const PREVIEW_TESTS = [
     const r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent }));
     return (pl.length === 3 && !pl[0].u.includes('device_id') && pl[1].u.includes('device_id=ipad') && !pl[2].u.includes('device_id') && gap >= 900 && gap <= 1500
       && fake.playing && r.playing === true && r.k === 'Now playing') || { calls: pl.map(e => e.u + '@' + e.t), gap, r, playing: fake.playing }; }, { spotify: true }],
-  ['PREVIEW: resume 404 every time → 2 tries (play, device_id, then again 1 s later), then the card shows Paused', async ({ p, log, fake }) => {
+  ['PREVIEW: resume 404 every time → 2 tries (play, device_id, then again 1 s later), one poll, ONE last play (5 plays, ≤ PLAYS_MAX 9), then the card shows Paused', async ({ p, log, fake }) => {
     await wait(1200); fake.playFailAll = 404; log.length = 0; emoji(p, '🤡'); await wait(5500);
-    const pl = log.filter(e => e.c === 'PUT /me/player/play'), r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent }));
-    return (pl.length === 4 && pl[3].u.includes('device_id') && r.playing === false && r.k !== 'Now playing') || { calls: pl.map(e => e.u), r }; }, { spotify: true }],
+    const pl = log.filter(e => e.c === 'PUT /me/player/play'), r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent, max: musicDip.PLAYS_MAX }));
+    return (pl.length === 5 && pl[3].u.includes('device_id') && !pl[4].u.includes('device_id') && r.max === 9 && r.playing === false && r.k !== 'Now playing') || { calls: pl.map(e => e.u), r }; }, { spotify: true }],
   ['PREVIEW: the PREVIEW tag shows on the clock (cover + level), small, covers no control, lets taps through', async ({ p }) => {
     const look = () => p.evaluate(() => { const t = document.getElementById('previewTag'); if (!t) return { none: true }; const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
       const ctl = [...document.querySelectorAll('button, input, select, a, [data-sp], .np-card')].filter(b => { const q = b.getBoundingClientRect(); return q.width && q.height && getComputedStyle(b).visibility !== 'hidden'; })

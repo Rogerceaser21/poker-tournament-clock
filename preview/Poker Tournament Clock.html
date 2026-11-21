@@ -2220,6 +2220,8 @@ const spotify = {
     } else out.innerHTML = 'Next up · <b>' + escapeHtml((sl.querySelector('.trans-level') || {}).textContent || '') + '</b> in ' + escapeHtml(clockTx);
   },
   render(){
+    /* phones: a new song or play / pause → push the state (only when it really changed) */
+    try { const k = JSON.stringify(phones.track()); if (k !== this._phK){ this._phK = k; phones.push(); } } catch (e) {}
     const card = this.el('nowPlaying'), n = this.now, on = this.connected() && !!n;
     card.classList.toggle('none', !on);
     document.body.classList.toggle('np-glow-on', on && musicState.glow && !!(n && n.artSmall));
@@ -2577,10 +2579,12 @@ const tableView = {
 const PEERJS_SRC = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
 const QR_SRC = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
 const PH_KEY = 'poker_phones_v1';
-/* emoji → meme sound (sounds/*.m4a, from Remotion's free @remotion/sfx library) */
-const EMOJI_SOUNDS = { '💀': 'fah', '🤡': 'bruh', '😂': 'oh-my-god', '😭': 'fail-horn', '🔥': 'wow', '👏': 'yippee', '🤯': 'boom', '💰': 'ding' };
-/* real length of each file (ms) = how long the music dip holds */
-const SFX_MS = { 'fah': 1927, 'bruh': 629, 'oh-my-god': 1615, 'fail-horn': 4519, 'wow': 2600, 'yippee': 2647, 'boom': 1255, 'ding': 1400 };
+/* emoji → meme sound (sounds/*.m4a; sources in sounds/CREDITS.txt) — 10 emojis, 2 rows of 5 on the phones */
+const EMOJI_SOUNDS = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'fah', '🤯': 'boom',
+  '👏': 'very-nice', '😭': 'emotional-damage', '💰': 'show-me-the-money', '💵': 'pay-that-man', '❓': 'what-happened' };
+/* real length of each file (ms, ffprobe) = how long the music dip holds */
+const SFX_MS = { 'oh-my-god': 1615, 'wow': 2600, 'bruh': 629, 'fah': 1927, 'boom': 1255,
+  'very-nice': 1075, 'emotional-damage': 2037, 'show-me-the-money': 2060, 'pay-that-man': 1670, 'what-happened': 910 };
 /* 2 players per sound, all made at start-up (iPad: an element made later is not unlocked) — the same emoji twice overlaps,
    never restarts the one playing. Per element: _ok = unlocked, _job = the real play on it, _unl = unlock ticket, _try = unlock on its way */
 const emojiSfx = {
@@ -2635,7 +2639,7 @@ const emojiSfx = {
 };
 emojiSfx.init();
 ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { passive: true }));
-const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
+const EMOJIS = ['😂', '🔥', '🤡', '💀', '🤯', '👏', '😭', '💰', '💵', '❓'];
 function loadScript(src){ return new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')){ ok(); return; }
   const s = document.createElement('script'); s.src = src; s.async = true; s.dataset.phones = ''; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
 const phones = {
@@ -2766,8 +2770,13 @@ const phones = {
     if (clock.el && clock.activeSlide === sl){ remaining = Math.max(0, Math.round(clock.paused ? clock.remaining : clock.deadline - performance.now())); paused = clock.paused; }
     return { t: 'state', type, levelNo: idx >= 0 ? idx + 1 : (type === 'cover' ? 1 : 0), levelsTotal: levels.length, sb: lv ? lv.sb : null, bb: lv ? lv.bb : null,
       mins: lv ? lv.mins : null, next: nx ? { n: idx + 2, sb: nx.sb, bb: nx.bb } : null, remaining, paused,
-      players: bank.names.map((n, i) => ({ name: n, chips: bank.chips[i], buyin: bank.buyins[i] })), pot: potTotal(), allowChips: this.allowChips, photoRev: this.photoRev() };
+      players: bank.names.map((n, i) => ({ name: n, chips: bank.chips[i], buyin: bank.buyins[i] })), pot: potTotal(), allowChips: this.allowChips, photoRev: this.photoRev(),
+      now: this.track() };
   },
+  /* the Spotify song for the phones' "Now playing" card: same playing state as the clock's own card (our emoji dips
+     don't count as paused there); null = not connected / nothing loaded / track gone */
+  track(){ const sp = spotify, n = sp.now;
+    return sp.connected() && n && !n.gone && n.title ? { title: String(n.title), artist: String(n.artist || ''), playing: !!n.playing } : null; },
   /* state to every phone: on every change (debounced) + a heartbeat every 5 s */
   push(beat){ if (!this.conns.size) return; if (beat){ this.broadcast(this.snapshot()); return; }
     clearTimeout(this.pushT); this.pushT = setTimeout(() => this.broadcast(this.snapshot()), 120); },

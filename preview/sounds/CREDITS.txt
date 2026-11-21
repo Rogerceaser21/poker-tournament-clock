@@ -1,4 +1,18 @@
-Emoji sounds — from Remotion's free sound-effect library (@remotion/sfx, https://www.remotion.dev/docs/sfx),
+Emoji sounds (PREVIEW set, 10 emojis).
+
+From Remotion's free sound-effect library (@remotion/sfx, https://www.remotion.dev/docs/sfx),
 "can be used without attribution". Converted to AAC (.m4a); wow.m4a trimmed to 2.6 s.
-fah.m4a ← fah.wav        bruh.m4a ← bruh.wav          oh-my-god.m4a ← oh-my-god-vine.wav   fail-horn.m4a ← price-is-right-fail.wav
-wow.m4a ← anime-wow.wav  yippee.m4a ← yippee.wav      boom.m4a ← vine-boom.wav             ding.m4a ← ding.wav
+  😂 oh-my-god.m4a ← oh-my-god-vine.wav     🔥 wow.m4a ← anime-wow.wav     🤡 bruh.m4a ← bruh.wav
+  💀 fah.m4a ← fah.wav                       🤯 boom.m4a ← vine-boom.wav
+
+Movie / meme clips (myinstants.com; ❓ from YouTube), cut, faded and loudness-matched to about -13 LUFS
+(details: /Users/igor/wt/poker-sound-candidates/report.json, scripts/clips.json):
+  👏 very-nice.m4a          ← "Very nice!" (Borat)                       very-nice-borat.mp3, 0.285-1.36 s
+  💰 show-me-the-money.m4a  ← "Show me the money!" (Jerry Maguire)       show-me-the-money_mxC8iKl.mp3, 0.14-2.2 s
+  💵 pay-that-man.m4a       ← "Pay that man his money" (Rounders)        rounders-pay-that-man-his-money-00.mp3, 0.3-1.97 s
+  😭 emotional-damage.m4a   ← "Emotional damage!" (Steven He meme), sped up 15 %   emotional-damage-steven-he_FHHipGL.mp3
+                              (https://www.myinstants.com/media/sounds/emotional-damage-steven-he_FHHipGL.mp3), 2.037 s
+  ❓ what-happened.m4a      ← "What happened?" (the What Happened Guy), from "What Happened Guy Meme (ORIGINAL)"
+                              (https://www.youtube.com/watch?v=cw_5dsHP5Kc), 0.91 s
+
+Removed in the preview: ding.m4a, fail-horn.m4a, yippee.m4a.

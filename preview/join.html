@@ -46,8 +46,13 @@ button{ font-family:inherit; cursor:pointer; }
 .set{ display:flex; gap:8px; }
 .set input{ flex:1; min-width:0; font-family:inherit; font-size:1.3rem; font-weight:700; text-align:center; color:#fff; background:rgba(0,0,0,.35); border:1px solid rgba(232,184,75,.45); border-radius:12px; min-height:48px; }
 .note{ font-size:.85rem; color:rgba(246,239,217,.6); }
-.emojis{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; }
-.emojis button{ font-size:2rem; min-height:58px; border-radius:14px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); }
+.emojis{ display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:6px; }   /* 10 emojis = 2 rows of 5 */
+.emojis button{ font-size:clamp(1.5rem, 7.5vw, 2rem); line-height:1; padding:0; min-width:44px; min-height:52px; border-radius:14px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); }
+/* Now playing (the clock's Spotify song): text only, one line each */
+.np-t{ font-size:1.25rem; font-weight:600; color:var(--cream); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:6px; }
+.np-a{ font-size:.95rem; color:rgba(246,239,217,.72); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:2px; }
+.np-p{ color:rgba(246,239,217,.6); letter-spacing:.12em; }
+#game{ width:100%; }   /* the game column is the phone's width (max 520): long song names never widen the page */
 .emojis button:active{ transform:scale(.9); background:rgba(232,184,75,.25); } .emojis button:disabled{ opacity:.35; }
 .list{ display:flex; flex-direction:column; gap:6px; }
 .row{ display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:12px; background:rgba(255,255,255,.05); }
@@ -90,6 +95,10 @@ button{ font-family:inherit; cursor:pointer; }
       <div class="next" id="next"></div>
     </div>
 
+    <div class="card"><div class="k" style="margin-bottom:10px">Send to the table</div><div class="emojis" id="emojis"></div></div>
+
+    <div class="card hide" id="npCard"><div class="k">Now playing<span class="np-p hide" id="npPaused"> · Paused</span></div><div class="np-t" id="npTitle"></div><div class="np-a" id="npArtist"></div></div>
+
     <div class="card me" id="meCard">
       <div class="me-row"><div class="ava" id="meAva"></div><div class="me-name" id="meName"></div><div class="me-chips" id="meChips">0</div></div>
       <div id="chipCtl">
@@ -98,8 +107,6 @@ button{ font-family:inherit; cursor:pointer; }
       </div>
       <div class="note hide" id="chipNote">Chip changes are switched off — ask the host.</div>
     </div>
-
-    <div class="card"><div class="k" style="margin-bottom:10px">Send to the table</div><div class="emojis" id="emojis"></div></div>
 
     <div class="card"><div class="k" style="margin-bottom:10px">Chip count</div><div class="list" id="list"></div><div class="pot" id="pot"></div></div>
 
@@ -110,7 +117,7 @@ button{ font-family:inherit; cursor:pointer; }
 <div class="receipt" id="receipt" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
-const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
+const EMOJIS = ['😂', '🔥', '🤡', '💀', '🤯', '👏', '😭', '💰', '💵', '❓'];
 const ROOM = (new URLSearchParams(location.search).get('room') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const HOST = 'pokerclock-' + ROOM, ME_KEY = 'poker_me_v1';
 const $ = id => document.getElementById(id);
@@ -212,6 +219,10 @@ function render(){
     ava($('meAva'), i, mine.name);
     $('chipCtl').classList.toggle('hide', !state.allowChips); $('chipNote').classList.toggle('hide', !!state.allowChips);
   }
+  /* the clock's Spotify song (text only: names come from Spotify) */
+  const np = state.now && typeof state.now === 'object' && state.now.title ? state.now : null;
+  $('npCard').classList.toggle('hide', !np);
+  if (np){ $('npTitle').textContent = np.title; $('npArtist').textContent = np.artist || ''; $('npPaused').classList.toggle('hide', !!np.playing); }
   /* everyone */
   const order = state.players.map((p, k) => k).sort((a, b) => state.players[b].chips - state.players[a].chips);
   $('list').innerHTML = order.map(k => { const p = state.players[k];

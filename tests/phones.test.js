@@ -7,6 +7,7 @@
  */
 const { webkit, chromium } = require('playwright');
 const BASE = process.env.CLOCK_BASE || (process.env.PREVIEW === '1' ? 'http://localhost:8791/preview/' : 'http://localhost:8791/');
+const PV = process.env.PREVIEW === '1';
 const HOST_BROWSER = process.env.HOST_BROWSER === 'chromium' ? chromium : webkit;
 const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const ROOM = 't' + Math.random().toString(36).slice(2, 8);
@@ -26,12 +27,12 @@ async function check(name, fn){
   const hb = await HOST_BROWSER.launch(HOST_BROWSER === chromium ? { args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] } : {});
   const hctx = await hb.newContext({ viewport: { width: 1180, height: 820 }, userAgent: HOST_BROWSER === webkit ? IPAD_UA : undefined });
   const host = await hctx.newPage(); const hostErr = []; host.on('pageerror', e => hostErr.push(e.message));
-  const spCalls = []; let spPlaying = true;
+  const spCalls = []; let spPlaying = true, spTitle = 'Song', spArtist = 'A';
   await hctx.route('https://api.spotify.com/v1/**', r => { const path = r.request().url().split('/v1')[1], m = r.request().method();
     if (/\/me\/player\/(pause|play)/.test(path)){ spCalls.push({ c: m + ' ' + path.split('?')[0], at: Date.now() }); spPlaying = path.includes('/play'); return r.fulfill({ status: 204, body: '' }); }
     if (path === '/me') return r.fulfill({ status: 200, contentType: 'application/json', body: '{"display_name":"Host"}' });
     if (path.startsWith('/me/player?')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: spPlaying, progress_ms: 1000,
-      device: { id: 'ipad', type: 'Tablet', volume_percent: 70, supports_volume: false }, item: { id: 't', name: 'Song', duration_ms: 200000, artists: [{ name: 'A' }], album: { images: [{ url: 'x' }] } } }) });
+      device: { id: 'ipad', type: 'Tablet', volume_percent: 70, supports_volume: false }, item: { id: spTitle === 'Song' ? 't' : 't2', name: spTitle, duration_ms: 200000, artists: [{ name: spArtist }], album: { images: [{ url: 'x' }] } } }) });
     return r.fulfill({ status: 204, body: '' }); });
   await host.addInitScript((room) => { if (sessionStorage.getItem('seeded')) return; sessionStorage.setItem('seeded', '1'); localStorage.clear();
     localStorage.setItem('poker_clock_state_v1', JSON.stringify({ v: 1, levels: [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 })),
@@ -116,6 +117,36 @@ async function check(name, fn){
     await wait(600); const n = await host.evaluate(() => [...document.querySelectorAll('#emojiLayer .emoji-fly')].filter(f => f.textContent.includes('Bob')).length);
     return n <= 3 || 'Bob emojis on screen: ' + n; });
 
+  if (PV){
+    /* ---- PREVIEW: ten emojis, 5 × 2 grid, new card order ---- */
+    await wait(1300);
+    await phones[0].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '💵', name: myName() }); });
+    await phones[2].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '❓', name: myName() }); });
+    await check('PREVIEW: 💵 (Ann) and ❓ (Cat) from phones → fly up on the iPad and play pay-that-man / what-happened', async () => {
+      const ok = await until(() => host.evaluate(() => { const f = [...document.querySelectorAll('#emojiLayer .emoji-fly')].map(x => x.textContent), s = window.__sfx || [];
+        return f.some(t => t.includes('💵') && t.includes('Ann')) && f.some(t => t.includes('❓') && t.includes('Cat')) && s.some(x => x.endsWith('sounds/pay-that-man.m4a')) && s.some(x => x.endsWith('sounds/what-happened.m4a')); }), 4000);
+      return !!ok || await host.evaluate(() => ({ fly: [...document.querySelectorAll('#emojiLayer .emoji-fly')].map(x => x.textContent), sfx: window.__sfx })); });
+    await check('PREVIEW: phone shows the ten emojis in order 😂 🔥 🤡 💀 🤯 / 👏 😭 💰 💵 ❓', async () => {
+      const r = await phones[0].p.evaluate(() => [...document.querySelectorAll('#emojis button')].map(b => b.dataset.e).join(' '));
+      return r === '😂 🔥 🤡 💀 🤯 👏 😭 💰 💵 ❓' || r; });
+    const grid = () => phones[0].p.evaluate(() => { const bs = [...document.querySelectorAll('#emojis button')];
+      const rows = [...new Set(bs.map(b => Math.round(b.getBoundingClientRect().top)))];
+      const cut = bs.filter(b => { const r = document.createRange(); r.selectNodeContents(b); const g = r.getBoundingClientRect(), q = b.getBoundingClientRect(); return g.left < q.left - 0.5 || g.right > q.right + 0.5 || g.top < q.top - 0.5 || g.bottom > q.bottom + 0.5; }).map(b => b.dataset.e);
+      return { n: bs.length, rows: rows.length, perRow: rows.map(t => bs.filter(b => Math.round(b.getBoundingClientRect().top) === t).length), minW: Math.min(...bs.map(b => b.getBoundingClientRect().width)), minH: Math.min(...bs.map(b => b.getBoundingClientRect().height)),
+        hscroll: document.documentElement.scrollWidth > innerWidth, cut }; });
+    const sizes = {};
+    for (const w of [320, 375, 390, 430]){ await phones[0].p.setViewportSize({ width: w, height: 844 }); await wait(250); sizes[w] = await grid(); }
+    await phones[0].p.setViewportSize({ width: 390, height: 844 });
+    console.log('        grid sizes: ' + JSON.stringify(Object.fromEntries(Object.entries(sizes).map(([w, g]) => [w, Math.round(g.minW) + 'x' + Math.round(g.minH)]))));
+    await check('PREVIEW: emoji grid is 5 × 2 at 320 / 375 / 390 / 430 px, every button ≥ 44 × 44, no sideways scroll, no glyph clipped', async () =>
+      Object.values(sizes).every(g => g.n === 10 && g.rows === 2 && g.perRow.join() === '5,5' && g.minW >= 44 && g.minH >= 44 && !g.hscroll && !g.cut.length) || sizes);
+    await check('PREVIEW: phone card order — blinds, Send to the table, Now playing, my chips, Chip count, then "Not you?" last (DOM and on screen)', async () => {
+      const r = await phones[0].p.evaluate(() => { const kids = [...document.getElementById('game').children].filter(x => getComputedStyle(x).display !== 'none');
+        const name = x => x.id === 'notMe' ? 'notMe' : x.classList.contains('clock') ? 'blinds' : x.id === 'npCard' ? 'now' : x.id === 'meCard' ? 'me' : x.querySelector('#emojis') ? 'emojis' : x.querySelector('#list') ? 'chips' : '?';
+        const tops = kids.map(x => x.getBoundingClientRect().top); return { order: kids.map(name).join(','), down: tops.every((t, i) => i === 0 || t > tops[i - 1]) }; });
+      return (r.order === 'blinds,emojis,now,me,chips,notMe' && r.down) || r; });
+  }
+
   /* ---- own chips ---- */
   await phones[2].p.click('[data-step="500"]');
   await check('Cat taps +500 → iPad shows 1,200 for Cat + "Undo" toast', async () => {
@@ -162,6 +193,30 @@ async function check(name, fn){
     await wait(4500); const r = spCalls.map(x => x.c);
     return (r.length === 2 && r[0].includes('pause') && r[1].includes('play')) || r; });
 
+  if (PV){
+    /* ---- PREVIEW: Now playing on the phones ---- */
+    const npView = p => p.evaluate(() => ({ shown: !document.getElementById('npCard').classList.contains('hide'), title: document.getElementById('npTitle').textContent, artist: document.getElementById('npArtist').textContent, paused: !document.getElementById('npPaused').classList.contains('hide') }));
+    await wait(3000); spPlaying = true; await host.evaluate(() => spotify.poll());
+    await check('PREVIEW: Now playing card on every phone — song title + artist from Spotify, not paused', async () =>
+      !!(await until(async () => (await Promise.all(phones.map(ph => npView(ph.p)))).every(v => v.shown && v.title === 'Song' && v.artist === 'A' && !v.paused), 4000)) || await npView(phones[0].p));
+    spTitle = 'A Much Longer Song Title That Will Not Fit On One Phone Line At All'; spArtist = 'Some Artist With A Very Long Name, Featuring Another Artist And A Whole Orchestra'; await host.evaluate(() => spotify.poll());
+    await check('PREVIEW: …new song on Spotify → phones show it within 2 s, one line each (ellipsis)', async () => {
+      const ok = await until(async () => { const v = await npView(phones[1].p); return v.title === spTitle && v.artist === spArtist; }, 2500);
+      const one = await phones[1].p.evaluate(() => ['npTitle', 'npArtist'].map(i => { const e = document.getElementById(i), lh = parseFloat(getComputedStyle(e).lineHeight) || e.getBoundingClientRect().height; return e.getBoundingClientRect().height < 2 * (lh || 20) && getComputedStyle(e).textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth; }));
+      return (!!ok && one.every(Boolean)) || { ok, one, v: await npView(phones[1].p) }; });
+    spPlaying = false; await host.evaluate(() => spotify.poll());
+    await check('PREVIEW: …music paused in Spotify → card stays, says Paused', async () =>
+      !!(await until(async () => { const v = await npView(phones[2].p); return v.shown && v.paused; }, 2500)) || await npView(phones[2].p));
+    spPlaying = true; await host.evaluate(() => spotify.poll()); await wait(1500); spCalls.length = 0;
+    await phones[1].p.evaluate(() => { lastEmojiSent = 0; send({ t: 'emoji', e: '💀', name: myName() }); });
+    await check('PREVIEW: …the clock\'s own pause for an emoji sound does NOT show Paused on the phones', async () => {
+      await until(() => spCalls.some(x => x.c.endsWith('pause')), 3000); await host.evaluate(() => spotify.poll()); const seen = [];
+      const end = Date.now() + 1500; while (Date.now() < end){ seen.push((await npView(phones[0].p)).paused); await wait(100); }
+      const mid = spCalls.length && spCalls[spCalls.length - 1].c.endsWith('pause');
+      return (spCalls[0] && spCalls[0].c.endsWith('pause') && seen.length > 5 && seen.every(x => x === false)) || { calls: spCalls.map(x => x.c), seen, mid }; });
+    await wait(2500);
+  }
+
   /* ---- reconnecting ---- */
   const hostLevel = () => host.evaluate(() => { const s = presentation.slides[presentation.current]; return (s.querySelector('.lv') || s.querySelector('.trans-level') || {}).textContent; });
   const liveAgain = (p, ms = 20000) => until(() => p.evaluate(() => live && document.getElementById('pill').classList.contains('live')), ms);
@@ -199,6 +254,11 @@ async function check(name, fn){
   await check('…and the iPad lists all 3 again', async () =>
     !!(await until(() => host.evaluate(() => phones.players().length === 3), 10000)) || await host.evaluate(() => phones.players()));
 
+  if (PV){
+    await host.evaluate(() => spotify.disconnect());
+    await check('PREVIEW: Spotify disconnected on the iPad → the Now playing card hides on every phone', async () =>
+      !!(await until(async () => (await Promise.all(phones.map(ph => ph.p.evaluate(() => document.getElementById('npCard').classList.contains('hide'))))).every(Boolean), 3000)));
+  }
   await check('No page errors (iPad + phones)', async () => (!hostErr.length && !phoneErr.length) || { hostErr, phoneErr });
 
   console.log(`\n${rows.length - failed}/${rows.length} passed`);

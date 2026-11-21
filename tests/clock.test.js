@@ -11,6 +11,7 @@
  */
 const { webkit, chromium } = require('playwright');
 const P = process.env.PREVIEW === '1';
+const NSND = P ? 10 : 8, NPL = NSND * 2 + 1;   /* sounds; sound players (2 per sound) + the level beep */
 const PAGE = process.env.CLOCK_URL || (P ? 'http://localhost:8791/preview/Poker%20Tournament%20Clock.html' : 'http://localhost:8791/Poker%20Tournament%20Clock.html');
 const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const LEVELS = [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 }));
@@ -29,7 +30,7 @@ async function newPage(browserType, { spotify = false } = {}) {
   const spotifyCalls = [];
   /* fake Spotify that keeps state like the real one: pause → paused (a 2nd pause = 403 "Restriction violated"), play → playing.
      log = every call with its send time t and reply time done (ms) */
-  const fake = { playing: true, playDelay: 0, pauseDelay: 0, playFails: [], playFailAll: 0, speaker: false, vol: 70, volFails: 0 }, log = [];
+  const fake = { title: 'Song', artist: 'Artist', playing: true, playDelay: 0, pauseDelay: 0, playFails: [], playFailAll: 0, speaker: false, vol: 70, volFails: 0 }, log = [];
   await ctx.route('https://api.spotify.com/v1/**', async r => {
     const u = r.request().url(), path = u.split('/v1')[1], m = r.request().method(), e = { c: m + ' ' + path.split('?')[0], u: path, t: Date.now(), done: 0, v: +(new URL(u).searchParams.get('volume_percent') || 0) };
     log.push(e);
@@ -38,7 +39,7 @@ async function newPage(browserType, { spotify = false } = {}) {
     if (path === '/me') return reply({ status: 200, contentType: 'application/json', body: '{"display_name":"Test"}' });
     if (path.startsWith('/me/player?')) return reply({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: fake.playing, progress_ms: 1000,
       device: fake.speaker ? { id: 'spk', type: 'Speaker', volume_percent: fake.vol, supports_volume: true } : { id: 'ipad', type: 'Tablet', volume_percent: 70, supports_volume: false },
-      item: { id: 't', name: 'Song', duration_ms: 200000, artists: [{ name: 'Artist' }], album: { images: [{ url: 'x' }] } } }) });
+      item: { id: fake.title === 'Song' ? 't' : 't2', name: fake.title, duration_ms: 200000, artists: [{ name: fake.artist }], album: { images: [{ url: 'x' }] } } }) });
     if (e.c === 'PUT /me/player/pause'){ if (!fake.playing) return reply({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }) }); fake.playing = false; }
     if (e.c === 'PUT /me/player/volume'){ if (fake.volFails > 0 && e.v >= 50){ fake.volFails--;   /* only the RESTORE (back up to 70) fails */ e.st = 500; return reply({ status: 500, contentType: 'application/json', body: '{"error":{"status":500}}' }); } fake.vol = e.v; e.st = 204; return reply({ status: 204, body: '' }); }
     if (e.c === 'PUT /me/player/play' && (fake.playFails.length || fake.playFailAll)){ const st = fake.playFails.shift() || fake.playFailAll;   /* resume refused: Spotify stays paused */
@@ -267,12 +268,12 @@ const TESTS = [
   ['Emoji: the length table matches the real files (within 100 ms)', async ({ p }) => {
     const r = await until(() => p.evaluate(() => { if (typeof emojiSfx === 'undefined' || !emojiSfx.MS || !emojiSfx.pool) return { none: true };
       const out = {}; for (const [n, l] of Object.entries(emojiSfx.pool)){ const d = l[0].duration; if (!isFinite(d) || !(d > 0)) return null; out[n] = { real: Math.round(d * 1000), table: emojiSfx.MS[n] }; } return out; }), 8000);
-    return (r && !r.none && Object.keys(r).length === 8 && Object.values(r).every(x => Math.abs(x.real - x.table) <= 100)) || r; }],
+    return (r && !r.none && Object.keys(r).length === NSND && Object.values(r).every(x => Math.abs(x.real - x.table) <= 100)) || r; }],
   ['Emoji: no Audio element is made at play time (all 16 made at start-up)', async ({ p }) => {
     const n0 = await p.evaluate(() => window.__audioNew);
     await p.evaluate(() => ['😂', '🔥', '💀', '💀', '💀', '🤡', '💰'].forEach(e => emojiSfx.play(e))); await wait(800);
     const n1 = await p.evaluate(() => window.__audioNew);
-    return (n0 >= 17 && n1 === n0) || { n0, n1 }; }],
+    return (n0 >= NPL && n1 === n0) || { n0, n1 }; }],
   ['Emoji: unlock is retried — 1st tap refused, 2nd tap (touchend) unlocks every player', async ({ p }) => {
     await p.evaluate(() => { const o = HTMLMediaElement.prototype.play; window.__refuse = true;
       HTMLMediaElement.prototype.play = function(){ if (window.__refuse && this.muted) return Promise.reject(new DOMException('no', 'NotAllowedError')); return o.apply(this, arguments); }; });
@@ -281,7 +282,7 @@ const TESTS = [
     await p.evaluate(() => { window.__refuse = false; window.dispatchEvent(new Event('touchend')); });
     const b = await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total && emojiSfx.unlockedCount), 4000);
     const quiet = await p.evaluate(() => emojiSfx.all().every(x => x.paused && !x.muted) && sound.audio.paused && !sound.audio.muted);
-    return (typeof a.n === 'number' && a.total === 17 && a.n < a.total && b === 17 && quiet) || { a, b, quiet }; }],
+    return (typeof a.n === 'number' && a.total === NPL && a.n < a.total && b === NPL && quiet) || { a, b, quiet }; }],
   ['Emoji: an unlock still on its way does not silence a real play started at the same moment', async ({ p }) => {
     await wait(600);
     await p.evaluate(() => { const o = HTMLMediaElement.prototype.play;   /* the 💀 players' unlock (muted) plays answer 400 ms late (only those: 17 running at once stalls headless WebKit) */
@@ -363,11 +364,11 @@ const TESTS = [
     await p.click('#phDiagToggle'); await wait(200);
     const hid2 = await p.evaluate(() => getComputedStyle(document.getElementById('phDiag')).display === 'none');
     return (hid && vis && hid2 && box && /^Spotify: Tablet, volume control no, Premium yes$/.test(L[0]) && /^Last Spotify error: 403 UNKNOWN \/me\/player\/pause, \d+ s ago$/.test(L[1])
-      && L[2] === 'Sounds unlocked: 17 of 17' && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4]) && /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6) || { hid, vis, hid2, box, t }; }, { spotify: true }],
+      && L[2] === 'Sounds unlocked: ' + NPL + ' of ' + NPL && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4]) && /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6) || { hid, vis, hid2, box, t }; }, { spotify: true }],
   ['Phones panel: Status block says "Spotify: not connected" when Spotify is not connected (and "none" errors, sounds not unlocked yet)', async ({ p }) => {
     await p.click('#phonesBtn'); await wait(500); await p.click('#phDiagToggle'); await wait(300);
     const t = await p.evaluate(() => document.getElementById('phDiag').textContent), L = t.split('\n');
-    return (L[0] === 'Spotify: not connected' && L[1] === 'Last Spotify error: none' && /^Sounds unlocked: \d+ of 17( — tap the screen once)?$/.test(L[2]) && L[5] === 'Last sounds: none yet') || { t }; }],
+    return (L[0] === 'Spotify: not connected' && L[1] === 'Last Spotify error: none' && new RegExp('^Sounds unlocked: \\d+ of ' + NPL + '( — tap the screen once)?$').test(L[2]) && L[5] === 'Last sounds: none yet') || { t }; }],
 ];
 
 /* ---- PREVIEW only (PREVIEW=1): the music-safety rule, the 404 retry, the PREVIEW tag, the join link ---- */
@@ -382,7 +383,48 @@ const startLate = p => p.evaluate(() => { const f = window.__fired.slice().sort(
 const settled = (p, log) => until(async () => { const d = dips(log); return d.length && d[d.length - 1].c === 'play' && d[d.length - 1].done && !(await p.evaluate(() => musicDip.mode || musicDip.ending || musicDip.queue.length)); }, 40000);
 const SEED40 = () => { const a = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰']; let t = 0, s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
   for (let i = 0; i < 40; i++){ t += Math.floor(rnd() * 600); const e = a[Math.floor(rnd() * 8)]; setTimeout(() => emojiSfx.play(e), t); } };
+const TEN = ['😂', '🔥', '🤡', '💀', '🤯', '👏', '😭', '💰', '💵', '❓'];
+const TEN_SND = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'fah', '🤯': 'boom', '👏': 'very-nice', '😭': 'emotional-damage', '💰': 'show-me-the-money', '💵': 'pay-that-man', '❓': 'what-happened' };
+/* the five new clips: SFX_MS = ffprobe length within 30 ms. The five kept Remotion sounds keep their old values (set to
+   what Safari decodes; ffprobe / Chrome count ~70 ms more AAC priming on those) and the old 100-ms rule. */
+const NEW5 = ['very-nice', 'emotional-damage', 'show-me-the-money', 'pay-that-man', 'what-happened'];
+const fakeConn = id => ({ connectionId: id, open: true, sent: [], send(m){ this.sent.push(m); } });
 const PREVIEW_TESTS = [
+  ['PREVIEW: ten emojis in order (😂 🔥 🤡 💀 🤯 / 👏 😭 💰 💵 ❓), each with its own sound file, SFX_MS of the new clips within 30 ms of ffprobe', async ({ p }) => {
+    const r = await until(() => p.evaluate(() => { const out = {}; for (const [n, l] of Object.entries(emojiSfx.pool)){ const d = l[0].duration; if (!isFinite(d) || !(d > 0)) return null; out[n] = { real: Math.round(d * 1000), table: SFX_MS[n] }; }
+      return { emojis: EMOJIS, map: EMOJI_SOUNDS, len: out, players: emojiSfx.all().length }; }), 10000);
+    const files = r && Object.values(r.map), dir = require('path').resolve(__dirname, '..', 'preview', 'sounds');
+    /* the real length = ffprobe on the file itself (browsers add up to ~70 ms of AAC priming for some files) */
+    const probe = n => { try { return Math.round(1000 * +require('child_process').execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', dir + '/' + n + '.m4a']).toString().trim()); } catch (e) { return null; } };
+    const ff = r ? Object.fromEntries(files.map(n => [n, { file: probe(n), table: r.len[n] && r.len[n].table, browser: r.len[n] && r.len[n].real }])) : null;
+    return (r && JSON.stringify(r.emojis) === JSON.stringify(TEN) && JSON.stringify(r.map) === JSON.stringify(TEN_SND) && new Set(files).size === 10 && Object.keys(r.len).length === 10
+      && Object.entries(ff).every(([n, x]) => x.file != null && Math.abs(x.browser - x.table) <= 100 && (!NEW5.includes(n) || Math.abs(x.file - x.table) <= 30)) && r.players === 20) || { emojis: r && r.emojis, ff }; }],
+  ['PREVIEW: ONE tap unlocks all 20 emoji players (+ the beep = 21 of 21)', async ({ p }) => {
+    await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown')));
+    const ok = await until(() => p.evaluate(() => emojiSfx.unlockedCount === 21 && emojiSfx.all().length === 20 && emojiSfx.all().every(a => a._ok)), 8000);
+    const r = await p.evaluate(() => ({ n: emojiSfx.unlockedCount, total: emojiSfx.total, quiet: emojiSfx.all().every(a => a.paused && !a.muted) }));
+    return (ok && r.total === 21 && r.quiet) || r; }],
+  ['PREVIEW: 💵 and ❓ from a phone are accepted, fly up on the iPad and play their own sounds (pay-that-man, what-happened)', async ({ p }) => {
+    await wait(600); const r = await p.evaluate(async () => { const out = {};
+      for (const [i, e] of [['a', '💵'], ['b', '❓']]){ const c = { connectionId: 'tc' + i, open: true, sent: [], send(m){ this.sent.push(m); } };
+        phones.onData(c, { t: 'emoji', e, name: i === 'a' ? 'Ann' : 'Bob', id: 'x' + i }); out[e] = c.sent.find(m => m.t === 'ack'); }
+      await new Promise(r => setTimeout(r, 600));
+      return { acks: out, fly: [...document.querySelectorAll('#emojiLayer .emoji-fly .e')].map(x => x.textContent), sfx: window.__sfx.map(x => x.n) }; });
+    return (r.acks['💵'] && r.acks['💵'].ok && r.acks['❓'] && r.acks['❓'].ok && r.fly.includes('💵') && r.fly.includes('❓') && r.sfx.includes('pay-that-man.m4a') && r.sfx.includes('what-happened.m4a')) || r; }],
+  ['PREVIEW: phones state carries the Spotify song — title/artist, new track pushed, user pause = not playing, clock dip still playing, not connected = null', async ({ p, log, fake }) => {
+    await wait(1500);
+    await p.evaluate(() => { window.__pushes = 0; const o = phones.push.bind(phones); phones.push = (...a) => { window.__pushes++; return o(...a); }; });
+    const snap = () => p.evaluate(() => phones.snapshot().now);
+    const a = await snap(); fake.title = 'Other Song'; fake.artist = 'Other Artist'; await p.evaluate(() => spotify.poll()); await wait(400);
+    const b = await snap(), pushed = await p.evaluate(() => window.__pushes);
+    fake.playing = false; await p.evaluate(() => spotify.poll()); await wait(400); const c = await snap();
+    fake.playing = true; await p.evaluate(() => spotify.poll()); await wait(400); log.length = 0; emoji(p, '💀');
+    await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000); await p.evaluate(() => spotify.poll()); await wait(300); const d = await snap(), midDip = !fake.playing;
+    await wait(3000); await p.evaluate(() => spotify.disconnect()); const e = await snap();
+    return (a && a.title === 'Song' && a.artist === 'Artist' && a.playing === true && b && b.title === 'Other Song' && b.artist === 'Other Artist' && pushed >= 1
+      && c && c.playing === false && d && d.playing === true && midDip && e === null) || { a, b, pushed, c, d, e, midDip }; }, { spotify: true }],
+  ['PREVIEW: Spotify not connected → phones state says now: null', async ({ p }) => {
+    const r = await p.evaluate(() => phones.snapshot().now); return r === null || { r }; }],
   ...[2800, 3500].map(ms => ['PREVIEW: slow pause answer (' + ms + ' ms) → "play" goes out at once after it (no tail), never before it', async ({ p, log, fake }) => {
     await wait(1200); fake.pauseDelay = ms; log.length = 0; emoji(p, '👏'); await wait(ms + 1500);
     const d = dips(log), st = stretches(d);

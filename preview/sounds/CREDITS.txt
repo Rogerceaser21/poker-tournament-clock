@@ -1,0 +1,4 @@
+Emoji sounds — from Remotion's free sound-effect library (@remotion/sfx, https://www.remotion.dev/docs/sfx),
+"can be used without attribution". Converted to AAC (.m4a); wow.m4a trimmed to 2.6 s.
+fah.m4a ← fah.wav        bruh.m4a ← bruh.wav          oh-my-god.m4a ← oh-my-god-vine.wav   fail-horn.m4a ← price-is-right-fail.wav
+wow.m4a ← anime-wow.wav  yippee.m4a ← yippee.wav      boom.m4a ← vine-boom.wav             ding.m4a ← ding.wav

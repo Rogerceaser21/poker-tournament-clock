@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#06361f">
+<title>Poker Clock · Phone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* PLAYER'S PHONE — follows the iPad clock live. Connects straight to the iPad (PeerJS / WebRTC),
+   remembers who you are, and reconnects by itself after the phone locks or the iPad reloads. */
+:root{ --felt-top:#16955a; --felt-bot:#075c31; --felt-edge:#04331c; --gold:#e8b84b; --gold-light:#f7d98a; --gold-deep:#b07f2b;
+  --cream:#f6efd9; --ink:#14110a; --amber:#f0a52e; --red:#d12f2a; }
+*{ margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ min-height:100%; }
+body{ font-family:'Oswald', system-ui, sans-serif; color:var(--cream); background:radial-gradient(130% 90% at 50% 0%, var(--felt-top), var(--felt-bot) 60%, var(--felt-edge)) fixed, var(--felt-bot);
+  padding:calc(12px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); -webkit-font-smoothing:antialiased; }
+.wrap{ max-width:520px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+.top{ display:flex; justify-content:space-between; align-items:center; }
+.brand{ font-size:.8rem; letter-spacing:.28em; text-transform:uppercase; color:var(--gold-light); }
+.pill{ font-size:.75rem; letter-spacing:.14em; text-transform:uppercase; padding:.3em .8em; border-radius:999px; background:rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.12); display:flex; align-items:center; gap:.45em; }
+.pill::before{ content:''; width:8px; height:8px; border-radius:50%; background:var(--amber); }
+.pill.live::before{ background:#3ddc84; } .pill.off::before{ background:var(--red); }
+.card{ background:rgba(6,12,9,.5); border:1px solid rgba(255,255,255,.09); border-radius:18px; padding:16px; }
+.clock{ text-align:center; padding:18px 12px; }
+.lv{ font-size:1.25rem; font-weight:600; letter-spacing:.08em; color:var(--gold-light); }
+.lv span{ font-weight:400; color:rgba(246,239,217,.6); }
+.time{ font-size:min(26vw, 7.5rem); font-weight:700; line-height:.95; font-variant-numeric:tabular-nums; margin:.08em 0; text-shadow:0 4px 0 rgba(0,0,0,.3); }
+.time.paused{ color:var(--amber); animation:pulse 1.1s ease-in-out infinite; } @keyframes pulse{ 50%{ opacity:.45; } }
+.blinds{ font-size:1.6rem; letter-spacing:.04em; } .blinds b{ color:var(--gold-light); }
+.next{ margin-top:.4em; font-size:.85rem; letter-spacing:.14em; text-transform:uppercase; color:rgba(246,239,217,.7); } .next b{ color:var(--cream); }
+.k{ font-size:.75rem; letter-spacing:.22em; text-transform:uppercase; color:var(--gold-light); }
+.me{ display:flex; flex-direction:column; gap:12px; }
+.me-row{ display:flex; align-items:center; gap:12px; }
+.ava{ width:56px; height:56px; border-radius:50%; border:2px solid var(--gold); background:#26302a center/cover no-repeat; flex-shrink:0; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:1.3rem; color:var(--gold-light); }
+.me-name{ font-size:1.3rem; font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.me-chips{ font-size:2rem; font-weight:700; font-variant-numeric:tabular-nums; }
+.steps{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; }
+button{ font-family:inherit; cursor:pointer; }
+.btn{ font-weight:700; font-size:1.05rem; color:var(--ink); background:var(--gold); border:none; border-radius:12px; min-height:48px; box-shadow:inset 0 -3px 0 rgba(0,0,0,.2); }
+.btn:active{ transform:scale(.96); } .btn:disabled{ opacity:.35; }
+.btn.ghost{ background:rgba(255,255,255,.08); color:var(--cream); border:1px solid rgba(255,255,255,.15); box-shadow:none; }
+.btn.danger{ background:rgba(209,47,42,.2); color:#f4b4b1; border:1px solid rgba(209,47,42,.55); box-shadow:none; }
+.set{ display:flex; gap:8px; }
+.set input{ flex:1; min-width:0; font-family:inherit; font-size:1.3rem; font-weight:700; text-align:center; color:#fff; background:rgba(0,0,0,.35); border:1px solid rgba(232,184,75,.45); border-radius:12px; min-height:48px; }
+.note{ font-size:.85rem; color:rgba(246,239,217,.6); }
+.emojis{ display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; }
+.emojis button{ font-size:2rem; min-height:58px; border-radius:14px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.1); }
+.emojis button:active{ transform:scale(.9); background:rgba(232,184,75,.25); } .emojis button:disabled{ opacity:.35; }
+.list{ display:flex; flex-direction:column; gap:6px; }
+.row{ display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:12px; background:rgba(255,255,255,.05); }
+.row .ava{ width:36px; height:36px; font-size:.9rem; border-width:1.5px; }
+.row .nm{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.05rem; }
+.row .ct{ font-weight:700; font-size:1.15rem; font-variant-numeric:tabular-nums; }
+.row.out{ opacity:.4; } .row.mine{ outline:1.5px solid var(--gold); }
+.pot{ text-align:right; font-size:.9rem; letter-spacing:.12em; text-transform:uppercase; color:rgba(246,239,217,.7); margin-top:6px; } .pot b{ color:var(--gold-light); }
+.pick{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+.pick button{ min-height:52px; font-size:1.05rem; }
+.link{ background:none; border:none; color:rgba(246,239,217,.6); text-decoration:underline; font-size:.85rem; letter-spacing:.06em; align-self:center; padding:6px; }
+.hide{ display:none !important; }
+.fly{ position:fixed; bottom:-60px; font-size:2.6rem; pointer-events:none; animation:up 2.6s ease-out forwards; z-index:9; text-align:center; }
+.fly small{ display:block; font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; color:var(--cream); }
+@keyframes up{ 0%{ transform:translateY(0); opacity:0; } 15%{ opacity:1; } 100%{ transform:translateY(-70vh); opacity:0; } }
+.big-msg{ text-align:center; padding:28px 16px; font-size:1.1rem; color:rgba(246,239,217,.85); }
+/* delivery receipt after an emoji / chip change */
+.receipt{ position:fixed; left:50%; bottom:calc(84px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:10; font-size:1rem; letter-spacing:.06em;
+  padding:.5em 1.1em; border-radius:999px; background:rgba(6,12,9,.92); border:1.5px solid rgba(61,220,132,.7); color:#bff0cf; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+.receipt.show{ opacity:1; } .receipt.bad{ border-color:rgba(209,47,42,.8); color:#f4b4b1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><span class="brand" style="position:relative">♠ Poker Clock<span id="previewTag" aria-hidden="true" style="position:absolute; left:0; top:calc(100% + 2px); pointer-events:none; font-size:9px; line-height:1; letter-spacing:.22em; color:#14110a; background:#f0a52e; padding:2px 5px 2px 7px; border-radius:4px; white-space:nowrap;">PREVIEW</span></span><span class="pill" id="pill">Connecting…</span></div>
+
+  <div class="card big-msg hide" id="noRoom">This link is missing its room code.<br>Scan the QR code on the clock again.</div>
+
+  <div class="card hide" id="picker">
+    <div class="k">Who are you?</div>
+    <div class="pick" id="pickList"></div>
+    <button class="link" id="watchOnly" style="margin-top:10px">Just watching</button>
+  </div>
+
+  <div id="game" class="wrap hide" style="gap:14px">
+    <div class="card clock">
+      <div class="lv" id="lv">—</div>
+      <div class="time" id="time">--:--</div>
+      <div class="blinds" id="blinds"></div>
+      <div class="next" id="next"></div>
+    </div>
+
+    <div class="card me" id="meCard">
+      <div class="me-row"><div class="ava" id="meAva"></div><div class="me-name" id="meName"></div><div class="me-chips" id="meChips">0</div></div>
+      <div id="chipCtl">
+        <div class="steps"><button class="btn ghost" data-step="-500">−500</button><button class="btn ghost" data-step="-100">−100</button><button class="btn" data-step="100">+100</button><button class="btn" data-step="500">+500</button></div>
+        <div class="set" style="margin-top:8px"><input id="setVal" type="number" inputmode="numeric" min="0" placeholder="Exact chips"><button class="btn" id="setBtn" style="padding:0 18px">Set</button><button class="btn danger" id="outBtn" style="padding:0 14px">Out</button></div>
+      </div>
+      <div class="note hide" id="chipNote">Chip changes are switched off — ask the host.</div>
+    </div>
+
+    <div class="card"><div class="k" style="margin-bottom:10px">Send to the table</div><div class="emojis" id="emojis"></div></div>
+
+    <div class="card"><div class="k" style="margin-bottom:10px">Chip count</div><div class="list" id="list"></div><div class="pot" id="pot"></div></div>
+
+    <button class="link" id="notMe">Not you? Change player</button>
+  </div>
+</div>
+
+<div class="receipt" id="receipt" aria-live="polite"></div>
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+const EMOJIS = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
+const ROOM = (new URLSearchParams(location.search).get('room') || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const HOST = 'pokerclock-' + ROOM, ME_KEY = 'poker_me_v1';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = n => Number(n || 0).toLocaleString('en-US');
+const initial = n => (String(n || '').trim()[0] || '?').toUpperCase();
+
+/* who am I — remembered per room, so a reconnect / reopened tab never asks again */
+let me = null; try { me = JSON.parse(localStorage.getItem(ME_KEY) || 'null'); } catch (e) {}
+if (!me || me.room !== ROOM) me = null;
+const saveMe = () => { try { me ? localStorage.setItem(ME_KEY, JSON.stringify(me)) : localStorage.removeItem(ME_KEY); } catch (e) {} };
+
+let peer = null, conn = null, live = false, lastMsg = 0, retryT = null, backoff = 1000;
+let state = null, recvAt = 0, photos = [], photoRev = null, lastEmojiSent = 0;
+
+function pill(text, cls){ const p = $('pill'); p.textContent = text; p.className = 'pill' + (cls ? ' ' + cls : ''); }
+function setLive(on){ live = on; document.querySelectorAll('[data-step], #setBtn, #outBtn, #emojis button').forEach(b => b.disabled = !on || (b.closest('#chipCtl') && !(state && state.allowChips))); }
+
+/* ---------- connection: connect, watch, and come back by itself ---------- */
+function connect(){
+  clearTimeout(retryT);
+  if (!ROOM) return;
+  if (!peer || peer.destroyed){
+    peer = new Peer({ debug: 0 });
+    peer.on('open', () => openConn());
+    peer.on('disconnected', () => { setTimeout(() => { if (peer && !peer.destroyed && peer.disconnected){ try { peer.reconnect(); } catch (e) { retry(); } } }, 500); });
+    peer.on('error', (err) => {
+      if (err && err.type === 'peer-unavailable'){ pill('Clock offline — waiting…', 'off'); setLive(false); retry(); return; }
+      if (err && ['network', 'server-error', 'socket-error', 'socket-closed', 'disconnected'].includes(err.type)){ try { peer.destroy(); } catch (e) {} peer = null; }
+      setLive(false); pill('Reconnecting…'); retry();
+    });
+  } else if (peer.disconnected){ try { peer.reconnect(); } catch (e) { try { peer.destroy(); } catch (x) {} peer = null; retry(); } }
+  else if (peer.open) openConn();
+}
+function openConn(){
+  try { if (conn) conn.close(); } catch (e) {}
+  const c = peer.connect(HOST, { reliable: true, serialization: 'json' }); conn = c;
+  c.on('open', () => { if (c !== conn) return; backoff = 1000; lastMsg = Date.now(); setLive(true); pill('Live', 'live'); hello(); });
+  c.on('data', (d) => { if (c !== conn) return; lastMsg = Date.now(); onData(d); });
+  const dead = () => { if (c !== conn) return; setLive(false); pill('Reconnecting…'); retry(); };
+  c.on('close', dead); c.on('error', dead);
+}
+function retry(){ clearTimeout(retryT); retryT = setTimeout(connect, backoff); backoff = Math.min(5000, backoff * 1.6); }
+function reconnectNow(){ backoff = 1000; if (conn){ try { conn.close(); } catch (e) {} conn = null; } setLive(false); pill('Reconnecting…'); connect(); }
+function send(msg){ try { if (conn && conn.open) conn.send(msg); } catch (e) {} }
+function myName(){ return me && me.name ? me.name : null; }
+function hello(){ send({ t: 'hello', name: myName() }); }
+/* receipts: the iPad answers every emoji / chip change; no answer in 3 s = not delivered */
+const pending = new Map(); let rcT = null;
+function receipt(text, bad){ const r = $('receipt'); r.textContent = text; r.className = 'receipt show' + (bad ? ' bad' : ''); clearTimeout(rcT); rcT = setTimeout(() => r.className = 'receipt' + (bad ? ' bad' : ''), bad ? 3200 : 1600); }
+function sendTracked(msg, okText){
+  const id = Math.random().toString(36).slice(2, 10); msg.id = id; msg.name = myName();
+  if (!live || !conn || !conn.open){ receipt('✗ Not connected — reconnecting…', true); reconnectNow(); return; }
+  send(msg);
+  pending.set(id, { okText, t: setTimeout(() => { pending.delete(id); receipt('✗ Not delivered — reconnecting…', true); reconnectNow(); }, 3000) });
+}
+
+/* watchdog: the iPad talks every 5 s; 12 s of silence = the link died (phone slept, Wi-Fi blip) */
+setInterval(() => { if (live && Date.now() - lastMsg > 12000) reconnectNow(); else if (live) send({ t: 'ping', name: myName() }); }, 4000);
+/* coming back to the phone / tab: check at once instead of waiting for the watchdog */
+const wake = () => { if (document.hidden) return; if (!live || Date.now() - lastMsg > 6000) reconnectNow(); };
+document.addEventListener('visibilitychange', wake);
+window.addEventListener('pageshow', wake);
+window.addEventListener('online', () => reconnectNow());
+window.addEventListener('focus', wake);
+
+/* ---------- messages from the iPad ---------- */
+function onData(d){
+  if (!d || typeof d !== 'object') return;
+  if (d.t === 'state'){ state = d; recvAt = performance.now(); if (d.photoRev !== photoRev) send({ t: 'photos' }); render(); return; }
+  if (d.t === 'photos'){ photos = d.photos || []; photoRev = d.rev; render(); return; }
+  if (d.t === 'emoji'){ flyEmoji(d.e, d.name); return; }
+  if (d.t === 'ack'){ const p = pending.get(d.id); if (!p) return; clearTimeout(p.t); pending.delete(d.id); receipt(d.ok ? p.okText : '✗ ' + (d.why || 'Not accepted'), !d.ok); }
+}
+
+/* ---------- screens ---------- */
+function myIndex(){ return state && me && me.name ? state.players.findIndex(p => p.name === me.name) : -1; }
+function render(){
+  if (!state) return;
+  if (me && me.name && myIndex() < 0 && !me.watch){ me = null; saveMe(); }   /* renamed / removed on the iPad: pick again */
+  const needPick = !me;
+  $('picker').classList.toggle('hide', !needPick); $('game').classList.toggle('hide', needPick);
+  if (needPick){
+    $('pickList').innerHTML = state.players.map(p => '<button class="btn ghost" data-pick="' + esc(p.name) + '">' + esc(p.name) + '</button>').join('');
+    return;
+  }
+  /* level */
+  const T = state.type;
+  $('lv').innerHTML = T === 'level' ? 'Level ' + state.levelNo + ' <span>of ' + state.levelsTotal + '</span>'
+    : T === 'transition' ? 'Next up · Level ' + state.levelNo : T === 'cover' ? 'Not started' : T === 'headsup' ? 'Heads up' : 'Game over';
+  $('blinds').innerHTML = state.sb != null ? 'Blinds <b>' + fmt(state.sb) + ' / ' + fmt(state.bb) + '</b>' : '';
+  $('next').innerHTML = state.next ? 'Next · Level ' + state.next.n + ' · <b>' + fmt(state.next.sb) + ' / ' + fmt(state.next.bb) + '</b>' : (T === 'level' ? '<b>Final level</b>' : '');
+  tick();
+  /* me */
+  const i = myIndex(), mine = i >= 0 ? state.players[i] : null;
+  $('meCard').classList.toggle('hide', !mine);
+  if (mine){
+    $('meName').textContent = mine.name; $('meChips').textContent = mine.chips > 0 ? fmt(mine.chips) : 'OUT';
+    ava($('meAva'), i, mine.name);
+    $('chipCtl').classList.toggle('hide', !state.allowChips); $('chipNote').classList.toggle('hide', !!state.allowChips);
+  }
+  /* everyone */
+  const order = state.players.map((p, k) => k).sort((a, b) => state.players[b].chips - state.players[a].chips);
+  $('list').innerHTML = order.map(k => { const p = state.players[k];
+    return '<div class="row' + (p.chips > 0 ? '' : ' out') + (k === i ? ' mine' : '') + '"><div class="ava" data-ava="' + k + '"></div><div class="nm">' + esc(p.name) + '</div><div class="ct">' + (p.chips > 0 ? fmt(p.chips) : 'OUT') + '</div></div>'; }).join('');
+  $('list').querySelectorAll('[data-ava]').forEach(a => ava(a, +a.dataset.ava, state.players[+a.dataset.ava].name));
+  $('pot').innerHTML = 'Pot · <b>AED ' + fmt(state.pot) + '</b>';
+  setLive(live);
+}
+function ava(el, i, name){ const ph = photos[i]; if (ph){ el.style.backgroundImage = 'url("' + ph + '")'; el.textContent = ''; } else { el.style.backgroundImage = ''; el.textContent = initial(name); } }
+function tick(){
+  if (!state || state.remaining == null){ $('time').textContent = state && state.type === 'cover' && state.mins ? state.mins + ':00' : '--:--'; $('time').classList.remove('paused'); return; }
+  const ms = state.paused ? state.remaining : Math.max(0, state.remaining - (performance.now() - recvAt)), s = Math.ceil(ms / 1000);
+  $('time').textContent = state.type === 'transition' ? String(s) : Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  $('time').classList.toggle('paused', !!state.paused);
+}
+setInterval(tick, 250);
+function flyEmoji(e, name){ const f = document.createElement('div'); f.className = 'fly'; f.style.left = (10 + Math.random() * 70) + '%';
+  f.innerHTML = e + '<small>' + esc(name || '') + '</small>'; document.body.appendChild(f); setTimeout(() => f.remove(), 2700); }
+
+/* ---------- taps ---------- */
+$('emojis').innerHTML = EMOJIS.map(e => '<button type="button" data-e="' + e + '">' + e + '</button>').join('');
+document.addEventListener('click', (ev) => {
+  const pk = ev.target.closest('[data-pick]');
+  if (pk){ me = { room: ROOM, name: pk.dataset.pick }; saveMe(); hello(); render(); return; }
+  const em = ev.target.closest('[data-e]');
+  if (em){
+    if (!myName()){ receipt('Pick your name to send emojis', true); me = null; saveMe(); render(); return; }
+    if (Date.now() - lastEmojiSent < 1200){ receipt('Easy — one per second', true); return; }
+    lastEmojiSent = Date.now(); sendTracked({ t: 'emoji', e: em.dataset.e }, '✓ ' + em.dataset.e + ' sent to the table'); return; }
+  const st = ev.target.closest('[data-step]');
+  if (st){ const i = myIndex(); if (i < 0) return; sendChips(Math.max(0, state.players[i].chips + (+st.dataset.step))); return; }
+});
+function sendChips(v){ const i = myIndex(); if (i < 0 || !live || !state.allowChips) return;
+  state.players[i].chips = v; render();                                  /* show it now; the iPad's answer confirms it */
+  sendTracked({ t: 'chips', value: v }, '✓ Chips updated on the clock'); }
+$('setBtn').addEventListener('click', () => { const v = parseInt($('setVal').value, 10); if (!isNaN(v) && v >= 0){ sendChips(v); $('setVal').value = ''; $('setVal').blur(); } });
+$('outBtn').addEventListener('click', () => { if (confirm('Mark yourself OUT (0 chips)?')) sendChips(0); });
+$('watchOnly').addEventListener('click', () => { me = { room: ROOM, name: null, watch: true }; saveMe(); render(); });
+$('notMe').addEventListener('click', () => { me = null; saveMe(); hello(); render(); });
+
+/* ---------- go ---------- */
+if (!ROOM){ $('noRoom').classList.remove('hide'); pill('No room', 'off'); }
+else if (typeof Peer === 'undefined'){ pill('Needs internet', 'off'); setTimeout(() => location.reload(), 5000); }
+else { setLive(false); connect(); }
+</script>
+</body>
+</html>

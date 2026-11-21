@@ -1,11 +1,12 @@
 /* Poker Tournament Clock — phones test: a fake iPad (host) + 3 fake phones, live over WebRTC.
  *
  *   run (it serves the repo itself on :8791):                NODE_PATH=<a node_modules with playwright> node tests/phones.test.js
+ *   the PREVIEW copy (preview/ clock + preview/join.html):     PREVIEW=1 NODE_PATH=… node tests/phones.test.js
  *
  * Needs internet (the free PeerJS server introduces the devices). Prints a results table; exits 1 on any failure.
  */
 const { webkit, chromium } = require('playwright');
-const BASE = process.env.CLOCK_BASE || 'http://localhost:8791/';
+const BASE = process.env.CLOCK_BASE || (process.env.PREVIEW === '1' ? 'http://localhost:8791/preview/' : 'http://localhost:8791/');
 const HOST_BROWSER = process.env.HOST_BROWSER === 'chromium' ? chromium : webkit;
 const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const ROOM = 't' + Math.random().toString(36).slice(2, 8);
@@ -20,7 +21,7 @@ async function check(name, fn){
 }
 
 (async () => {
-  const srv = (process.env.CLOCK_URL || process.env.CLOCK_BASE) ? null : await require('./serve').start();   /* self-serve the repo */
+  const srv = /^http:\/\/localhost:8791\//.test(BASE) ? await require('./serve').start() : null;   /* self-serve the repo (also for preview/) */
   /* ---- the iPad ---- */
   const hb = await HOST_BROWSER.launch(HOST_BROWSER === chromium ? { args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] } : {});
   const hctx = await hb.newContext({ viewport: { width: 1180, height: 820 }, userAgent: HOST_BROWSER === webkit ? IPAD_UA : undefined });

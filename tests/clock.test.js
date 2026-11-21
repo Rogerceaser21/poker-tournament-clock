@@ -11,7 +11,7 @@
  */
 const { webkit, chromium } = require('playwright');
 const P = process.env.PREVIEW === '1';
-const NSND = P ? 10 : 8, NPL = NSND * 2 + 1;   /* sounds; sound players (2 per sound) + the level beep */
+const NSND = P ? 12 : 8, NPL = NSND * 2 + 1;   /* sounds; sound players (2 per sound) + the level beep */
 const PAGE = process.env.CLOCK_URL || (P ? 'http://localhost:8791/preview/Poker%20Tournament%20Clock.html' : 'http://localhost:8791/Poker%20Tournament%20Clock.html');
 const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const LEVELS = [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 }));
@@ -383,27 +383,27 @@ const startLate = p => p.evaluate(() => { const f = window.__fired.slice().sort(
 const settled = (p, log) => until(async () => { const d = dips(log); return d.length && d[d.length - 1].c === 'play' && d[d.length - 1].done && !(await p.evaluate(() => musicDip.mode || musicDip.ending || musicDip.queue.length)); }, 40000);
 const SEED40 = () => { const a = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰']; let t = 0, s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
   for (let i = 0; i < 40; i++){ t += Math.floor(rnd() * 600); const e = a[Math.floor(rnd() * 8)]; setTimeout(() => emojiSfx.play(e), t); } };
-const TEN = ['😂', '🔥', '🤡', '💀', '🤯', '👏', '😭', '💰', '💵', '❓'];
-const TEN_SND = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'fah', '🤯': 'boom', '👏': 'very-nice', '😭': 'emotional-damage', '💰': 'show-me-the-money', '💵': 'pay-that-man', '❓': 'what-happened' };
+const TEN = ['😂', '🔥', '🤡', '💀', '🤯', '📖', '👏', '😭', '💰', '💵', '❓', '💣'];   /* (name kept) the twelve emojis, 3 rows of 4 on the phone */
+const TEN_SND = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'fah', '🤯': 'what', '📖': 'cool-story-bro', '👏': 'very-nice', '😭': 'emotional-damage', '💰': 'show-me-the-money', '💵': 'pay-that-man', '❓': 'what-happened', '💣': 'boomshakalaka' };
 /* the five new clips: SFX_MS = ffprobe length within 30 ms. The five kept Remotion sounds keep their old values (set to
    what Safari decodes; ffprobe / Chrome count ~70 ms more AAC priming on those) and the old 100-ms rule. */
-const NEW5 = ['very-nice', 'emotional-damage', 'show-me-the-money', 'pay-that-man', 'what-happened'];
+const NEW5 = ['very-nice', 'emotional-damage', 'show-me-the-money', 'pay-that-man', 'what-happened', 'what', 'cool-story-bro', 'boomshakalaka'];   /* the new clips: ffprobe within 30 ms */
 const fakeConn = id => ({ connectionId: id, open: true, sent: [], send(m){ this.sent.push(m); } });
 const PREVIEW_TESTS = [
-  ['PREVIEW: ten emojis in order (😂 🔥 🤡 💀 🤯 / 👏 😭 💰 💵 ❓), each with its own sound file, SFX_MS of the new clips within 30 ms of ffprobe', async ({ p }) => {
+  ['PREVIEW: twelve emojis in order (😂 🔥 🤡 💀 / 🤯 📖 👏 😭 / 💰 💵 ❓ 💣), each with its own sound file, SFX_MS of the new clips within 30 ms of ffprobe', async ({ p }) => {
     const r = await until(() => p.evaluate(() => { const out = {}; for (const [n, l] of Object.entries(emojiSfx.pool)){ const d = l[0].duration; if (!isFinite(d) || !(d > 0)) return null; out[n] = { real: Math.round(d * 1000), table: SFX_MS[n] }; }
       return { emojis: EMOJIS, map: EMOJI_SOUNDS, len: out, players: emojiSfx.all().length }; }), 10000);
     const files = r && Object.values(r.map), dir = require('path').resolve(__dirname, '..', 'preview', 'sounds');
     /* the real length = ffprobe on the file itself (browsers add up to ~70 ms of AAC priming for some files) */
     const probe = n => { try { return Math.round(1000 * +require('child_process').execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', dir + '/' + n + '.m4a']).toString().trim()); } catch (e) { return null; } };
     const ff = r ? Object.fromEntries(files.map(n => [n, { file: probe(n), table: r.len[n] && r.len[n].table, browser: r.len[n] && r.len[n].real }])) : null;
-    return (r && JSON.stringify(r.emojis) === JSON.stringify(TEN) && JSON.stringify(r.map) === JSON.stringify(TEN_SND) && new Set(files).size === 10 && Object.keys(r.len).length === 10
-      && Object.entries(ff).every(([n, x]) => x.file != null && Math.abs(x.browser - x.table) <= 100 && (!NEW5.includes(n) || Math.abs(x.file - x.table) <= 30)) && r.players === 20) || { emojis: r && r.emojis, ff }; }],
-  ['PREVIEW: ONE tap unlocks all 20 emoji players (+ the beep = 21 of 21)', async ({ p }) => {
+    return (r && JSON.stringify(r.emojis) === JSON.stringify(TEN) && JSON.stringify(r.map) === JSON.stringify(TEN_SND) && new Set(files).size === 12 && Object.keys(r.len).length === 12
+      && Object.entries(ff).every(([n, x]) => x.file != null && Math.abs(x.browser - x.table) <= 100 && (!NEW5.includes(n) || Math.abs(x.file - x.table) <= 30)) && r.players === 24) || { emojis: r && r.emojis, ff }; }],
+  ['PREVIEW: ONE tap unlocks all 24 emoji players (+ the beep = 25 of 25)', async ({ p }) => {
     await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown')));
-    const ok = await until(() => p.evaluate(() => emojiSfx.unlockedCount === 21 && emojiSfx.all().length === 20 && emojiSfx.all().every(a => a._ok)), 8000);
+    const ok = await until(() => p.evaluate(() => emojiSfx.unlockedCount === 25 && emojiSfx.all().length === 24 && emojiSfx.all().every(a => a._ok)), 8000);
     const r = await p.evaluate(() => ({ n: emojiSfx.unlockedCount, total: emojiSfx.total, quiet: emojiSfx.all().every(a => a.paused && !a.muted) }));
-    return (ok && r.total === 21 && r.quiet) || r; }],
+    return (ok && r.total === 25 && r.quiet) || r; }],
   ['PREVIEW: 💵 and ❓ from a phone are accepted, fly up on the iPad and play their own sounds (pay-that-man, what-happened)', async ({ p }) => {
     await wait(600); const r = await p.evaluate(async () => { const out = {};
       for (const [i, e] of [['a', '💵'], ['b', '❓']]){ const c = { connectionId: 'tc' + i, open: true, sent: [], send(m){ this.sent.push(m); } };
@@ -423,6 +423,24 @@ const PREVIEW_TESTS = [
     await wait(3000); await p.evaluate(() => spotify.disconnect()); const e = await snap();
     return (a && a.title === 'Song' && a.artist === 'Artist' && a.playing === true && b && b.title === 'Other Song' && b.artist === 'Other Artist' && pushed >= 1
       && c && c.playing === false && d && d.playing === true && midDip && e === null) || { a, b, pushed, c, d, e, midDip }; }, { spotify: true }],
+  ['PREVIEW: phones get the new screen AT ONCE (no 120-ms wait) — Next up by run-out, ⏭, ⏭ on Next up, ⏮ back', async ({ p }) => {
+    await p.evaluate(() => { window.__bc = []; window.__sl = []; const c = { connectionId: 'tcx', open: true, send(m){ if (m.t === 'state') window.__bc.push({ t: performance.now(), type: m.type, rem: m.remaining }); } };
+      phones.conns.set('tcx', { c, name: 'Ann' });
+      const o = clock.handleSlideChange.bind(clock); clock.handleSlideChange = () => { const t = performance.now(); o(); window.__sl.push({ t, type: presentation.slides[presentation.current].dataset.type || '' }); }; });
+    const R = [];
+    const step = async (name, fn) => { const n0 = await p.evaluate(() => window.__sl.length); await fn(); await wait(900);
+      const r = await p.evaluate(n0 => { const s = window.__sl[n0]; if (!s) return null; const b = window.__bc.find(x => x.t >= s.t && x.type === (s.type || x.type)); return { type: s.type, ms: b ? Math.round(b.t - s.t) : null, rem: b ? b.rem : null }; }, n0);
+      R.push({ name, ...r }); };
+    await p.click('#startBtn'); await wait(900);
+    await step('run-out', () => expireNow(p).then(() => wait(300)));
+    await step('Next up ends', () => p.evaluate(() => { clock.deadline = performance.now() + 100; }).then(() => wait(300)));
+    await step('⏭', () => p.click('#nextBtn'));
+    await step('⏭ on Next up', () => p.click('#nextBtn'));
+    await step('⏮ from a level', () => p.click('#prevBtn'));
+    await step('⏭ again', () => p.click('#nextBtn'));
+    await step('⏮ on Next up', () => p.click('#prevBtn'));
+    const want = ['transition', 'level', 'transition', 'level', 'level', 'transition', 'level'];
+    return (R.length === 7 && R.every((r, i) => r && r.type === want[i] && r.ms !== null && r.ms <= 50) && R.filter(r => r.type === 'transition').every(r => r.rem > 4500)) || R; }],
   ['PREVIEW: Spotify not connected → phones state says now: null', async ({ p }) => {
     const r = await p.evaluate(() => phones.snapshot().now); return r === null || { r }; }],
   ...[2800, 3500].map(ms => ['PREVIEW: slow pause answer (' + ms + ' ms) → "play" goes out at once after it (no tail), never before it', async ({ p, log, fake }) => {

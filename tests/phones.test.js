@@ -34,11 +34,11 @@ async function check(name, fn){
     if (path.startsWith('/me/player?')) return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: spPlaying, progress_ms: 1000,
       device: { id: 'ipad', type: 'Tablet', volume_percent: 70, supports_volume: false }, item: { id: spTitle === 'Song' ? 't' : 't2', name: spTitle, duration_ms: 200000, artists: [{ name: spArtist }], album: { images: [{ url: 'x' }] } } }) });
     return r.fulfill({ status: 204, body: '' }); });
-  await host.addInitScript((room) => { if (sessionStorage.getItem('seeded')) return; sessionStorage.setItem('seeded', '1'); localStorage.clear();
-    localStorage.setItem('poker_clock_state_v1', JSON.stringify({ v: 1, levels: [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 })),
+  await host.addInitScript(([room, pv]) => { if (sessionStorage.getItem('seeded')) return; sessionStorage.setItem('seeded', '1'); localStorage.clear();
+    localStorage.setItem('poker_clock_state_v1', JSON.stringify({ v: 1, levels: [[1, 2], [2, 4], [5, 10]].concat(pv ? [[10, 20], [20, 40], [50, 100], [100, 200]] : []).map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 })),
       names: ['Ann', 'Bob', 'Cat', 'Dan'], buyins: [500, 500, 500, 500], photos: [null, null, null, null], chips: [700, 700, 700, 700], startStack: 700 }));
     localStorage.setItem('poker_phones_v1', JSON.stringify({ room, enabled: true, allowChips: true }));
-    localStorage.setItem('poker_spotify_auth_v1', JSON.stringify({ access: 'AT', refresh: 'RT', exp: Date.now() + 3e6 })); }, ROOM);
+    localStorage.setItem('poker_spotify_auth_v1', JSON.stringify({ access: 'AT', refresh: 'RT', exp: Date.now() + 3e6 })); }, [ROOM, PV]);   /* PREVIEW: 7 levels, room for the Next-up walk */
   await host.addInitScript(() => { window.__sfx = []; const o = HTMLMediaElement.prototype.play;
     HTMLMediaElement.prototype.play = function(){ if (!this.muted && this.src && this.src.includes('/sounds/')) window.__sfx.push(this.src); return o.apply(this, arguments); }; });
   await host.goto(BASE + 'Poker%20Tournament%20Clock.html');
@@ -126,20 +126,21 @@ async function check(name, fn){
       const ok = await until(() => host.evaluate(() => { const f = [...document.querySelectorAll('#emojiLayer .emoji-fly')].map(x => x.textContent), s = window.__sfx || [];
         return f.some(t => t.includes('💵') && t.includes('Ann')) && f.some(t => t.includes('❓') && t.includes('Cat')) && s.some(x => x.endsWith('sounds/pay-that-man.m4a')) && s.some(x => x.endsWith('sounds/what-happened.m4a')); }), 4000);
       return !!ok || await host.evaluate(() => ({ fly: [...document.querySelectorAll('#emojiLayer .emoji-fly')].map(x => x.textContent), sfx: window.__sfx })); });
-    await check('PREVIEW: phone shows the ten emojis in order 😂 🔥 🤡 💀 🤯 / 👏 😭 💰 💵 ❓', async () => {
+    await check('PREVIEW: phone shows the twelve emojis in order 😂 🔥 🤡 💀 / 🤯 📖 👏 😭 / 💰 💵 ❓ 💣', async () => {
       const r = await phones[0].p.evaluate(() => [...document.querySelectorAll('#emojis button')].map(b => b.dataset.e).join(' '));
-      return r === '😂 🔥 🤡 💀 🤯 👏 😭 💰 💵 ❓' || r; });
+      return r === '😂 🔥 🤡 💀 🤯 📖 👏 😭 💰 💵 ❓ 💣' || r; });
     const grid = () => phones[0].p.evaluate(() => { const bs = [...document.querySelectorAll('#emojis button')];
       const rows = [...new Set(bs.map(b => Math.round(b.getBoundingClientRect().top)))];
       const cut = bs.filter(b => { const r = document.createRange(); r.selectNodeContents(b); const g = r.getBoundingClientRect(), q = b.getBoundingClientRect(); return g.left < q.left - 0.5 || g.right > q.right + 0.5 || g.top < q.top - 0.5 || g.bottom > q.bottom + 0.5; }).map(b => b.dataset.e);
       return { n: bs.length, rows: rows.length, perRow: rows.map(t => bs.filter(b => Math.round(b.getBoundingClientRect().top) === t).length), minW: Math.min(...bs.map(b => b.getBoundingClientRect().width)), minH: Math.min(...bs.map(b => b.getBoundingClientRect().height)),
-        hscroll: document.documentElement.scrollWidth > innerWidth, cut }; });
+        hscroll: document.documentElement.scrollWidth > innerWidth, cut, maxH: Math.max(...bs.map(b => b.getBoundingClientRect().height)), card: Math.round(document.getElementById('emojis').closest('.card').getBoundingClientRect().height),
+      gap: parseFloat(getComputedStyle(document.getElementById('emojis')).rowGap) }; });
     const sizes = {};
     for (const w of [320, 375, 390, 430]){ await phones[0].p.setViewportSize({ width: w, height: 844 }); await wait(250); sizes[w] = await grid(); }
     await phones[0].p.setViewportSize({ width: 390, height: 844 });
-    console.log('        grid sizes: ' + JSON.stringify(Object.fromEntries(Object.entries(sizes).map(([w, g]) => [w, Math.round(g.minW) + 'x' + Math.round(g.minH)]))));
-    await check('PREVIEW: emoji grid is 5 × 2 at 320 / 375 / 390 / 430 px, every button ≥ 44 × 44, no sideways scroll, no glyph clipped', async () =>
-      Object.values(sizes).every(g => g.n === 10 && g.rows === 2 && g.perRow.join() === '5,5' && g.minW >= 44 && g.minH >= 44 && !g.hscroll && !g.cut.length) || sizes);
+    console.log('        grid sizes: ' + JSON.stringify(Object.fromEntries(Object.entries(sizes).map(([w, g]) => [w, Math.round(g.minW) + 'x' + Math.round(g.minH) + ' card ' + g.card]))));
+    await check('PREVIEW: emoji grid is 4 × 3 (compact) at 320 / 375 / 390 / 430 px, buttons 44-46 px high and ≥ 44 wide, 6-px gaps, no sideways scroll, no glyph clipped', async () =>
+      Object.values(sizes).every(g => g.n === 12 && g.rows === 3 && g.perRow.join() === '4,4,4' && g.minW >= 44 && g.minH >= 44 && g.maxH <= 46 && g.gap === 6 && !g.hscroll && !g.cut.length) || sizes);
     await check('PREVIEW: phone card order — blinds, Send to the table, Now playing, my chips, Chip count, then "Not you?" last (DOM and on screen)', async () => {
       const r = await phones[0].p.evaluate(() => { const kids = [...document.getElementById('game').children].filter(x => getComputedStyle(x).display !== 'none');
         const name = x => x.id === 'notMe' ? 'notMe' : x.classList.contains('clock') ? 'blinds' : x.id === 'npCard' ? 'now' : x.id === 'meCard' ? 'me' : x.querySelector('#emojis') ? 'emojis' : x.querySelector('#list') ? 'chips' : '?';
@@ -215,6 +216,54 @@ async function check(name, fn){
       const mid = spCalls.length && spCalls[spCalls.length - 1].c.endsWith('pause');
       return (spCalls[0] && spCalls[0].c.endsWith('pause') && seen.length > 5 && seen.every(x => x === false)) || { calls: spCalls.map(x => x.c), seen, mid }; });
     await wait(2500);
+  }
+
+  if (PV){
+    /* ---- PREVIEW: the phone mirrors the iPad's red 5-second "Next up" screen ---- */
+    await host.evaluate(() => { window.__sl = []; const o = clock.handleSlideChange.bind(clock); clock.handleSlideChange = () => { o(); window.__sl.push({ t: Date.now(), type: clock.type, el: !!clock.el }); }; });
+    const watch = p => p.evaluate(() => { window.__tr = []; const c = document.querySelector('.card.clock'); let was = c.classList.contains('trans');
+      new MutationObserver(() => { const now = c.classList.contains('trans'); if (now !== was){ was = now; window.__tr.push({ t: Date.now(), on: now }); } }).observe(c, { attributes: true, attributeFilter: ['class'] }); });
+    for (const ph of phones) await watch(ph.p);
+    const slides = () => host.evaluate(() => window.__sl.slice());
+    const flips = p => p.evaluate(() => window.__tr.slice());
+    const hostType = () => host.evaluate(() => (presentation.slides[presentation.current].dataset.type) || '');
+    /* one scenario: run fn on the iPad, wait for the iPad slide type, then the phones' flip time vs the iPad's */
+    const scenario = async (name, fn, want) => {
+      const s0 = (await slides()).length, f0 = await Promise.all(phones.map(ph => flips(ph.p).then(x => x.length)));
+      await fn(); await until(async () => (await slides()).slice(s0).some(x => x.type === want || (want === 'level' && x.type === 'level')), 8000); await wait(700);
+      const sl = (await slides()).slice(s0).find(x => x.type === want), fl = await Promise.all(phones.map((ph, i) => flips(ph.p).then(x => x.slice(f0[i]).find(y => y.on === (want === 'transition')))));
+      return { name, want, delays: fl.map(f => f && sl ? f.t - sl.t : null) }; };
+    const R = [];
+    await wait(1500);
+    if ((await hostType()) !== 'level'){ await host.click('#nextBtn'); await wait(900); }
+    R.push(await scenario('timer runs out → Next up', () => host.evaluate(() => { clock.deadline = performance.now() + 120; }), 'transition'));
+    /* same second as the iPad, read at the same moments; cards below do not move */
+    const same = []; let moved = null;
+    { const top = () => phones[0].p.evaluate(() => Math.round(document.getElementById('emojis').closest('.card').getBoundingClientRect().top + scrollY));
+      const tRed = await top();
+      for (let k = 0; k < 6; k++){ const [h, ph] = await Promise.all([host.evaluate(() => (document.querySelector('.slide.active [data-clock]') || {}).textContent.trim()), phones[0].p.evaluate(() => document.getElementById('time').textContent)]); same.push([h, ph]); await wait(450); }
+      R.push(await scenario('Next up runs out → level starts', async () => {}, 'level'));
+      const tLevel = await top(); moved = tLevel - tRed; }
+    await wait(800);
+    R.push(await scenario('⏭ from a level → Next up', () => host.click('#nextBtn'), 'transition'));
+    await wait(300);
+    R.push(await scenario('⏭ on Next up → level now', () => host.click('#nextBtn'), 'level'));
+    await wait(800);
+    R.push(await scenario('⏭ again → Next up', () => host.click('#nextBtn'), 'transition'));
+    await wait(300);
+    R.push(await scenario('⏮ on Next up → back to the level', () => host.click('#prevBtn'), 'level'));
+    console.log('        next-up delays (ms, per phone): ' + R.map(r => r.name + ' ' + r.delays.join('/')).join(' | '));
+    await check('PREVIEW: iPad "Next up" (run-out, ⏭, ⏭ on Next up, ⏮) → every phone\'s blinds card turns red / back within 300 ms', async () =>
+      R.every(r => r.delays.every(d => d !== null && d >= -50 && d <= 300)) || R);
+    await check('PREVIEW: …the phone\'s red countdown shows the same second as the iPad (within one tick)', async () =>
+      (same.length === 6 && same.every(([h, p]) => /^\d$/.test(p) && Math.abs(+h - +p) <= 1) && same.filter(([h, p]) => h === p).length >= 4) || same);
+    await check('PREVIEW: …the cards under the blinds card do not move when it turns red and back', async () => moved === 0 || { moved });
+    await check('PREVIEW: …the red card shows "Next up", the level, its blinds and "Starting…"', async () => {
+      await host.click('#nextBtn'); await until(() => phones[1].p.evaluate(() => document.querySelector('.card.clock').classList.contains('trans')), 2000);
+      const r = await phones[1].p.evaluate(() => ({ lv: document.getElementById('lv').textContent, b: document.getElementById('blinds').textContent, n: document.getElementById('next').textContent, t: document.getElementById('time').textContent, bg: getComputedStyle(document.querySelector('.card.clock')).animationName }));
+      await wait(700); await host.click('#nextBtn'); await until(async () => (await hostType()) === 'level', 7000); await wait(600);   /* back on a level for the checks after */
+      return (/^Next up · Level \d+$/.test(r.lv) && /^Blinds \S+ \/ \S+$/.test(r.b) && r.n === 'Starting…' && /^[1-5]$/.test(r.t) && r.bg === 'flashRAG') || r; });
+    await wait(1500);
   }
 
   /* ---- reconnecting ---- */

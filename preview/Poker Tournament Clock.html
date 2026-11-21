@@ -808,7 +808,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
         <span class="ph-status" id="phStatus">Starting…</span>
         <div class="ph-list" id="phList"></div>
         <label class="music-chk"><input type="checkbox" id="phAllowChips"> Players can change their own chips</label>
-        <label class="music-chk"><input type="checkbox" id="phEmojiSounds"> Emoji sounds on this iPad (💀 FAAAH, 🤯 boom…) — the music pauses for them</label>
+        <label class="music-chk"><input type="checkbox" id="phEmojiSounds"> Emoji sounds on this iPad (💀 FAAAH, 🤯 WHAT?!…) — the music pauses for them</label>
         <button class="ph-diag-link" id="phDiagToggle" type="button">Status</button>
         <pre class="ph-diag" id="phDiag" hidden></pre>
       </div>
@@ -1155,6 +1155,7 @@ class TournamentClock {
     if (!secs || !el) {                          /* cover / heads-up / winner: no countdown */
       this.activeSlide = null; this.el = null; this.setPausedUI(false);
       if (this.bar) { this.bar.style.width = '100%'; this.bar.classList.remove('warn', 'danger'); }
+      if (typeof phones !== 'undefined') phones.push(true);
       return;
     }
     this.activeSlide = slide;
@@ -1177,6 +1178,7 @@ class TournamentClock {
     this.setPausedUI(paused);
     this.render(rem);
     this.run();
+    if (typeof phones !== 'undefined') phones.push(true);   /* PREVIEW: phones get "Next up" / the new level at once (no debounce) */
   }
   snapshotActive() {
     const s = this.activeSlide;
@@ -2579,11 +2581,11 @@ const tableView = {
 const PEERJS_SRC = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';
 const QR_SRC = 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js';
 const PH_KEY = 'poker_phones_v1';
-/* emoji → meme sound (sounds/*.m4a; sources in sounds/CREDITS.txt) — 10 emojis, 2 rows of 5 on the phones */
-const EMOJI_SOUNDS = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'fah', '🤯': 'boom',
-  '👏': 'very-nice', '😭': 'emotional-damage', '💰': 'show-me-the-money', '💵': 'pay-that-man', '❓': 'what-happened' };
+/* emoji → meme sound (sounds/*.m4a; sources in sounds/CREDITS.txt) — 12 emojis, 3 rows of 4 on the phones */
+const EMOJI_SOUNDS = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'fah', '🤯': 'what', '📖': 'cool-story-bro',
+  '👏': 'very-nice', '😭': 'emotional-damage', '💰': 'show-me-the-money', '💵': 'pay-that-man', '❓': 'what-happened', '💣': 'boomshakalaka' };
 /* real length of each file (ms, ffprobe) = how long the music dip holds */
-const SFX_MS = { 'oh-my-god': 1615, 'wow': 2600, 'bruh': 629, 'fah': 1927, 'boom': 1255,
+const SFX_MS = { 'oh-my-god': 1615, 'wow': 2600, 'bruh': 629, 'fah': 1927, 'what': 400, 'cool-story-bro': 1110, 'boomshakalaka': 1190,
   'very-nice': 1075, 'emotional-damage': 2037, 'show-me-the-money': 2060, 'pay-that-man': 1670, 'what-happened': 910 };
 /* 2 players per sound, all made at start-up (iPad: an element made later is not unlocked) — the same emoji twice overlaps,
    never restarts the one playing. Per element: _ok = unlocked, _job = the real play on it, _unl = unlock ticket, _try = unlock on its way */
@@ -2639,7 +2641,7 @@ const emojiSfx = {
 };
 emojiSfx.init();
 ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { passive: true }));
-const EMOJIS = ['😂', '🔥', '🤡', '💀', '🤯', '👏', '😭', '💰', '💵', '❓'];
+const EMOJIS = ['😂', '🔥', '🤡', '💀', '🤯', '📖', '👏', '😭', '💰', '💵', '❓', '💣'];
 function loadScript(src){ return new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')){ ok(); return; }
   const s = document.createElement('script'); s.src = src; s.async = true; s.dataset.phones = ''; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
 const phones = {

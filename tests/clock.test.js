@@ -37,13 +37,16 @@ async function newPage(browserType, { spotify = false, noTap = false } = {}) {
   /* fake Spotify that keeps state like the real one: pause → paused (a 2nd pause = 403 "Restriction violated"), play → playing.
      log = every call with its send time t and reply time done (ms) */
   const fake = { title: 'Song', artist: 'Artist', playing: true, playDelay: 0, pauseDelay: 0, playFails: [], playFailAll: 0, speaker: false, vol: 70, volFails: 0 }, log = [];
+  /* the track position moves while playing (PREVIEW fix round 1: the clock tells the user's own pause by it); readLie = reads say playing */
+  { let pl = true, pos = 1000, since = Date.now(); Object.defineProperty(fake, 'playing', { enumerable: true, get(){ return pl; }, set(v){ const n = Date.now(); if (pl) pos += n - since; since = n; pl = v; if (v && fake.onPlay){ const f = fake.onPlay; fake.onPlay = null; f(); } } });
+    fake.pos = () => Math.round(pos + (pl ? Date.now() - since : 0)); }
   await ctx.route('https://api.spotify.com/v1/**', async r => {
     const u = r.request().url(), path = u.split('/v1')[1], m = r.request().method(), e = { c: m + ' ' + path.split('?')[0], u: path, t: Date.now(), done: 0, v: +(new URL(u).searchParams.get('volume_percent') || 0) };
     log.push(e);
     if (!path.startsWith('/me/player?')) spotifyCalls.push(e.c);
     const reply = async (o) => { if (e.c === 'PUT /me/player/play' && fake.playDelay) await wait(fake.playDelay); if (e.c === 'PUT /me/player/pause' && fake.pauseDelay) await wait(fake.pauseDelay); e.done = Date.now(); return r.fulfill(o); };
     if (path === '/me') return reply({ status: 200, contentType: 'application/json', body: '{"display_name":"Test"}' });
-    if (path.startsWith('/me/player?')) return reply({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: fake.playing, progress_ms: 1000,
+    if (path.startsWith('/me/player?')) return reply({ status: 200, contentType: 'application/json', body: JSON.stringify({ is_playing: fake.playing || !!fake.readLie, progress_ms: fake.pos(),
       device: fake.speaker ? { id: 'spk', type: 'Speaker', volume_percent: fake.vol, supports_volume: true } : { id: 'ipad', type: 'Tablet', volume_percent: 70, supports_volume: false },
       item: { id: fake.title === 'Song' ? 't' : 't2', name: fake.title, duration_ms: 200000, artists: [{ name: fake.artist }], album: { images: [{ url: 'x' }] } } }) });
     if (e.c === 'PUT /me/player/pause'){ if (!fake.playing) return reply({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }) }); fake.playing = false; }
@@ -251,11 +254,11 @@ const TESTS = [
     await wait(100); await p.evaluate(() => sound.toggleMute()); await wait(5500);
     const d = dips(log), sfx = await p.evaluate(() => window.__sfx.length), q = await p.evaluate(() => musicDip.queue.length);
     return (d.map(e => e.c).join() === 'pause,play' && sfx === 1 && q === 0 && clean(d)) || { d, sfx, q }; }, { spotify: true }],
-  ['Music dip: a slow Spotify (pause answers after 6 s) → level alert still sounds within 2 s, one pause + one play after it', async ({ p, log, fake }) => {
+  ['Music dip: a slow Spotify (pause answers after 6 s) → level alert still sounds within 2 s, one pause + one play after it (PREVIEW fix 6: the pause has its own 3-s limit, so the play goes out after that limit, not after the 6-s answer)', async ({ p, log, fake }) => {
     await wait(1200); fake.pauseDelay = 6000; log.length = 0; const t0 = Date.now(); p.evaluate(() => window.levelAlert());
     const heard = await until(() => p.evaluate(() => window.__sounds > 0), 4000), dt = Date.now() - t0; await wait(8000);
     const d = dips(log);
-    return (heard && dt < 2000 && d.map(e => e.c).join() === 'pause,play' && d[1].t >= d[0].done && clean(d)) || { dt, d }; }, { spotify: true }],
+    return (heard && dt < 2000 && d.map(e => e.c).join() === 'pause,play' && (P ? d[1].t >= d[0].t + 2950 && fake.playing : d[1].t >= d[0].done && clean(d))) || { dt, d }; }, { spotify: true }],
   ['Music dip: resume answers 429 twice, then OK → retried, music back, only one pause', async ({ p, log, fake }) => {
     await wait(1200); fake.playFails = [429, 429]; log.length = 0; emoji(p, '🤡'); await wait(9000);
     const d = dips(log), r = await p.evaluate(() => spotify.now && spotify.now.playing);
@@ -394,13 +397,19 @@ const TESTS = [
     await wait(1500); await p.evaluate(() => sound.toggleMute()); await wait(2200); log.length = 0; const s0 = await p.evaluate(() => window.__sounds);
     p.evaluate(() => window.levelAlert()); await wait(3500); const d = dips(log), s1 = await p.evaluate(() => window.__sounds);
     return (back && back.t - t0 <= 1000 && d.map(e => e.c).join() === 'pause,play' && s1 === s0 + 1) || { back: back && back.t - t0, d, s0, s1 }; }, { spotify: true }],
+  ...(P ? [['Beep (PREVIEW fix 5, replaces "a real beep that played counts as unlocked"): its own player not unlocked (its unlock switched off, the emoji players unlocked) → a level change pauses NOTHING and plays no beep; the tap line stays', async ({ p, log }) => {
+    await p.evaluate(() => { sound._unlock = () => {}; window.dispatchEvent(new PointerEvent('pointerdown')); });
+    await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total - 1), 8000); await settle(p); log.length = 0;
+    await p.evaluate(() => window.levelAlert()); await wait(2500);
+    const r = await p.evaluate(() => ({ unlocked: sound.unlocked, beeps: window.__sounds, hint: getComputedStyle(document.getElementById('sndHint')).display !== 'none', dip: musicDip.lastBeep && musicDip.lastBeep.dip }));
+    return (r.unlocked === false && r.beeps === 0 && r.hint && r.dip === 'no tap yet' && dips(log).length === 0) || r; }, { spotify: true, noTap: true }]] : [
   ['Beep: a real beep that played counts the beep player as unlocked (unlock never ran)', async ({ p }) => {
     /* PREVIEW: a beep needs a tap first like every sound — the tap unlocks the emoji players only (the beep's own unlock is switched off) */
     await p.evaluate(() => { sound._unlock = () => {}; if (typeof emojiSfx.ready === 'function') window.dispatchEvent(new PointerEvent('pointerdown')); });
     if (P){ await until(() => p.evaluate(() => emojiSfx.ready()), 4000); await settle(p); }
     await p.evaluate(() => window.levelAlert()); await wait(P ? 2500 : 1500);
     const r = await p.evaluate(() => ({ unlocked: sound.unlocked, n: emojiSfx.unlockedCount, emoji: emojiSfx.all().filter(a => a._ok).length }));
-    return (r.unlocked === true && r.n === r.emoji + 1) || r; }, { noTap: true }],
+    return (r.unlocked === true && r.n === r.emoji + 1) || r; }, { noTap: true }]]),
   ['Old stored Premium=false (v1 key) is ignored after reload and the old key is removed', async ({ p }) => {
     await wait(1200); await p.evaluate(() => localStorage.setItem('poker_spotify_auth_v1_premium', 'false'));
     await p.reload(); await wait(1500);
@@ -611,11 +620,79 @@ const PREVIEW_TESTS = [
     await emoji(p, '🤡'); await wait(300); await p.evaluate(() => window.levelAlert()); await wait(3000);
     const r = await p.evaluate(() => ({ sfx: window.__sfx.map(x => x.n), ends: window.__ends.map(x => x.n), beeps: window.__sounds, hint: getComputedStyle(document.getElementById('sndHint')).display }));
     return (dips(log).length === 0 && r.sfx.length === 1 && r.ends.length === 1 && r.beeps === 1 && r.hint === 'none') || r; }, { spotify: true }],
-  ['PREVIEW: Spotify login lost (token refused) while it plays → no sound and no pause (never over the music), the clock says why, music stays playing', async ({ p, log, fake }) => {
+  ['PREVIEW fix 1: Spotify login lost while it plays → emoji: no sound, no pause; the LEVEL BEEP still sounds (no pause); the clock says why and that the music may need ▶ (replaces "login lost → no sound and no beep")', async ({ p, log, fake }) => {
     await wait(1200); await p.context().route('https://accounts.spotify.com/api/token', r => r.fulfill({ status: 400, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"error":"invalid_grant"}' }));
-    await p.evaluate(() => { spotify.auth.exp = 0; }); log.length = 0; await emoji(p, '🔥'); await wait(1500); await p.evaluate(() => window.levelAlert()); await wait(2000);
-    const r = await p.evaluate(() => ({ sfx: window.__sfx.length, beeps: window.__sounds, hint: document.getElementById('sndHint').textContent, shown: getComputedStyle(document.getElementById('sndHint')).display !== 'none', log: emojiSfx.log.map(x => x.err) }));
-    return (dips(log).length === 0 && r.sfx === 0 && r.beeps === 0 && r.shown && /Spotify login lost/.test(r.hint) && fake.playing) || r; }, { spotify: true }],
+    await p.evaluate(() => { spotify.auth.exp = 0; }); log.length = 0; await emoji(p, '🔥'); await wait(1500); await p.evaluate(() => window.levelAlert()); await wait(3000);
+    const r = await p.evaluate(() => ({ sfx: window.__sfx.length, beeps: window.__sounds, ends: window.__ends.length, hint: document.getElementById('sndHint').textContent, shown: getComputedStyle(document.getElementById('sndHint')).display !== 'none' }));
+    return (dips(log).length === 0 && r.sfx === 0 && r.beeps === 1 && r.shown && /press play in the Spotify app/.test(r.hint) && /Reconnect/.test(r.hint)) || r; }, { spotify: true }],
+  ['PREVIEW fix 1: no Premium while Spotify shows playing → the level beep still sounds (no pause, no Spotify call), emoji sounds stay off with a line on the clock', async ({ p, log }) => {
+    await wait(1200); await p.evaluate(() => { spotify.premium = false; }); log.length = 0; await emoji(p, '🔥'); await wait(800);
+    const h1 = await p.evaluate(() => document.getElementById('sndHint').textContent); await p.evaluate(() => window.levelAlert()); await wait(3000);
+    const r = await p.evaluate(() => ({ sfx: window.__sfx.length, beeps: window.__sounds }));
+    return (dips(log).length === 0 && r.sfx === 0 && r.beeps === 1 && /needs Premium/.test(h1)) || { r, h1 }; }, { spotify: true }],
+  ['PREVIEW fix 2: a pause refused with 403 (answered after 2 s; the read said playing) → NO play afterwards, ever', async ({ p, log, fake }) => {
+    await wait(1200); fake.playing = false; fake.readLie = true; fake.pauseDelay = 2000; log.length = 0; emoji(p, '🤡'); await wait(6000);
+    const d = dips(log);
+    return (d.map(x => x.c).join() === 'pause' && fake.playing === false) || { d: d.map(x => x.c), playing: fake.playing }; }, { spotify: true }],
+  ['PREVIEW fix 3: the user had paused, the clock still showed playing, the pause would get 500 → the fresh read before it sees paused: no pause, no play, music stays paused', async ({ p, log, fake }) => {
+    await wait(1200); fake.playing = false; await p.context().route('https://api.spotify.com/v1/me/player/pause', r => { log.push({ c: 'PUT /me/player/pause', t: Date.now(), done: Date.now() }); return r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"status":500}}' }); });
+    log.length = 0; emoji(p, '🤡'); await wait(4000);
+    const d = dips(log), sfx = await p.evaluate(() => window.__sfx.length);
+    return (d.length === 0 && fake.playing === false && sfx === 1) || { d: d.map(x => x.c), playing: fake.playing, sfx }; }, { spotify: true }],
+  ['PREVIEW fix 3: pause answered 500 (carried out) when the fresh read just before said playing → maybe paused: play at the end, music back', async ({ p, log, fake }) => {
+    await wait(1200); await p.context().route('https://api.spotify.com/v1/me/player/pause', r => { fake.playing = false; log.push({ c: 'PUT /me/player/pause', t: Date.now(), done: Date.now() }); return r.fulfill({ status: 500, contentType: 'application/json', body: '{"error":{"status":500}}' }); });
+    log.length = 0; emoji(p, '🤡'); await wait(4500);
+    const d = dips(log);
+    return (d.map(x => x.c).join() === 'pause,play' && fake.playing === true) || { d: d.map(x => x.c), playing: fake.playing }; }, { spotify: true }],
+  ['PREVIEW fix 4: the user pauses in Spotify 300 ms after the clock\'s play → the confirm read sees the track moved on and paused: ONE play only, music left paused', async ({ p, log, fake }) => {
+    await wait(1200); log.length = 0; emoji(p, '🤡'); await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000);
+    fake.onPlay = () => setTimeout(() => { fake.playing = false; }, 300); await wait(5000);
+    const pl = log.filter(e => e.c === 'PUT /me/player/play' || e.c === 'PUT /me/player'), last = await p.evaluate(() => musicDip.lastWin && musicDip.lastWin.back);
+    return (pl.length === 1 && fake.playing === false && /paused in Spotify/.test(last || '')) || { pl: pl.map(e => e.u), playing: fake.playing, last }; }, { spotify: true }],
+  ['PREVIEW fix 5: the tap unlocks only the beep (every emoji player refused) → "Tap the screen once" stays, 🔥 pauses NOTHING and plays nothing; the next tap unlocks the rest and 🔥 plays with a pause', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => { const o = HTMLMediaElement.prototype.play; window.__ref = true; HTMLMediaElement.prototype.play = function(){ if (window.__ref && this.muted && this.src.includes('/sounds/')) return Promise.reject(new DOMException('no', 'NotAllowedError')); return o.apply(this, arguments); }; window.dispatchEvent(new PointerEvent('pointerdown')); });
+    await wait(1500); const a = await p.evaluate(() => ({ beep: sound.unlocked, n: emojiSfx.unlockedCount, hint: getComputedStyle(document.getElementById('sndHint')).display !== 'none' || null }));
+    log.length = 0; await emoji(p, '🔥'); await wait(1500); const d0 = dips(log).length, s0 = await p.evaluate(() => window.__sfx.length), h0 = await p.evaluate(() => getComputedStyle(document.getElementById('sndHint')).display !== 'none');
+    await p.evaluate(() => { window.__ref = false; window.dispatchEvent(new PointerEvent('pointerdown')); }); await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 8000); await settle(p);
+    const gone = await p.evaluate(() => getComputedStyle(document.getElementById('sndHint')).display === 'none'); await emoji(p, '🔥'); await wait(3800);
+    const d = dips(log), s1 = await p.evaluate(() => window.__sfx.length);
+    return (a.beep === true && a.n === 1 && d0 === 0 && s0 === 0 && h0 && gone && d.map(x => x.c).join() === 'pause,play' && s1 === 1) || { a, d0, s0, h0, gone, d: d.map(x => x.c), s1 }; }, { spotify: true, noTap: true }],
+  ['PREVIEW fix 6: a pause whose answer never comes → "no answer" after 3 s, the sound plays, music back ≤ 12.7 s after the pause, "Last pause" shows the real time pause → music back', async ({ p, log, fake }) => {
+    await wait(1200); fake.pauseDelay = 60000; log.length = 0; emoji(p, '🔥'); await wait(9000);
+    const d = dips(log), pl = d.find(x => x.c === 'play'), w = await p.evaluate(() => musicDip.lastWin && { ms: musicDip.lastWin.pausedMs, how: musicDip.lastWin.how }), sfx = await p.evaluate(() => window.__sfx.length);
+    const real = pl && pl.done ? pl.done - d[0].t : null;
+    return (pl && pl.t - d[0].t <= 12700 && fake.playing && sfx === 1 && w && real != null && Math.abs(w.ms - real) <= 400) || { d: d.map(x => x.c + '@' + (x.t - d[0].t)), w, real, sfx, playing: fake.playing }; }, { spotify: true }],
+  ['PREVIEW fix 7: the login is refused while the music is paused (play 401, refresh 400) → never a silent stop: the clock says the music is paused and to press play in Spotify, plus Reconnect', async ({ p, log, fake }) => {
+    await wait(1200); log.length = 0; emoji(p, '🔥'); await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000);
+    await p.context().route('https://accounts.spotify.com/api/token', r => r.fulfill({ status: 400, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"error":"invalid_grant"}' }));
+    await p.context().route('https://api.spotify.com/v1/me/player/play', r => r.fulfill({ status: 401, contentType: 'application/json', body: '{"error":{"status":401,"message":"expired"}}' }));
+    await wait(6000);
+    const r = await p.evaluate(() => { const h = document.getElementById('sndHint'); return { shown: getComputedStyle(h).display !== 'none', text: h.textContent, back: musicDip.lastWin && musicDip.lastWin.back }; });
+    return (r.shown && /The music is paused: press play in the Spotify app/.test(r.text) && /Reconnect/.test(r.text)) || r; }, { spotify: true }],
+  ['PREVIEW fix 8: every sound file fails for 2.5 s → reloads spaced and limited (≤ 3 per player in a row), the page never freezes, the music is back within the cap, the next 🔥 plays', async ({ p, log, fake }) => {
+    await wait(1200); let fail = true; await p.context().route('**/*.m4a', r => fail ? r.fulfill({ status: 500, body: '' }) : r.continue());
+    await p.evaluate(() => { window.__loads = 0; const o = HTMLMediaElement.prototype.load; HTMLMediaElement.prototype.load = function(){ window.__loads++; return o.apply(this, arguments); }; emojiSfx.all().forEach(a => { try { a.load(); } catch (e) {} }); });
+    await wait(2500); const loads = await p.evaluate(() => window.__loads); log.length = 0; const t0 = Date.now(); emoji(p, '🔥'); await wait(500); fail = false;
+    await wait(8000); const d = dips(log), r = await p.evaluate(() => ({ stalls: (window.__stalls || []).filter(([a, b]) => b - a > 3000).length, busy: musicDip.busy() }));
+    emoji(p, '🔥'); await wait(4500); const d2 = dips(log), sfx = await p.evaluate(() => window.__sfx.filter(x => x.n === 'wow.m4a').length);
+    const pl = d.find(x => x.c === 'play');
+    /* (a stall > 3 s: the defect froze the page for 115 s; headless WebKit itself stalls ~1 s while 48 files load at once) */
+    return (loads <= 48 * 4 && r.stalls === 0 && !r.busy && (!d.length || (pl && pl.t - d[0].t <= 12700)) && fake.playing && sfx >= 1) || { loads, r, d: d.map(x => x.c), d2: d2.map(x => x.c), sfx, playing: fake.playing }; }, { spotify: true }],
+  ['PREVIEW 9a: mute mid-pause and "Emoji sounds" switched off mid-burst → sounds stop, no session change while one sounds, music back each time', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => { window.__ss = []; const AS = navigator.audioSession; if (!AS) return; const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(AS), 'type') || {}; let cur = AS.type;
+      Object.defineProperty(AS, 'type', { configurable: true, get(){ return d.get ? d.get.call(AS) : cur; }, set(v){ if (d.set) d.set.call(AS, v); cur = v; window.__ss.push({ v, t: Date.now(), sounding: emojiSfx.all().concat([sound.audio]).filter(a => !a.paused && !a.muted).length }); } }); });
+    log.length = 0; emoji(p, '🔥'); await wait(300); emoji(p, '💀'); await wait(700); await p.evaluate(() => sound.toggleMute()); await wait(2500); await p.evaluate(() => sound.toggleMute()); await wait(2500);
+    const back1 = fake.playing; await burst(p, ['😂', '🔥', '💀', '👏', '🤡'], 200); await wait(700);
+    await p.evaluate(() => { const es = document.getElementById('phEmojiSounds'); es.checked = false; es.dispatchEvent(new Event('change')); }); await wait(3000);
+    const r = await p.evaluate(() => ({ ss: window.__ss, has: !!navigator.audioSession, sounding: emojiSfx.all().filter(a => !a.paused && !a.muted).length, busy: musicDip.busy() })), d = dips(log);
+    return (back1 && fake.playing && r.sounding === 0 && !r.busy && r.ss.every(x => x.sounding === 0) && d.filter(x => x.c === 'pause').length === 2 && d[d.length - 1].c === 'play') || { back1, r, d: d.map(x => x.c), playing: fake.playing }; }, { spotify: true }],
+  ['PREVIEW 9b: the page hidden and shown again mid-pause → the sound finishes, music back, nothing stuck, the next emoji pauses and plays again', async ({ p, log, fake }) => {
+    await wait(1200); log.length = 0; emoji(p, '🔥'); await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000); await wait(300);
+    const vis = h => p.evaluate(h => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => h }); Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => h ? 'hidden' : 'visible' }); document.dispatchEvent(new Event('visibilitychange')); }, h);
+    await vis(true); await wait(1500); await vis(false); await wait(4500);
+    const st = await p.evaluate(() => ({ busy: musicDip.busy(), state: musicDip.state })), d1 = dips(log).map(x => x.c).join(), p1 = fake.playing;
+    emoji(p, '🤡'); await wait(3500); const d = dips(log), sfx = await p.evaluate(() => window.__sfx.length);
+    return (d1 === 'pause,play' && p1 && !st.busy && d.map(x => x.c).join() === 'pause,play,pause,play' && fake.playing && sfx === 2) || { d1, p1, st, d: d.map(x => x.c), sfx }; }, { spotify: true }],
   ['PREVIEW: the PREVIEW tag shows on the clock (cover + level), small, covers no control, lets taps through', async ({ p }) => {
     const look = () => p.evaluate(() => { const t = document.getElementById('previewTag'); if (!t) return { none: true }; const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
       const ctl = [...document.querySelectorAll('button, input, select, a, [data-sp], .np-card')].filter(b => { const q = b.getBoundingClientRect(); return q.width && q.height && getComputedStyle(b).visibility !== 'hidden'; })

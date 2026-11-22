@@ -120,8 +120,8 @@ const SC = [
   ['F7 play 404 twice', async ({ p, fake }) => { await toLevel2(p); await wait(3000); fake.rules.play.push({ status: 404 }, { status: 404 }); await S.expire(p); await wait(9000); }],
   ['F9 play 500 three times', async ({ p, fake }) => { await toLevel2(p); await wait(3000); fake.rules.play.push({ status: 500 }, { status: 500 }, { status: 500 }); await S.expire(p); await wait(10000); }],
   ['F12 play 403 (restriction) once', async ({ p, fake }) => { await toLevel2(p); await wait(3000); fake.rules.play.push({ status: 403 }); await S.expire(p); await wait(9000); }],
-  ['G3 token refresh refused at the level change', async ({ p, fake }) => { await toLevel2(p); await wait(3000); fake.rules.token.push({ status: 400 }, { status: 400 }); await p.evaluate(() => { spotify.auth.exp = 0; }); await S.expire(p); await wait(9000); }],
-  ['G5 token refresh refused by a poll earlier, then the run-out', async ({ p, fake }) => { await toLevel2(p); fake.rules.token.push({ status: 400 }); await p.evaluate(() => { spotify.auth.exp = 0; }); await S.poll(p); await wait(3000); await S.expire(p); await wait(9000); }],
+  ['G3 token refresh refused at the level change', async ({ p, fake }) => { await toLevel2(p); await wait(3000); fake.rules.token.push({ status: 400 }, { status: 400 }); await p.evaluate(() => { spotify.auth.exp = 0; }); await S.expire(p); await wait(9000); }, { lostLogin: true }],
+  ['G5 token refresh refused by a poll earlier, then the run-out', async ({ p, fake }) => { await toLevel2(p); fake.rules.token.push({ status: 400 }); await p.evaluate(() => { spotify.auth.exp = 0; }); await S.poll(p); await wait(3000); await S.expire(p); await wait(9000); }, { lostLogin: true }],
   ['I1 user paused Spotify beforehand', async ({ p }) => { await toLevel2(p); await wait(3000); await S.expire(p); await wait(9000); }, { userPaused: true }],
   ['I2 user pressed play in Spotify 1 s before the run-out (clock not polled yet)', async ({ p, fake }) => { await toLevel2(p); await wait(3000); fake.playing = true; fake.pausedAt = 0; await wait(1000); await S.expire(p); await wait(9000); }, { userPaused: true }],
   ['PLAYS play fails every way (404 / 500 / 403 mixed) → at most musicDip.PLAYS_MAX (9) play calls per resume', async ({ p, fake }) => { await toLevel2(p); await wait(3000);
@@ -137,15 +137,18 @@ const SC = [
     const env = await setup(browser, opt); const { p, fake, calls, errors, marks } = env; let detail = '', ok = false;
     try {
       await body(env);
-      const st = await p.evaluate(() => ({ session: navigator.audioSession.type, sess: window.__sess, plMax: typeof musicDip !== 'undefined' ? musicDip.PLAYS_MAX : null }));
+      const st = await p.evaluate(() => ({ session: navigator.audioSession.type, sess: window.__sess, plMax: typeof musicDip !== 'undefined' ? musicDip.PLAYS_MAX : null,
+        hint: (() => { const h = document.getElementById('sndHint'); return !!h && h.classList.contains('show') && /press play in the Spotify app/.test(h.textContent); })() }));
       const last = calls[calls.length - 1];
       const late = fake.pauses.filter(x => !marks.some(m => x.sent >= m && x.sent - m < 400)).map(x => { const n = calls.find(c => c.c === 'play' && c.t >= x.sent); return n ? n.t - x.sent : Infinity; });
       const pl = calls.filter(c => c.c === 'play').length;
       const userPaused = opt.userPaused && name.startsWith('I1');
       const r = {
-        i: userPaused || opt.playsMax || opt.noSpotify || fake.playing,   /* PREVIEW: the last call may be a 403 play (= already playing) or a transfer */
+        i: userPaused || opt.playsMax || opt.noSpotify || fake.playing || (opt.lostLogin && st.hint),   /* PREVIEW: the last call may be a 403 play (= already playing) or a transfer; login lost: see below */
         ii: late.every(v => v <= CAP),
-        iii: fake.interrupts.length === 0,
+        /* PREVIEW fix 1: with the login lost the level beep still sounds without a pause, so iPadOS may stop Spotify (the model
+           does): allowed only then, and the clock must then say "press play in the Spotify app" */
+        iii: fake.interrupts.length === 0 || (opt.lostLogin && st.hint),
         iv: st.session === 'ambient',
         v: !userPaused || calls.length === 0,
         vi: fake.starts.length > 0 && fake.starts.every(x => x === 'playback'),

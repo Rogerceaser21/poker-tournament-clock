@@ -635,6 +635,42 @@ const PREVIEW_TESTS = [
     await p.click('#phonesBtn'); await wait(600);
     const r = await p.evaluate(() => ({ url: phones.joinUrl(), shown: document.getElementById('phUrl').textContent }));
     return (/\/preview\/join\.html\?room=[a-z0-9]{6}$/.test(r.url) && r.shown === r.url) || r; }],
+  /* Sound check button in the 📱 panel (sound-check build, 22 Nov) */
+  ['PREVIEW: Sound check plays ONE emoji sound with the music paused and the music comes back; then "Did you hear it?" with Yes and No', async ({ p, log, fake }) => {
+    await p.click('#phonesBtn'); await wait(400);
+    await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown'))); await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 15000); await settle(p);
+    log.length = 0; const hid0 = await p.evaluate(() => document.getElementById('phScAsk').hidden);
+    await p.click('#phSoundCheck');
+    const ask = await until(() => p.evaluate(() => !document.getElementById('phScAsk').hidden), 20000);
+    await settled(p, log);
+    const d = dips(log), sfx = await p.evaluate(() => ({ n: window.__sfx.length, fly: document.querySelectorAll('.emoji-fly').length, q: document.getElementById('phScAsk').textContent.replace(/\s+/g, ' ').trim(),
+      btns: [...document.querySelectorAll('#phScAsk button')].map(b => b.textContent) }));
+    return (hid0 && ask && d.map(x => x.c).join() === 'pause,play' && sfx.n === 1 && sfx.fly === 0 && fake.playing && sfx.q === 'Did you hear it? Yes No' && sfx.btns.join() === 'Yes,No') || { hid0, ask, d, sfx, playing: fake.playing }; }, { spotify: true }],
+  ['PREVIEW: Sound check: "Yes" shows "Sounds are working." and the question goes away; "No" shows the three lines', async ({ p }) => {
+    await p.click('#phonesBtn'); await wait(400);
+    await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown'))); await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 15000); await settle(p);
+    const st = () => p.evaluate(() => ({ ask: !document.getElementById('phScAsk').hidden, msg: document.getElementById('phScMsg').hidden ? '' : document.getElementById('phScMsg').innerText.trim() }));
+    await p.click('#phSoundCheck'); await until(() => p.evaluate(() => !document.getElementById('phScAsk').hidden), 20000);
+    await p.click('#phScYes'); const y = await st();
+    await p.click('#phSoundCheck'); await until(() => p.evaluate(() => !document.getElementById('phScAsk').hidden), 20000);
+    const again = await st(); await p.click('#phScNo'); const n = await st();
+    return (y.ask === false && y.msg === 'Sounds are working.' && again.ask && again.msg === '' && n.ask === false
+      && n.msg === 'Turn the iPad volume up.\nTap the screen once, then try again.\nIf Emoji sounds is switched off above, switch it on.') || { y, again, n }; }, { spotify: true, noTap: true }],
+  ['PREVIEW: Sound check as the FIRST tap (no other tap before): the tap itself unlocks and the sound is played, music paused and back', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => document.getElementById('phonesBtn').click()); await wait(400); log.length = 0;   /* a JS click: no pointerdown, so no tap yet */
+    const before = await p.evaluate(() => ({ n: emojiSfx.unlockedCount, sfx: window.__sfx.length }));
+    await p.click('#phSoundCheck');
+    const ask = await until(() => p.evaluate(() => !document.getElementById('phScAsk').hidden), 30000);
+    await settled(p, log);
+    const d = dips(log), r = await p.evaluate(() => ({ n: emojiSfx.unlockedCount, sfx: window.__sfx.filter(x => x.n === 'oh-my-god.m4a').length }));
+    return (before.n === 0 && before.sfx === 0 && ask && r.n === 49 && r.sfx >= 1 && r.sfx <= 2 && d.map(x => x.c).join() === 'pause,play' && fake.playing) || { before, ask, r, d }; }, { spotify: true, noTap: true }],
+  ['PREVIEW: SFX_MS of all twelve sounds = the real file length (ffprobe) within 30 ms', async ({ p }) => {
+    /* ffprobe on the 22 Nov loud-v2 files: boomshakalaka 1190, bruh 647, cool-story-bro 1110, emotional-damage 2037, fah 1948, oh-my-god 1623,
+       pay-that-man 1670, show-me-the-money 2060, very-nice 1075, what-happened 910, what 400, wow 2621 (read live below) */
+    const tbl = await p.evaluate(() => ({ ...SFX_MS })), dir = require('path').resolve(__dirname, '..', 'preview', 'sounds');
+    const probe = n => Math.round(1000 * +require('child_process').execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', dir + '/' + n + '.m4a']).toString().trim());
+    const bad = Object.entries(tbl).filter(([n, ms]) => !(Math.abs(probe(n) - ms) <= 30)).map(([n, ms]) => [n, ms, probe(n)]);
+    return (Object.keys(tbl).length === 12 && bad.length === 0) || { bad }; }],
 ];
 
 (async () => {

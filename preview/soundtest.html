@@ -49,9 +49,9 @@ const AUTO = FAKE && Q.get('auto') !== '0';
 const QUICK = Q.get('quick') === '1';
 const SPOTIFY_CLIENT_ID = '1af2112558374cc08c7dd725e9be0654';            /* = the clock's */
 const SP_AUTH_KEY = FAKE ? 'soundtest_fake_spotify_auth' : 'poker_spotify_auth_v1';   /* real one = the clock's key */
-const RES_KEY = FAKE ? 'soundtest_results_fake_v1' : 'soundtest_results_v1';
+const RES_KEY = FAKE ? 'soundtest_results_fake_v1' + (Q.get('ns') ? '_' + Q.get('ns').replace(/[^a-z0-9]/gi, '') : '') : 'soundtest_results_v1';   /* ?ns= only in fake test runs */
 const PEERJS_SRC = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';   /* = the clock's PEERJS_SRC */
-const LISTENER_ID = 'pokerclock-soundtest-mac-listener-v1';
+const LISTENER_ID = FAKE && Q.get('lid') ? Q.get('lid') : 'pokerclock-soundtest-mac-listener-v1';   /* ?lid= only in fake test runs */
 const SFX_MS = { 'oh-my-god': 1615, 'wow': 2600, 'bruh': 629, 'fah': 1927, 'what': 400, 'cool-story-bro': 1110, 'boomshakalaka': 1190,
   'very-nice': 1075, 'emotional-damage': 2037, 'show-me-the-money': 2060, 'pay-that-man': 1670, 'what-happened': 910 };   /* = the clock's */
 const NAMES = Object.keys(SFX_MS);
@@ -60,15 +60,14 @@ const SND = n => '../sounds/' + n + '.m4a';
 const CFG = QUICK ? {
   earSet: ['what', 'bruh'], earGap: 600, a2Pairs: 2, a2Every: 2500, a2PlayAfter: 1000,
   a3Runs: 1, a3Sounds: ['fah'], a3StartAt: 900, a3PlayAfter: 500, a3Rest: 800, a4Runs: 1, a4Sounds: ['fah'],
-  a5Rewind: ['what', 'bruh'], a5Other: ['what'], a5Plays: 2, a5Gap: 700,
+  a5Sounds: ['what', 'bruh'], a5Plays: 2, a5Gap: 700,
   a6Seq: ['what'], a6SeqGap: 300, a6Triple: 'bruh', a6TripleGap: 350, a6AllGap: 250, burstMs: 1500, burstMean: 125
 } : {
   earSet: ['what', 'bruh', 'what-happened', 'very-nice', 'cool-story-bro'], earGap: 600,
   a2Pairs: 5, a2Every: 4000, a2PlayAfter: 1500,
   a3Runs: 3, a3Sounds: ['fah', 'emotional-damage', 'show-me-the-money'], a3StartAt: 900, a3PlayAfter: 500, a3Rest: 1500,
   a4Runs: 1, a4Sounds: ['fah', 'emotional-damage', 'show-me-the-money'],
-  a5Rewind: ['what', 'bruh', 'what-happened', 'very-nice', 'cool-story-bro', 'boomshakalaka', 'oh-my-god', 'pay-that-man'],
-  a5Other: ['what', 'bruh', 'what-happened'], a5Plays: 3, a5Gap: 700,
+  a5Sounds: ['what', 'bruh', 'what-happened', 'very-nice', 'cool-story-bro'], a5Plays: 3, a5Gap: 700,   /* the same for all four methods */
   a6Seq: [], a6SeqGap: 300,
   a6Triple: 'very-nice', a6TripleGap: 350, a6AllGap: 250, burstMs: 6000, burstMean: 125
 };
@@ -76,7 +75,7 @@ const CFG = QUICK ? {
 CFG.estimateAutoS = Math.round((
   CFG.a3Runs * 2 * (CFG.a3StartAt + 2000 + CFG.a3Rest + 300) +
   CFG.a4Runs * 4 * 2600 +
-  CFG.a5Plays * (CFG.a5Rewind.reduce((s, n) => s + SFX_MS[n] + CFG.a5Gap + 80, 0) + 3 * CFG.a5Other.reduce((s, n) => s + SFX_MS[n] + CFG.a5Gap + 80, 0)) +
+  CFG.a5Plays * 4 * CFG.a5Sounds.reduce((s, n) => s + SFX_MS[n] + CFG.a5Gap + 80, 0) +
   (CFG.a6Seq.reduce((s, n) => s + SFX_MS[n] + CFG.a6SeqGap, 0) + 2 * (3000 + 12 * CFG.a6AllGap + 2700 + CFG.burstMs + 2700)) +
   (CFG.burstMs + 3000)) / 1000);
 
@@ -88,9 +87,23 @@ const LOG = [];
 function log(k, o){ const e = Object.assign({ t: now(), k }, o || {}); LOG.push(e); return e; }
 const R = { v: 1, page: 'soundtest', runId: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7), fake: FAKE, quick: QUICK,
   flags: location.search, ua: navigator.userAgent, startedAt: new Date().toISOString(), cfg: CFG, answers: {}, sp: {}, rounds: {}, log: LOG, done: false };
-function save(){ R.savedAt = new Date().toISOString();
-  try { localStorage.setItem(RES_KEY, JSON.stringify(R)); return true; }
-  catch (e) { try { const lite = Object.assign({}, R, { log: LOG.slice(-400), logTrimmed: LOG.length }); localStorage.setItem(RES_KEY, JSON.stringify(lite)); return true; } catch (x) { log('save-failed', { err: String(x) }); return false; } } }
+/* Each run has its OWN key (RES_KEY:<runId>); nothing is written before Start. A finished (or aborted) run goes on the
+   OUTBOX list and stays there until the Mac acknowledges it, across any number of reloads. A new run never touches another run's key. */
+const DATA = id => RES_KEY + ':' + id, OUTBOX = RES_KEY + '_outbox', SENTLIST = RES_KEY + '_sent';
+const readJ = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k) || 'null'); return v == null ? d : v; } catch (e) { return d; } };
+const outbox = () => readJ(OUTBOX, []);
+function setOutbox(l){ try { localStorage.setItem(OUTBOX, JSON.stringify(l)); } catch (e) {} }
+function addOutbox(id){ const l = outbox(); if (!l.includes(id)){ l.push(id); setOutbox(l); } }
+let STARTED = false;
+function save(){ if (!STARTED) return false; R.savedAt = new Date().toISOString();
+  let ok = false;
+  try { localStorage.setItem(DATA(R.runId), JSON.stringify(R)); ok = true; }
+  catch (e) { try { const lite = Object.assign({}, R, { log: LOG.slice(-400), logTrimmed: LOG.length }); localStorage.setItem(DATA(R.runId), JSON.stringify(lite)); ok = true; } catch (x) { log('save-failed', { err: String(x) }); } }
+  if (ok && (R.done || R.aborted) && !R.sentOk) addOutbox(R.runId);
+  return ok; }
+/* results saved by the first version of this page (one slot + one 'old' slot): moved onto the outbox once */
+(function migrate(){ [RES_KEY, RES_KEY + '_old'].forEach(k => { const o = readJ(k, null);
+  if (o && o.runId && !o.sentOk && o.done && !localStorage.getItem(DATA(o.runId))){ try { localStorage.setItem(DATA(o.runId), JSON.stringify(o)); addOutbox(o.runId); } catch (e) {} } }); })();
 
 /* ---------------- screen helpers ---------------- */
 const $ = id => document.getElementById(id);
@@ -101,12 +114,13 @@ function show(html){ $('screen').innerHTML = html; window.scrollTo(0, 0); }
 function screen(title, bodyHtml, buttons, opts){
   opts = opts || {};
   return new Promise(res => {
-    show('<h1>' + esc(title) + '</h1>' + bodyHtml + '<div class="btns">' + buttons.map((b, i) =>
+    prog(opts.top || '');
+    show('<h1>' + esc(title) + '</h1>' + bodyHtml + (opts.enableWhen ? '<p class="note" id="waitNote">Please wait a moment…</p>' : '') + '<div class="btns">' + buttons.map((b, i) =>
       '<button data-i="' + i + '" aria-label="' + esc(b.label) + '"' + (b.go ? ' class="go"' : '') + (b.disabled ? ' disabled' : '') + '>' + esc(b.label) + '</button>').join('') + '</div>');
     const at = now(); let done = false;
     const pick = (i, auto) => { if (done) return; done = true; const b = buttons[i]; log('answer', { title, v: b.v, auto: !!auto, ms: now() - at }); res(b.v); };
     $('screen').querySelectorAll('button').forEach(el => el.addEventListener('click', () => { if (!el.disabled) pick(+el.dataset.i, false); }));
-    if (opts.enableWhen) opts.enableWhen.then(() => { $('screen').querySelectorAll('button').forEach(el => { el.disabled = false; if (opts.enabledLabel){ el.textContent = opts.enabledLabel; el.setAttribute('aria-label', opts.enabledLabel); } }); });
+    if (opts.enableWhen) opts.enableWhen.then(() => { if (done) return; $('screen').querySelectorAll('button').forEach(el => { el.disabled = false; }); const w = $('waitNote'); if (w) w.remove(); });
     if (AUTO && opts.auto !== undefined){ const i = buttons.findIndex(b => b.v === opts.auto); setTimeout(() => pick(i < 0 ? 0 : i, true), 500); }
   });
 }
@@ -124,7 +138,7 @@ function sess(type, why){
 if (AS){ try { AS.addEventListener('statechange', () => log('sess-state', { type: AS.type, state: AS.state === undefined ? 'not exposed' : AS.state })); } catch (e) {} }
 try { log('sess-api', { has: !!AS, props: AS ? Object.getOwnPropertyNames(Object.getPrototypeOf(AS)) : [], state: AS ? String(AS.state) : 'n/a' }); } catch (e) {}
 document.addEventListener('visibilitychange', () => log('visibility', { hidden: document.hidden }));
-window.addEventListener('pagehide', () => { log('pagehide'); save(); });
+window.addEventListener('pagehide', () => { log('pagehide'); save(); musicBackOnLeave(); });
 sess('ambient', 'page load (as the clock: SoundFx constructor)');
 
 /* ---------------- fake Spotify (only with ?fake=1) ---------------- */
@@ -137,6 +151,7 @@ if (FAKE){
   const J = (status, obj) => new Response(status === 204 ? null : JSON.stringify(obj || {}), { status, headers: { 'Content-Type': 'application/json' } });
   window.fetch = async (url, opt) => {
     const u = String(url); opt = opt || {};
+    if (Q.get('hang') && u.includes('/sounds/' + Q.get('hang') + '.m4a')) return new Promise(() => {});   /* test: this file never answers */
     if (!/^https:\/\/(api|accounts)\.spotify\.com\//.test(u)) return real(url, opt);
     await wait(rnd(150, 1200));
     if (/accounts\.spotify\.com\/api\/token/.test(u)){
@@ -201,6 +216,7 @@ const sp = {
     if (res.status === 401 && retry){ log('sp', { method, path, status: 401, sent: s2, back: now(), tag }); if (await this.refresh(true)) return this.api(method, path, false, tag); return { status: 401, sent: s2, back: now() }; }
     let data = null; if (res.status === 200 || res.status >= 400){ try { data = await res.json(); } catch (e) {} }
     const back = now(), e = (data && data.error) || {};
+    if (method === 'PUT' && res.status >= 200 && res.status < 300){ if (path.startsWith('/me/player/pause')) this.pausedByUs = true; else if (path.startsWith('/me/player/play')) this.pausedByUs = false; }
     log('sp', { method, path, status: res.status, ms: back - s2, sent: s2, back, tag, reason: res.status >= 400 ? (e.reason || '') : undefined, msg: res.status >= 400 ? (e.message || '') : undefined });
     return { status: res.status, data, sent: s2, back };
   },
@@ -220,6 +236,22 @@ const sp = {
   }
 };
 let SPON = false;          /* a saved login exists (decided at Start) */
+let MUSIC_AT_START = false;
+/* bring the music back when it was playing at the start (after a failed round, an error, the end) */
+async function restoreMusic(why){
+  if (!SPON || !MUSIC_AT_START) return null;
+  try { return await ensureMusic('restore:' + why, true); } catch (e) { log('restore-fail', { why, err: String(e) }); return null; } }
+/* the page is closing: one last "play", sent so it survives the page going away (keepalive) */
+function musicBackOnLeave(){
+  if (!STARTED || !SPON || !MUSIC_AT_START || R.musicRestoredAtEnd) return;
+  const a = sp.read(); if (!a || !a.access) return;
+  try { fetch('https://api.spotify.com/v1/me/player/play', { method: 'PUT', keepalive: true, headers: { Authorization: 'Bearer ' + a.access } }); log('leave-play-sent'); save(); } catch (e) {} }
+/* a round that fails is recorded; the music comes back; the run carries on with the next round */
+async function round(name, fn){
+  try { return await fn(); }
+  catch (e) { log('round-error', { round: name, err: String(e), stack: e && e.stack }); (R.errors = R.errors || []).push({ round: name, err: String(e) });
+    try { sess('ambient', 'after error'); } catch (x) {}
+    await restoreMusic('after ' + name); save(); return null; } }
 /* make sure the music plays again (after a 'playback' set, a pause...). blocking → ask Igor to press play if it would not start */
 async function ensureMusic(tag, blocking){
   if (!SPON) return { skipped: true };
@@ -329,7 +361,9 @@ function clockUnlock(){
 }
 let firstTapAt = null;
 ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, (e) => {
-  if (firstTapAt == null && startArmed){ firstTapAt = now(); log('first-tap', { ev }); }
+  if (firstTapAt == null && startArmed){ firstTapAt = now(); log('first-tap', { ev });
+    R.rounds.A1 = { snaps: [] };   /* A1: the clock's unlock on the very first tap; looked at 0.5, 2 and 5 s later */
+    [500, 2000, 5000].forEach(ms => setTimeout(() => { R.rounds.A1.snaps.push(a1Snap(ms / 1000 + ' s')); save(); }, ms)); }
   if (firstTapAt != null) clockUnlock();
   onAnyTap(ev);
 }, { passive: true }));
@@ -361,16 +395,21 @@ function unlockList(list, rewind){
 function makePools(ev){
   poolsAt = now(); log('pools', { ev, afterFirstTap: poolsAt - firstTapAt });
   NAMES.forEach(n => { testPool[n] = [0, 1, 2].map(i => mkEl(n, 'test:' + n + '#' + i)); });
-  const sets = { rewind: CFG.a5Rewind, plain: CFG.a5Other, load: CFG.a5Other, fresh: CFG.a5Other };
+  const sets = { rewind: CFG.a5Sounds, plain: CFG.a5Sounds, load: CFG.a5Sounds, fresh: CFG.a5Sounds };
   Object.keys(sets).forEach(m => { exPool[m] = {}; sets[m].forEach(n => { exPool[m][n] = [mkEl(n, 'ex:' + m + ':' + n)]; }); });
   unlockList(allTest());
   try { const C = window.AudioContext || window.webkitAudioContext; ctx = new C(); ctx.onstatechange = () => log('ctx-state', { state: ctx.state, ct: +ctx.currentTime.toFixed(3) });
     const r = ctx.resume(); log('ctx-made', { state: ctx.state, sr: ctx.sampleRate, baseLatency: ctx.baseLatency, outputLatency: ctx.outputLatency });
-    decodeP = (async () => { for (const n of NAMES){ try { const ab = await (await fetch(SND(n))).arrayBuffer(); bufs[n] = await new Promise((ok, bad) => { const pr = ctx.decodeAudioData(ab, ok, bad); if (pr && pr.catch) pr.catch(() => {}); }); } catch (e) { log('decode-fail', { n, err: String(e) }); } }
-      log('decoded', { n: Object.keys(bufs).length, durs: Object.fromEntries(Object.entries(bufs).map(([k, b]) => [k, +b.duration.toFixed(3)])) }); })();
+    /* all files at once, each with its own 8 s limit: one file that never answers cannot hold up the others */
+    const lim = (pr, ms, what) => Promise.race([pr, new Promise((_, bad) => setTimeout(() => bad(new Error('no answer in ' + ms + ' ms (' + what + ')')), ms))]);
+    decodeP = Promise.all(NAMES.map(async n => { const ac = window.AbortController ? new AbortController() : null; const t0 = now();
+      try { const res = await lim(fetch(SND(n), ac ? { signal: ac.signal } : {}), 8000, 'load'); const ab = await lim(res.arrayBuffer(), 8000, 'load');
+        bufs[n] = await lim(new Promise((ok, bad) => { const pr = ctx.decodeAudioData(ab, ok, bad); if (pr && pr.catch) pr.catch(() => {}); }), 8000, 'decode'); }
+      catch (e) { try { ac && ac.abort(); } catch (x) {} log('decode-fail', { n, err: String(e), ms: now() - t0 }); } }))
+      .then(() => log('decoded', { n: Object.keys(bufs).length, missing: NAMES.filter(n => !bufs[n]), durs: Object.fromEntries(Object.entries(bufs).map(([k, b]) => [k, +b.duration.toFixed(3)])) }));
   } catch (e) { log('ctx-fail', { err: String(e) }); }
   poolsReady = (async () => { const t = now(); while (now() - t < 6000){ if (allTest().every(a => a._ok || a._unlErr)) break; await wait(100); }
-    try { await Promise.race([decodeP, wait(6000)]); } catch (e) {}
+    try { await Promise.race([decodeP, wait(9000)]); } catch (e) {}
     log('pools-ready', { ok: allTest().filter(a => a._ok).length, of: allTest().length, errs: allTest().filter(a => a._unlErr).map(a => a._label + ':' + a._unlErr), ms: now() - t }); })();
 }
 async function waSuspend(why){ if (ctx && ctx.state === 'running'){ try { await ctx.suspend(); } catch (e) {} } log('ctx', { do: 'suspend', why, state: ctx ? ctx.state : 'none' }); }
@@ -433,20 +472,30 @@ async function runA2(){
     await wait(Math.max(0, t0 + CFG.a2PlayAfter - now()));
     const pl = await sp.play('A2:play'); p.play = { status: pl.status, ms: pl.back - pl.sent };
     await wait(Math.max(0, pl.back + 500 - now())); const s2 = await sp.state('A2:after-play'); p.afterPlay = { playing: s2.playing, status: s2.status };
-    out.pairs.push(p); prog('Checking the music connection… ' + (i + 1) + ' of ' + CFG.a2Pairs);
+    out.pairs.push(p);
     await wait(Math.max(0, t0 + CFG.a2Every - now()));
   }
   out.end = await ensureMusic('A2:end', false);
-  log('A2-done'); save(); prog(''); return out;
+  log('A2-done'); save(); return out;
 }
 
-async function earSet(round, silent, kind){
+const PART = { E1: 'Part 2 of 5: sounds with Silent Mode on', E2: 'Part 3 of 5: sounds with Silent Mode off', E4: 'Part 4 of 5: loudness and the music' };
+function listen(top, line, sub){ prog(top); show('<p class="listen">' + esc(line) + '</p>' + (sub ? '<p class="note" style="text-align:center">' + esc(sub) + '</p>' : '')); }
+/* can this set play at all? (a set that cannot is skipped and recorded, and Igor is not asked about it) */
+function setProblem(kind, names){
+  if (kind === 'webaudio'){ if (!ctx) return 'second sound engine not available'; const miss = names.filter(n => !bufs[n]); if (miss.length) return 'sound files not ready: ' + miss.join(', '); return null; }
+  const bad = names.filter(n => { const a = testPool[n] && testEl(n); return !a || a.error || !a._ok; });
+  return bad.length ? 'players not ready: ' + bad.join(', ') : null;
+}
+async function earSet(round, silent, kind, setNo, top){
   const set = { round, silent, kind, jobs: [] };
-  prog(round + ' · ' + (silent ? 'Silent Mode on' : 'Silent Mode off') + ' · listening');
-  show('<p class="listen">Listen now…</p><p class="note" style="text-align:center">5 sounds, one after the other</p>');
+  const why = setProblem(kind, CFG.earSet);
+  if (why){ set.skipped = why; log('set-skipped', { round, kind, why }); return set; }
+  listen(top + ' · set ' + setNo + ' of 3', 'Listen now…', CFG.earSet.length + ' sounds, one after the other');
   await wait(700);
   if (kind === 'webaudio'){
-    sess('ambient', round + ' webaudio'); await waResume(round + ' webaudio');
+    sess('ambient', round + ' webaudio'); const ok = await waResume(round + ' webaudio');
+    if (!ok){ set.skipped = 'second sound engine would not start'; log('set-skipped', { round, kind, why: set.skipped }); return set; }
     for (const n of CFG.earSet){ const r = await playBuf(n, { round, part: 'ear-' + kind }); set.jobs.push({ n, out: r.out, wallMs: r.wallMs, ctxLateMs: r.ctxLateMs, states: r.states, state0: r.state0, err: r.err || null }); await wait(CFG.earGap); }
     await waSuspend(round + ' webaudio done');
   } else {
@@ -455,43 +504,52 @@ async function earSet(round, silent, kind){
     for (const n of CFG.earSet){ sess(mode, round + ' ' + kind); const j = playHow(testEl(n), 'safe', { round, part: 'ear-' + kind }); await j.done; set.jobs.push(pub(j)); await wait(CFG.earGap); }
     sess('ambient', round + ' set done');
   }
+  if (set.jobs.length && set.jobs.every(j => j.rej || j.err || (j.endWhy && /^error|refused|threw/.test(j.endWhy)))){ set.skipped = 'no sound could start'; log('set-skipped', { round, kind, why: set.skipped }); }
   set.engineFull = set.jobs.filter(j => j.out === 'full').length;
   return set;
 }
 async function earRound(round, silent){
-  const sets = R.rounds[round] = [];
-  const labels = { ambient: 'the clock’s way (mixing with the music)', playback: 'full-volume mode (music may stop)', webaudio: 'a second sound engine' };
+  const sets = R.rounds[round] = [], top = silent === null ? (round === 'E1' ? 'Part 2 of 5: sounds' : 'Part 3 of 5: sounds') : PART[round];
+  let no = 0;
   for (const kind of ['ambient', 'playback', 'webaudio']){
-    const s = await earSet(round, silent, kind);
+    no++;
+    const s = await earSet(round, silent, kind, no, top);
     if (kind === 'playback') s.musicAfter = await ensureMusic(round + ':after-playback', true);
-    const auto = silent ? (kind === 'playback' ? 5 : 0) : 5;
-    s.heard = await screen('How many sounds did you hear?', '<p class="note">' + esc(round) + ' · ' + esc(labels[kind]) + '</p><p class="big">Count only the sounds, not the music.</p>', countBtns(), { auto });
-    s.heardAuto = AUTO; sets.push(s); save();
+    if (!s.skipped){
+      const auto = silent === true ? (kind === 'playback' ? 5 : 0) : 5;
+      s.heard = await screen('How many sounds did you hear?', '<p class="big">Count only the sounds, not the music.</p>', countBtns(), { auto, top: top + ' · set ' + no + ' of 3' });
+      s.heardAuto = AUTO;
+    }
+    sets.push(s); save();
   }
 }
 async function runE3(){
-  const out = R.rounds.E3 = { plays: [] };
-  prog('E3 · loudness'); show('<p class="listen">Listen now…</p><p class="note" style="text-align:center">The same sound 3 times: number 1, number 2, number 3</p>');
-  sess('ambient', 'E3'); await waResume('E3'); await wait(700);
+  const out = R.rounds.E3 = { plays: [] }, top = PART.E4;
+  if (!ctx || !bufs['very-nice']){ out.skipped = !ctx ? 'second sound engine not available' : 'sound file not ready'; log('set-skipped', { round: 'E3', why: out.skipped }); return; }
+  listen(top, 'Listen now…', 'The same sound 3 times: number 1, number 2, number 3');
+  sess('ambient', 'E3'); if (!(await waResume('E3'))){ out.skipped = 'second sound engine would not start'; return; } await wait(700);
   for (const [i, g] of [[1, 1.0], [2, 2.0], [3, 3.0]]){
-    show('<p class="listen">Sound number ' + i + '</p>');
+    listen(top, 'Sound number ' + i);
     const r = await playBuf('very-nice', { round: 'E3', part: 'gain' + g }, g, true); out.plays.push({ i, gain: g, out: r.out, wallMs: r.wallMs, ctxLateMs: r.ctxLateMs, states: r.states }); await wait(1300);
   }
   await waSuspend('E3 done');
-  out.loudest = await screen('Which one was loudest?', '<p class="big">Sound number 1, 2 or 3?</p>', [{ label: '1', v: '1' }, { label: '2', v: '2' }, { label: '3', v: '3' }, { label: 'All the same', v: 'same' }], { auto: '3' });
-  out.crushed = await screen('Did the louder ones sound crushed?', '<p class="big">Crushed = harsh, crackly or squashed.</p>', [{ label: 'No', v: 'no' }, { label: 'A bit', v: 'a bit' }, { label: 'Badly', v: 'badly' }], { auto: 'a bit' });
+  out.loudest = await screen('Which one was loudest?', '<p class="big">Sound number 1, 2 or 3?</p>', [{ label: '1', v: '1' }, { label: '2', v: '2' }, { label: '3', v: '3' }, { label: 'All the same', v: 'same' }], { auto: '3', top });
+  out.crushed = await screen('Did the louder ones sound crushed?', '<p class="big">Crushed means harsh, crackly or squashed.</p>', [{ label: 'No', v: 'no' }, { label: 'A bit', v: 'a bit' }, { label: 'Badly', v: 'badly' }], { auto: 'a bit', top });
   out.auto = AUTO; save();
 }
 async function runE4(){
-  const out = R.rounds.E4 = {};
+  const out = R.rounds.E4 = {}, top = PART.E4;
   await ensureMusic('E4:start', true);
+  let no = 0;
   for (const type of ['transient', 'transient-solo']){
-    const o = out[type] = { jobs: [] };
-    prog('E4 · ' + type); show('<p class="listen">Listen to the music…</p><p class="note" style="text-align:center">3 sounds will play. Notice what the music does.</p>');
+    const o = out[type] = { jobs: [] }; no++;
+    if (setProblem('el', ['show-me-the-money'])){ o.skipped = setProblem('el', ['show-me-the-money']); continue; }
+    listen(top + ' · music test ' + no + ' of 2', 'Listen to the music…', '3 sounds will play. Notice what the music does.');
     await waSuspend('E4'); await wait(900);
     for (let i = 0; i < 3; i++){ o.got = sess(type, 'E4'); const n = 'show-me-the-money'; const j = playHow(testEl(n), 'safe', { round: 'E4', part: type }); await j.done; o.jobs.push(pub(j)); await wait(900); }
     sess('ambient', 'E4 done');
-    o.answer = await screen('Did the music get quieter during the sounds?', '', [{ label: 'Yes, quieter', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'It stopped', v: 'it stopped' }], { auto: type === 'transient' ? 'yes' : 'it stopped' });
+    if (o.jobs.every(j => j.rej)){ o.skipped = 'no sound could start'; continue; }
+    o.answer = await screen('Did the music get quieter during the sounds?', '', [{ label: 'Yes, quieter', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'It stopped', v: 'it stopped' }], { auto: type === 'transient' ? 'yes' : 'it stopped', top: top + ' · music test ' + no + ' of 2' });
     o.auto = AUTO;
     o.musicAfter = await ensureMusic('E4:after-' + type, true); save();
   }
@@ -503,10 +561,11 @@ async function runA3(){
   if (!SPON){ out.skipped = R.sp.loginBroken ? 'Spotify login did not work (left as it is)' : 'no Spotify login saved in this browser'; return; }
   let k = 0;
   for (const mode of ['playback', 'ambient']) for (let i = 0; i < CFG.a3Runs; i++){
-    prog('Automatic test 3 of 6 · music pause and sound · ' + (++k) + ' of ' + (CFG.a3Runs * 2));
+    prog('Part 5 of 5: the page tests by itself · check 3 of 5 · ' + (++k) + ' of ' + (CFG.a3Runs * 2));
     const m0 = await ensureMusic('A3:before', false);
     const n = CFG.a3Sounds[i % CFG.a3Sounds.length];
     const t0 = now(), pr = await sp.api('PUT', '/me/player/pause', true, 'A3:pause');
+    if (FAKE && Q.get('throwIn') === 'A3' && !runA3.thrown){ runA3.thrown = true; throw new Error('forced test error right after the pause (fake only)'); }
     await wait(Math.max(0, t0 + CFG.a3StartAt - now()));
     sess(mode, 'A3');
     const j = playHow(testEl(n), 'safe', { round: 'A3', mode, run: i, pauseStatus: pr.status, pauseMs: pr.back - pr.sent, musicBefore: m0.playing });
@@ -526,7 +585,7 @@ async function runA4(){
   const out = R.rounds.A4 = { runs: [] }; let k = 0;
   const conds = [['playback', 'ambient', 0.3], ['playback', 'ambient', 0.7], ['ambient', 'playback', 0.3], ['ambient', 'playback', 0.7]];
   for (let i = 0; i < CFG.a4Runs; i++) for (const [from, to, at] of conds){
-    prog('Automatic test 4 of 6 · mode switch during a sound · ' + (++k) + ' of ' + conds.length * CFG.a4Runs);
+    prog('Part 5 of 5: the page tests by itself · check 4 of 5 · ' + (++k) + ' of ' + conds.length * CFG.a4Runs);
     const n = CFG.a4Sounds[k % CFG.a4Sounds.length];
     sess(from, 'A4 start');
     const j = playHow(testEl(n), 'safe', { round: 'A4', cond: from + '>' + to + '@' + Math.round(at * 100) + '%', run: i });
@@ -540,25 +599,26 @@ async function runA4(){
 }
 /* A5: replay methods (the simulator's EX matrix): each sound 3 times, 0.7 s after the previous play ended */
 async function runA5(){
-  const out = R.rounds.A5 = { plays: [] };
+  /* the four methods: the same sounds, the same number of plays, the same 0.7 s gap BEFORE every play; only the replay step differs
+     (for 'fresh' the new player is made at the start of that same gap) */
+  const out = R.rounds.A5 = { plays: [], sounds: CFG.a5Sounds, plays_each: CFG.a5Plays };
   sess('ambient', 'A5');
   const order = ['rewind', 'plain', 'load', 'fresh'];
-  const total = CFG.a5Plays * (CFG.a5Rewind.length + 3 * CFG.a5Other.length); let k = 0;
-  for (let i = 0; i < CFG.a5Plays; i++) for (const n of CFG.a5Rewind) for (const m of order){
-    if (!exPool[m][n]) continue;
+  const total = CFG.a5Plays * CFG.a5Sounds.length * order.length; let k = 0;
+  for (let i = 0; i < CFG.a5Plays; i++) for (const n of CFG.a5Sounds) for (const m of order){
     let a = exPool[m][n][exPool[m][n].length - 1];
-    if (m === 'fresh' && i > 0){ a = mkEl(n, 'ex:fresh:' + n + '#' + i); exPool[m][n].push(a); await wait(300); }
-    prog('Automatic test 5 of 6 · replaying sounds · ' + (++k) + ' of ' + total);
+    if (m === 'fresh' && i > 0){ a = mkEl(n, 'ex:fresh:' + n + '#' + i); exPool[m][n].push(a); }
+    await wait(CFG.a5Gap);
+    prog('Part 5 of 5: the page tests by itself · check 5 of 5 · ' + (++k) + ' of ' + total);
     const j = playHow(a, m === 'fresh' ? 'plain' : m, { round: 'A5', mode: m, i });
     await j.done; const o = pub(j); o.how = m; out.plays.push(o);
-    await wait(CFG.a5Gap);
   }
   save();
 }
 /* A7: the clock's way under the burst: its 24 players, its pick + restart rule (emojiSfx.pick / play), no Spotify calls */
 async function runA7(){
   const out = R.rounds.A7 = { plays: [] };
-  sess('ambient', 'A7'); prog('Automatic test 2 of 6 · the clock’s way, 10-phone burst');
+  sess('ambient', 'A7'); prog('Part 5 of 5: the page tests by itself · check 2 of 5');
   const pick = n => { const l = clockPool[n]; return l.find(a => !a._busy && a.paused && !a._try) || l.find(a => !a._busy) || l.slice().sort((x, y) => x._t0 - y._t0)[0]; };
   const jobs = await runPlan(burstPlan(), s => {
     const a = pick(s.n), old = a._job;
@@ -577,13 +637,13 @@ async function runA6(type){
   sess(type, 'A6 ' + type); const ok = await waResume('A6 ' + type); out.ctxRunning = ok; out.ctxState = ctx ? ctx.state : 'none';
   const P = (part, arr) => { out.parts[part] = arr.map(r => ({ n: r.n, out: r.out, dur: r.dur, wallMs: r.wallMs, ctxLateMs: r.ctxLateMs, why: r.why, state0: r.state0, states: r.states, outLat: r.outLat, baseLat: r.baseLat, outTs: r.outTs, err: r.err })); };
   if (type === 'ambient' && CFG.a6Seq.length){
-    prog('Automatic test 1 of 6 · second sound engine, one by one');
+    prog('Part 5 of 5: the page tests by itself · check 1 of 5');
     const seq = []; for (const n of CFG.a6Seq){ seq.push(await playBuf(n, { round: 'A6', part: 'seq' })); await wait(CFG.a6SeqGap); } P('seq', seq);
   }
-  prog('Automatic test 1 of 6 · second sound engine (' + type + '), quick repeats');
+  prog('Part 5 of 5: the page tests by itself · check 1 of 5');
   P('triple', await runPlan([0, 1, 2].map(i => ({ t: i * CFG.a6TripleGap, n: CFG.a6Triple })), s => playBuf(s.n, { round: 'A6', part: 'triple' }))); await wait(300);
   P('twelve', await runPlan(NAMES.map((n, i) => ({ t: i * CFG.a6AllGap, n })), s => playBuf(s.n, { round: 'A6', part: 'twelve' }))); await wait(300);
-  prog('Automatic test 1 of 6 · second sound engine (' + type + '), 10-phone burst');
+
   P('burst', await runPlan(burstPlan(), s => playBuf(s.n, { round: 'A6', part: 'burst' })));
   sess('ambient', 'A6 ' + type + ' done'); save();
 }
@@ -599,10 +659,10 @@ function summarise(R){
     ['music at start', R.sp && R.sp.atStart ? (R.sp.atStart.playing ? 'playing' : 'not playing') : '-'], ['music at end', R.sp && R.sp.atEnd ? (R.sp.atEnd.playing ? 'playing' : (R.sp.atEnd.skipped ? '-' : 'not playing')) : '-']] });
   T.push({ title: 'Memory questions', head: ['question', 'answer'], rows: [['Silent Mode on at game night?', A.mem1 == null ? '-' : A.mem1], ['Sounds started working after someone touched the iPad?', A.mem2 == null ? '-' : A.mem2]] });
   const ear = [];
-  ['E1', 'E2'].forEach(r => (rd[r] || []).forEach(s => ear.push([r, s.silent ? 'ON' : 'off', s.kind, String(s.heard) + ' of 5' + (s.heardAuto ? ' (auto)' : ''), s.engineFull + ' of ' + s.jobs.length])));
+  ['E1', 'E2'].forEach(r => (rd[r] || []).forEach(s => ear.push([r, s.silent === true ? 'ON' : s.silent === false ? 'off' : 'not set (could not find it)', s.kind, s.skipped ? 'not asked: ' + s.skipped : String(s.heard) + ' of 5' + (s.heardAuto ? ' (auto)' : ''), s.skipped ? '-' : s.engineFull + ' of ' + s.jobs.length])));
   T.push({ title: 'E1/E2 Silent Mode: sounds heard', head: ['round', 'Silent Mode', 'how played', 'Igor heard', 'engine says full'], rows: ear });
-  if (rd.E3) T.push({ title: 'E3 Loudness (Web Audio + limiter)', head: ['what', 'value'], rows: [['loudest', rd.E3.loudest], ['crushed', rd.E3.crushed], ['plays full', rd.E3.plays.filter(p => p.out === 'full').length + ' of 3']] });
-  if (rd.E4) T.push({ title: 'E4 transient modes, music playing', head: ['mode', 'mode accepted', 'music during sounds', 'sounds full'], rows: ['transient', 'transient-solo'].filter(k => rd.E4[k]).map(k => [k, rd.E4[k].got, rd.E4[k].answer, tri(rd.E4[k].jobs).full + ' of ' + rd.E4[k].jobs.length]) });
+  if (rd.E3) T.push({ title: 'E3 Loudness (Web Audio + limiter)', head: ['what', 'value'], rows: rd.E3.skipped ? [['skipped', rd.E3.skipped]] : [['loudest', rd.E3.loudest], ['crushed', rd.E3.crushed], ['plays full', rd.E3.plays.filter(p => p.out === 'full').length + ' of 3']] });
+  if (rd.E4) T.push({ title: 'E4 transient modes, music playing', head: ['mode', 'mode accepted', 'music during sounds', 'sounds full'], rows: ['transient', 'transient-solo'].filter(k => rd.E4[k]).map(k => [k, rd.E4[k].got || '-', rd.E4[k].skipped ? 'skipped: ' + rd.E4[k].skipped : rd.E4[k].answer, tri(rd.E4[k].jobs).full + ' of ' + rd.E4[k].jobs.length]) });
   if (rd.A1) T.push({ title: 'A1 Unlock, the clock’s way (24 players + beep)', head: ['after first tap', 'unlocked', 'readyState 0/1/2/3/4', 'errors'], rows: (rd.A1.snaps || []).map(s => [s.at, s.unlocked + ' of ' + s.of, [0, 1, 2, 3, 4].map(v => s.els.filter(e => e.rs === v).length).join('/'), s.els.filter(e => e.err || e.unlErr).map(e => e.el + ':' + (e.err || e.unlErr)).join(' ') || 'none']) });
   if (rd.A2){ const a = rd.A2;
     if (a.skipped) T.push({ title: 'A2 Spotify timings', head: ['note'], rows: [[a.skipped]] });
@@ -615,7 +675,9 @@ function summarise(R){
   if (rd.A5){ const p = rd.A5.plays, rows = [];
     ['rewind', 'plain', 'load', 'fresh'].forEach(m => { const f = p.filter(x => x.how === m && x.i === 0), r = p.filter(x => x.how === m && x.i > 0), a = tri(f), b = tri(r);
       rows.push([m === 'rewind' ? 'currentTime=0 + play (clock)' : m === 'plain' ? 'play() only' : m === 'load' ? 'load() + play' : 'new Audio each time', a.full + ' of ' + a.n, b.full + ' of ' + b.n, b.cut, b.silent]); });
-    T.push({ title: 'A5 Replaying a finished sound', head: ['method', '1st play full', 'replays full', 'replays cut', 'replays silent'], rows }); }
+    T.push({ title: 'A5 Replaying a finished sound (each method: ' + (rd.A5.sounds ? rd.A5.sounds.length + ' sounds x ' + rd.A5.plays_each + ' plays' : 'see data') + ')', head: ['method', '1st play full', 'replays full', 'replays cut', 'replays silent'], rows }); }
+  if (R.errors && R.errors.length) T.push({ title: 'Rounds that failed (the run carried on)', head: ['round', 'error'], rows: R.errors.map(e => [e.round, e.err]) });
+  if (R.answers && (R.answers.silentOn || R.answers.silentOff)) T.push({ title: 'Silent Mode switch', head: ['step', 'answer'], rows: [['turn on', R.answers.silentOn || '-'], ['turn off', R.answers.silentOff || '-']] });
   const wrow = (label, arr) => { const t = tri(arr); return [label, t.n, t.full, t.cut, t.silent]; };
   if (rd.A6){ const rows = [];
     ['ambient', 'playback'].forEach(k => { const o = rd.A6[k]; if (!o) return; Object.keys(o.parts).forEach(p => rows.push(wrow('Web Audio ' + k + ' · ' + p, o.parts[p]))); });
@@ -633,18 +695,34 @@ function tablesHtml(T){ return T.map(t => '<h2>' + esc(t.title) + '</h2><table><
 /* ---------------- send to the Mac (PeerJS), only after the rounds ---------------- */
 function loadScript(src){ return new Promise((ok, bad) => { if (window.Peer) return ok(); const s = document.createElement('script'); s.src = src; s.async = true; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
 let sending = false, lastSay = '';
-const OLD_KEY = RES_KEY + '_old';
 const say = (t, c) => { lastSay = t; if ($('sendState')){ $('sendState').textContent = t; $('sendState').className = 'big ' + (c || ''); } };
-async function sendResults(){
-  let old = null; try { old = JSON.parse(localStorage.getItem(OLD_KEY) || 'null'); } catch (e) {}
-  if (old && !old.sentOk) await sendOne(old, OLD_KEY);
-  let cur = null; try { cur = JSON.parse(localStorage.getItem(RES_KEY) || 'null'); } catch (e) {}
-  return sendOne(cur && cur.runId === R.runId ? cur : R, RES_KEY);
+/* send every result on the outbox list; each one leaves the list only when the Mac says "got it" */
+async function sendAll(){
+  if (sending) return false;
+  const ids = outbox(); if (!ids.length) return true;
+  let all = true, n = 0;
+  for (const id of ids){
+    const obj = readJ(DATA(id), null);
+    if (!obj){ setOutbox(outbox().filter(x => x !== id)); log('outbox-missing', { id }); continue; }
+    n++; say(ids.length > 1 ? 'Sending result ' + n + ' of ' + ids.length + ' to the Mac…' : 'Sending results to the Mac…');
+    const ok = await sendOne(obj);
+    if (!ok){ all = false; continue; }
+    obj.sentOk = new Date().toISOString();
+    try { localStorage.setItem(DATA(id), JSON.stringify(obj)); } catch (e) {}
+    if (id === R.runId) R.sentOk = obj.sentOk;
+    setOutbox(outbox().filter(x => x !== id));
+    /* keep the 3 newest acknowledged results in this browser, free the space of older ones */
+    const sent = readJ(SENTLIST, []).filter(x => x !== id); sent.push(id);
+    while (sent.length > 3){ const old = sent.shift(); try { localStorage.removeItem(DATA(old)); } catch (e) {} }
+    try { localStorage.setItem(SENTLIST, JSON.stringify(sent)); } catch (e) {}
+  }
+  const left = outbox().length;
+  say(left ? 'Not sent yet (' + left + ' waiting). Trying again by itself every 15 seconds.' : 'Results sent to the Mac ✓', left ? 'warn' : 'ok');
+  return all && !left;
 }
-async function sendOne(obj, key){
+async function sendOne(obj){
   if (sending || !obj) return false; sending = true;
   const runId = obj.runId, body = JSON.stringify(obj), SZ = 12000, n = Math.ceil(body.length / SZ);
-  say('Sending results to the Mac…');
   let peer = null;
   const ok = await new Promise(async res => {
     const to = setTimeout(() => res(false), 30000);
@@ -658,83 +736,115 @@ async function sendOne(obj, key){
       c.on('open', async () => {
         c.send({ t: 'begin', runId, n, size: body.length });
         for (let i = 0; i < n; i++){ c.send({ t: 'chunk', runId, i, s: body.slice(i * SZ, (i + 1) * SZ) });
-          for (let w = 0; w < 200 && c.dataChannel && c.dataChannel.bufferedAmount > 64000; w++) await wait(20);
-          say('Sending results to the Mac… ' + Math.round((i + 1) / n * 100) + '%'); }
+          for (let w = 0; w < 200 && c.dataChannel && c.dataChannel.bufferedAmount > 64000; w++) await wait(20); }
         c.send({ t: 'end', runId, n });
       });
     });
   });
   try { peer && peer.destroy(); } catch (e) {}
-  sending = false;
-  try { const o = JSON.parse(localStorage.getItem(key) || 'null'); if (o && o.runId === runId && ok){ o.sentOk = new Date().toISOString(); localStorage.setItem(key, JSON.stringify(o)); if (runId === R.runId) R.sentOk = o.sentOk; } } catch (e) {}
-  say(ok ? 'Results sent to the Mac ✓' : 'Not sent yet. Tap “Send results again” in a minute.', ok ? 'ok' : 'warn');
+  sending = false; log('send', { runId, ok });
   return ok;
+}
+/* keeps sending until everything is acknowledged; stopFn() true = pause (a test is running) */
+async function sendLoop(stopFn){ for (let i = 0; i < 200; i++){ if (stopFn && stopFn()) return; if (await sendAll()) return; await wait(15000); } }
+
+/* plain lines for the Finished screen */
+function plainSummary(){
+  const L = [], rd = R.rounds;
+  const heard = r => (rd[r] || []).map(s => s.skipped ? 'could not play' : s.heard + ' of 5').join(', ');
+  if (rd.E1) L.push('Sounds you heard with Silent Mode ' + (R.answers.silentOn === 'cant find' ? '(not changed)' : 'on') + ': ' + heard('E1') + '.');
+  if (rd.E2) L.push('Sounds you heard with Silent Mode ' + (R.answers.silentOff === 'cant find' ? '(not changed)' : 'off') + ': ' + heard('E2') + '.');
+  if (SPON && MUSIC_AT_START) L.push(R.sp.atEnd && R.sp.atEnd.playing ? 'The music is playing again.' : 'The music did not come back by itself. Please press play in Spotify.');
+  else if (!SPON) L.push('Spotify was not connected, so the music checks were skipped.');
+  L.push(R.errors && R.errors.length ? 'Some checks had a problem and were skipped (' + R.errors.length + '). The rest ran.' : 'All checks ran.');
+  return L;
 }
 
 /* =====================================================================
    THE RUN
    ===================================================================== */
 async function main(){
-  let prev = null; try { prev = JSON.parse(localStorage.getItem(RES_KEY) || 'null'); } catch (e) {}
   startArmed = true;
+  const pending = outbox().length;
+  let started = false;
+  if (pending) sendLoop(() => started);      /* earlier results not yet on the Mac: keep trying while the intro shows */
   const intro = '<p class="big">This checks why the emoji sounds got lost on game night. It takes about 6 minutes.</p>' +
-    '<p><b>Sounds will play, and the music will stop for moments now and then.</b> That is part of the test.</p>' +
-    '<p>Before you start:</p><ol><li>Close the poker clock page, if it is open in another tab.</li><li>Play music in the Spotify app on this iPad.</li><li>Turn the iPad volume up to a normal level.</li></ol>' +
-    '<p>Then tap Start and follow the screens. Each screen asks for one thing.</p>' + (FAKE ? '<p class="warn">Test run with a fake Spotify.</p>' : '') +
-    (prev && !prev.sentOk ? '<p class="note">A previous result has not reached the Mac yet.</p><p id="sendState" class="big"></p>' : '');
-  const btns = [{ label: 'Start', v: 'start', go: true }]; if (prev && !prev.sentOk) btns.push({ label: 'Send results again', v: 'resend' });
-  let v; while ((v = await screen('Sound test', intro + (lastSay ? '<p class="big">' + esc(lastSay) + '</p>' : ''), btns)) === 'resend'){ await sendOne(prev, RES_KEY); }
-  /* an unsent earlier result is kept in its own slot (sent again at the end), never overwritten */
-  if (prev && !prev.sentOk){ try { localStorage.setItem(OLD_KEY, JSON.stringify(prev)); } catch (e) {} }
-  /* ---- Start (tap 1 = the clock's unlock, A1) ---- */
-  log('start', { cfg: CFG, estimateAutoS: CFG.estimateAutoS, session: AS ? AS.type : 'n/a' });
-  R.rounds.A1 = { snaps: [] };
-  [500, 2000, 5000].forEach(ms => setTimeout(() => { R.rounds.A1.snaps.push(a1Snap(ms / 1000 + ' s')); if (ms === 5000) save(); }, ms));
+    '<p class="big"><b>Sounds will play, and the music will stop for moments now and then.</b> That is part of the test.</p>' +
+    (FAKE ? '<p class="warn">Test run with a fake Spotify.</p>' : '') +
+    (pending ? '<p class="note">' + pending + ' earlier result' + (pending > 1 ? 's have' : ' has') + ' not reached the Mac yet. The page keeps trying.</p><p id="sendState" class="big">' + esc(lastSay) + '</p>' : '');
+  const btns = [{ label: 'Next', v: 'next', go: true }]; if (pending) btns.push({ label: 'Send results again', v: 'resend' });
+  while ((await screen('Sound test', intro, btns)) === 'resend'){ await sendAll(); }
+  await screen('Close the poker clock', '<p class="big">If the poker clock page is open in another Safari tab, close that tab now.</p>', [{ label: 'Next', v: 'next', go: true }]);
+  await screen('Start the music', '<p class="big">Play music in the Spotify app on this iPad, then come back to this page.</p>', [{ label: 'Next', v: 'next', go: true }]);
+  await screen('Set the volume', '<p class="big">Turn the iPad volume up to a normal level.</p>', [{ label: 'Start', v: 'start', go: true }]);
+  started = true; STARTED = true;
+  /* ---- Start ---- */
+  log('start', { cfg: CFG, estimateAutoS: CFG.estimateAutoS, session: AS ? AS.type : 'n/a', firstTapAt });
+  const base = firstTapAt != null ? firstTapAt : now();
   SPON = sp.connected(); R.sp.login = SPON; R.sp.key = FAKE ? 'fake key' : 'clock key';
   let a2 = Promise.resolve();
   if (SPON){ R.sp.atStart = await sp.state('start');
     if (R.sp.atStart.status === 0){ await wait(1200); R.sp.atStart = await sp.state('start-retry'); }
-    if (R.sp.atStart.status === 0 || R.sp.atStart.status === 401){ SPON = false; R.sp.loginBroken = 'saved login did not give a token (status ' + R.sp.atStart.status + '); left as it is'; log('login-broken', { status: R.sp.atStart.status }); } }
-  if (SPON){ a2 = wait(Math.max(0, 5300 - (now() - firstTapAt))).then(runA2).catch(e => { log('A2-error', { err: String(e) }); }); }
+    if (R.sp.atStart.status === 0 || R.sp.atStart.status === 401){ SPON = false; R.sp.loginBroken = 'saved login did not give a token (status ' + R.sp.atStart.status + '); left as it is'; log('login-broken', { status: R.sp.atStart.status }); }
+    else MUSIC_AT_START = !!R.sp.atStart.playing; }
+  if (SPON){ a2 = wait(Math.max(0, 5300 - (now() - base))).then(() => round('A2', runA2)); }
   else { R.rounds.A2 = { skipped: R.sp.loginBroken ? 'Spotify login did not work (left as it is)' : 'no Spotify login saved in this browser' }; log('no-login'); }
-  R.answers.mem1 = await screen('On game night, was Silent Mode on?', '<p class="big">Silent Mode is the bell in Control Centre. With a line through it, the iPad is silent.</p>', [{ label: 'Yes', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'Don’t know', v: 'don’t know' }], { auto: 'don’t know' });
-  R.answers.mem2 = await screen('On game night, did the sounds start working around the time someone first touched the iPad screen?', '<p class="big">For example, to start the clock.</p>', [{ label: 'Yes', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'Don’t know', v: 'don’t know' }], { auto: 'don’t know' });
   save();
-  /* ---- E1 Silent Mode ON ---- */
-  await screen('Turn Silent Mode ON', '<ol class="big"><li>Swipe down from the top-right corner of the screen.</li><li>Tap the bell so it shows a line through it.</li><li>Swipe back up and tap Continue.</li></ol>',
-    [{ label: 'Please wait…', v: 'c', go: true, disabled: true }], { enableWhen: a2.then(() => {}), enabledLabel: 'Continue' });
+  const yn = [{ label: 'Yes', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'Don’t know', v: 'don’t know' }], P1 = 'Part 1 of 5: two questions about game night';
+  R.answers.mem1 = await screen('On game night, was Silent Mode on?', '<p class="big">Silent Mode is the bell in Control Centre. With a line through it, the iPad is silent.</p>', yn, { auto: 'don’t know', top: P1 });
+  R.answers.mem2 = await screen('On game night, did the sounds start working around the time someone first touched the iPad screen?', '<p class="big">For example, to start the clock.</p>', yn, { auto: 'don’t know', top: P1 });
+  save();
+  /* ---- Silent Mode ON ---- */
+  const howTo = '<p class="big">Swipe down from the top-right corner of the screen. Silent Mode is the bell.</p>';
+  R.answers.silentOn = await screen('Turn Silent Mode on', howTo + '<p class="big">Tap the bell so it has a line through it, then come back here.</p>',
+    [{ label: 'Done', v: 'done', go: true, disabled: true }, { label: 'It was already on', v: 'already on', disabled: true }, { label: 'I can’t find it', v: 'cant find', disabled: true }],
+    { enableWhen: a2.then(() => {}), top: PART.E1 });
   if (poolsReady) await poolsReady; else { log('pools-late'); makePools('late'); await poolsReady; }
-  await earRound('E1', true);
-  /* ---- E2 Silent Mode OFF ---- */
-  await screen('Turn Silent Mode OFF', '<ol class="big"><li>Swipe down from the top-right corner.</li><li>Tap the bell again so the line goes away.</li><li>Swipe back up and tap Continue.</li></ol>', [{ label: 'Continue', v: 'c', go: true }]);
-  await earRound('E2', false);
-  await runE3();
-  await runE4();
+  const cant = R.answers.silentOn === 'cant find';
+  await round('E1', () => earRound('E1', cant ? null : true));
+  /* ---- Silent Mode OFF ---- */
+  if (!cant){
+    R.answers.silentOff = await screen('Turn Silent Mode off', howTo + '<p class="big">Tap the bell again so the line goes away, then come back here.</p>',
+      [{ label: 'Done', v: 'done', go: true }, { label: 'It was already off', v: 'already off' }, { label: 'I can’t find it', v: 'cant find' }], { top: PART.E2 });
+    await round('E2', () => earRound('E2', R.answers.silentOff === 'cant find' ? null : false));
+  } else log('silent-mode-not-found: one listening round only');
+  save();
+  await round('E3', runE3);
+  await round('E4', runE4);
   /* ---- automatic part ---- */
-  await screen('Now the page tests by itself', '<p class="big">This takes about ' + Math.max(1, Math.round(CFG.estimateAutoS / 60)) + ' minutes.</p><ol class="big"><li>Leave Silent Mode OFF.</li><li>Put the iPad down and do not touch it.</li><li>Keep this page open.</li></ol><p>Sounds will play and the music will stop and start. That is expected.</p>', [{ label: 'Start', v: 'go', go: true }]);
+  await screen('Now the page tests by itself', '<p class="big">Put the iPad down and do not touch it for about ' + Math.max(1, Math.round(CFG.estimateAutoS / 60)) + ' minutes.</p><p>Sounds will play and the music will stop and start. That is expected.</p>', [{ label: 'Start', v: 'go', go: true }], { top: 'Part 5 of 5: the page tests by itself' });
   show('<p class="listen">Testing… please do not touch the iPad</p>');
   await ensureMusic('auto:start', true);
-  await runA6('ambient');
-  await runA6('playback');            /* straight after: the context was resumed by the Start tap, never resumed outside a tap */
+  await round('A6 ambient', () => runA6('ambient'));
+  await round('A6 playback', () => runA6('playback'));            /* straight after: the context was resumed by the Start tap, never resumed outside a tap */
   await waSuspend('A6 done, elements next');
   await ensureMusic('after A6 playback', true);
-  await runA7();
-  await runA3();
-  await runA4();
-  await runA5();
-  /* ---- finish ---- */
-  sess('ambient', 'end');
-  if (SPON && R.sp.atStart && R.sp.atStart.playing){ R.sp.atEnd = await ensureMusic('end', true); }
-  else R.sp.atEnd = SPON ? await sp.state('end') : { skipped: true };
-  R.sp.refreshes = sp.refreshes; R.sp.device = sp.device;
-  R.done = true; R.endedAt = new Date().toISOString(); R.wavs = WA.length; log('DONE');
-  R.summary = summarise(R); save();
-  prog('Finished.');
-  show('<h1>Finished. Thank you!</h1><p id="sendState" class="big"></p><div class="btns"><button id="resend" aria-label="Send results again">Send results again</button></div>' + tablesHtml(R.summary));
-  $('resend').addEventListener('click', () => sendResults());
-  for (let i = 0; i < 40; i++){ if (await sendResults()) break; if (!sending) say('Not sent yet. Trying again by itself in 15 seconds…', 'warn'); await wait(15000); }   /* re-sends until the Mac says "got it" */
+  await round('A7', runA7);
+  await round('A3', runA3);
+  await round('A4', runA4);
+  await round('A5', runA5);
+  await finish();
 }
-main().catch(e => { log('fatal', { err: String(e), stack: e && e.stack }); save(); show('<h1>Something went wrong</h1><p class="big">' + esc(e) + '</p><p id="sendState" class="big"></p><div class="btns"><button id="resend">Send results again</button></div>'); $('resend').addEventListener('click', () => sendResults()); });
+async function finish(){
+  try { sess('ambient', 'end'); } catch (e) {}
+  if (SPON && MUSIC_AT_START){ R.sp.atEnd = await restoreMusic('end'); }
+  else R.sp.atEnd = SPON ? await sp.state('end') : { skipped: true };
+  R.musicRestoredAtEnd = !!(R.sp.atEnd && R.sp.atEnd.playing);
+  R.sp.refreshes = sp.refreshes; R.sp.device = sp.device;
+  if (!R.aborted) R.done = true; R.endedAt = new Date().toISOString(); R.wavs = WA.length; log('DONE');
+  R.summary = summarise(R); save();
+  prog('');
+  show('<h1>' + (R.aborted ? 'The test stopped early' : 'Finished. Thank you!') + '</h1><p id="sendState" class="big"></p>' +
+    plainSummary().map(l => '<p class="big">' + esc(l) + '</p>').join('') +
+    '<div class="btns"><button id="resend" aria-label="Send results again">Send results again</button></div><h2 style="margin-top:40px">Details</h2>' + tablesHtml(R.summary));
+  $('resend').addEventListener('click', () => sendAll());
+  await sendLoop();
+}
+main().catch(async e => {
+  log('fatal', { err: String(e), stack: e && e.stack }); R.aborted = true; R.errors = (R.errors || []).concat([{ round: 'run', err: String(e) }]);
+  if (STARTED){ try { await finish(); return; } catch (x) { log('fatal2', { err: String(x) }); } }
+  save(); show('<h1>Something went wrong</h1><p class="big">Please reload the page. Nothing is lost.</p>');
+});
 </script>
 </body>
 </html>

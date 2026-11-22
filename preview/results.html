@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sound Test Results</title>
+<style>
+  :root { --bg:#10131a; --card:#1b2030; --ink:#f3f5fa; --dim:#a8b0c4; --accent:#3ddc97; --warn:#ffb547; --bad:#ff6b6b; --line:#2c3347; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--ink); font:20px/1.45 -apple-system, system-ui, sans-serif; -webkit-text-size-adjust:100%; }
+  body { padding:16px 16px 48px; }
+  main { max-width:900px; margin:0 auto; }
+  h1 { font-size:34px; line-height:1.2; margin:8px 0 16px; }
+  p { margin:0 0 14px; }
+  .big { font-size:26px; }
+  .note { color:var(--dim); font-size:18px; }
+  .ok { color:var(--accent); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .run { background:var(--card); border:2px solid var(--line); border-radius:16px; padding:12px 16px; margin:0 0 12px; font-size:22px; }
+  .btns { display:flex; flex-direction:column; gap:14px; margin-top:22px; }
+  button { font:inherit; font-size:26px; font-weight:600; min-height:76px; padding:12px 26px; border-radius:16px; border:2px solid var(--line); background:var(--card); color:var(--ink); }
+  button.go { background:var(--accent); color:#06281a; border-color:var(--accent); }
+  button:disabled { opacity:.45; }
+  #status { min-height:40px; margin-top:18px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Sound test results</h1>
+<p id="count" class="big"></p>
+<div id="list"></div>
+<p id="empty" class="big warn" hidden>Nothing found. Results are saved inside the Safari where the test ran. Open this page in that same Safari (same browser, same address) and try again.</p>
+<div class="btns" id="btns" hidden>
+  <button class="go" id="bShare">Send results to the Mac (AirDrop)</button>
+  <button id="bCopy">Copy results</button>
+  <button id="bDown">Download file</button>
+</div>
+<p id="status" class="big" role="status"></p>
+<p class="note">This page only reads the saved results. Nothing is changed or deleted, and nothing is sent over the internet.</p>
+</main>
+<script>
+'use strict';
+const FILE_NAME = 'poker-soundtest-results.json';
+const $ = id => document.getElementById(id);
+let RESULTS = [], JSON_TEXT = '[]';
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c])); }
+function readJ(k){ try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return undefined; } }
+
+/* read only: getItem / key / length, never setItem or removeItem */
+function collect(){
+  const out = [], seen = new Set();
+  let keys = [];
+  try { for (let i = 0; i < localStorage.length; i++) keys.push(localStorage.key(i)); } catch (e) { return out; }
+  keys.sort();
+  /* data keys look like soundtest_results_v1:<runId> (fake runs: soundtest_results_fake_v1...:<runId>); skip _alive:, _outbox, _sent */
+  keys.filter(k => /^soundtest_results[^:]*:/.test(k) && !/_alive:/.test(k)).forEach(k => {
+    const o = readJ(k);
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return;
+    const id = o.runId || k.slice(k.indexOf(':') + 1);
+    if (seen.has(k)) return; seen.add(k);
+    out.push({ key: k, id, data: o });
+  });
+  return out;
+}
+
+function fmtTime(s){
+  if (!s) return 'unknown';
+  const d = new Date(s); return isNaN(d) ? String(s) : d.toLocaleString();
+}
+
+function render(){
+  const found = collect();
+  RESULTS = found.map(f => f.data);
+  JSON_TEXT = JSON.stringify(RESULTS, null, 2);
+  const n = found.length;
+  $('count').textContent = n === 0 ? 'Found 0 results.' : 'Found ' + n + (n === 1 ? ' result.' : ' results.');
+  $('count').className = 'big ' + (n ? 'ok' : 'warn');
+  $('empty').hidden = n !== 0;
+  $('btns').hidden = n === 0;
+  $('list').innerHTML = found.map((f, i) => {
+    const o = f.data, fin = !!(o.done && !o.aborted && !o.unfinished);
+    return '<div class="run"><b>' + (i + 1) + '. Run id: <span class="runid">' + esc(f.id) + '</span></b><br>' +
+      'Started: ' + esc(fmtTime(o.startedAt)) + '<br>' +
+      'Finished: <b class="' + (fin ? 'ok' : 'warn') + '">' + (fin ? 'yes' : 'no') + '</b>' +
+      (!fin && (o.note || o.currentRound) ? ' <span class="note">(' + esc(o.note || ('stopped in ' + o.currentRound)) + ')</span>' : '') + '</div>';
+  }).join('');
+}
+
+function say(t, c){ $('status').textContent = t; $('status').className = 'big ' + (c || ''); }
+function makeFile(){ return new File([JSON_TEXT], FILE_NAME, { type: 'application/json' }); }
+
+$('bShare').onclick = async () => {
+  try {
+    const file = makeFile();
+    if (!navigator.share || !navigator.canShare || !navigator.canShare({ files: [file] })){
+      say('Sharing a file does not work in this browser. Use "Download file" or "Copy results" instead.', 'bad'); return;
+    }
+    await navigator.share({ files: [file], title: 'Poker sound test results' });
+    say('The share sheet was used. Pick AirDrop and then the Mac.', 'ok');
+  } catch (e) {
+    if (e && e.name === 'AbortError') say('The share sheet was closed without sending. Press the button to try again.', 'warn');
+    else say('Sharing did not work (' + (e && e.message || e) + '). Use "Download file" or "Copy results" instead.', 'bad');
+  }
+};
+
+$('bCopy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(JSON_TEXT);
+    say('Copied. The full results are on the clipboard. Paste them into a message or note.', 'ok');
+  } catch (e) {
+    try {
+      const t = document.createElement('textarea'); t.value = JSON_TEXT; t.style.position = 'fixed'; t.style.opacity = '0';
+      document.body.appendChild(t); t.select(); const ok = document.execCommand('copy'); document.body.removeChild(t);
+      say(ok ? 'Copied. The full results are on the clipboard.' : 'Copy did not work. Use "Download file" instead.', ok ? 'ok' : 'bad');
+    } catch (x) { say('Copy did not work. Use "Download file" instead.', 'bad'); }
+  }
+};
+
+$('bDown').onclick = () => {
+  try {
+    const url = URL.createObjectURL(new Blob([JSON_TEXT], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = FILE_NAME; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    say('Download started. Look for ' + FILE_NAME + ' in the Downloads list of Safari.', 'ok');
+  } catch (e) { say('Download did not work (' + (e && e.message || e) + '). Use "Copy results" instead.', 'bad'); }
+};
+
+render();
+</script>
+</body>
+</html>

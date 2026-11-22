@@ -63,13 +63,13 @@ const NAMES = Object.keys(SFX_MS);
 const SND = n => '../sounds/' + n + '.m4a';
 
 const CFG = QUICK ? {
-  earA: ['oh-my-god', 'fah'], earB: ['pay-that-man', 'emotional-damage'], earGap: 600,
+  earA: ['oh-my-god', 'fah'], earB: ['pay-that-man', 'emotional-damage'], earGap: 600, earMusic: 1500,
   r2N: [2, 3, 4], r2Silent: 3, r2Music: 1200,
   r3Runs: 1, r3Rev: 1, r3Sounds: ['fah', 'emotional-damage', 'show-me-the-money'],
   r4Windows: 1, r4Burst: [[0, 'what'], [250, 'bruh'], [500, 'what'], [750, 'what-happened'], [1000, 'what'], [1250, 'very-nice']],
   r5Sounds: ['what', 'bruh'], r5Plays: 2, r5Gap: 600, r6Idle: 8000, r7Wait: 60000
 } : {
-  earA: ['oh-my-god', 'pay-that-man', 'fah', 'emotional-damage'], earB: ['oh-my-god', 'pay-that-man', 'fah', 'emotional-damage'], earGap: 700,
+  earA: ['oh-my-god', 'pay-that-man', 'fah', 'emotional-damage'], earB: ['oh-my-god', 'pay-that-man', 'fah', 'emotional-damage'], earGap: 700, earMusic: 1500,
   r2N: [2, 3, 4, 5, 6, 8, 10, 15], r2Silent: 5, r2Music: 1500,
   r3Runs: 3, r3Rev: 2, r3Sounds: ['fah', 'emotional-damage', 'show-me-the-money'],
   r4Windows: 3, r4Burst: [[0, 'what'], [250, 'bruh'], [500, 'what'], [750, 'what-happened'], [1000, 'what'], [1250, 'very-nice']],
@@ -351,7 +351,7 @@ function callPlay(a, j){
 function playEl(a, how, meta){
   const j = newJob(a, Object.assign({ how }, meta));
   j.endedBefore = a.ended; j.rs = a.readyState;
-  if (how === 'safe'){ if (!(a.ended || (a.paused && a.currentTime === 0))){ a.load(); j.loaded = true; } callPlay(a, j); }
+  if (how === 'safe'){ if (!a.ended){ a.load(); j.loaded = true; } callPlay(a, j); }   /* an unlocked player can report position 0 and still start mid-sound: load unless it ended */
   else if (how === 'rewind'){ a.currentTime = 0; callPlay(a, j); }
   else if (how === 'load'){ a.load(); callPlay(a, j); }
   else if (how === 'seeked'){
@@ -488,9 +488,14 @@ async function runR1(){
     const top = P.ear + ' · set ' + (set === 'a' ? 1 : 2) + ' of 2';
     await musicOn('R1' + set);
     listen(top, 'Listen now…', '4 sounds, one after the other');
-    const o = out[set] = { jobs: [] };
-    o.window = await pauseWindow('R1' + set, async () => { await wait(500);
-      for (const n of (set === 'a' ? CFG.earA : CFG.earB)){ o.jobs.push(await earSound(n, set === 'b' ? 0.5 : null)); await wait(CFG.earGap); } });
+    const o = out[set] = { jobs: [], windows: [] };
+    /* every sound gets its own short pause window (pause, the sound, play): never longer than about 2.5 s, music in between */
+    let first = true;
+    for (const n of (set === 'a' ? CFG.earA : CFG.earB)){
+      if (!first) await wait(CFG.earMusic); first = false;
+      const w = await pauseWindow('R1' + set, async () => { await wait(100); o.jobs.push(await earSound(n, set === 'b' ? 0.5 : null)); });
+      o.windows.push({ n, pausedMs: w.pausedMs, pause: w.pause, worked: w.restart ? w.restart.worked : null, igor: w.igor });
+    }
     o.engineFull = o.jobs.filter(j => j.out === 'full').length;
     if (set === 'a') o.answer = await screen('How many sounds did you hear to the end?', '<p class="big">Count only the sounds, not the music.</p>', countBtns(4), { top, auto: 4 });
     else o.answer = await screen('How many sounds stopped half-way?', '<p class="big">A sound that went quiet in the middle counts.</p>', countBtns(4), { top, auto: 4 });

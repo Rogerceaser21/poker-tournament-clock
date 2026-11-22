@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sound Test</title>
+<style>
+  :root { --bg:#10131a; --card:#1b2030; --ink:#f3f5fa; --dim:#a8b0c4; --accent:#3ddc97; --warn:#ffb547; --bad:#ff6b6b; --line:#2c3347; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; background:var(--bg); color:var(--ink); font:20px/1.45 -apple-system, system-ui, sans-serif; -webkit-text-size-adjust:100%; }
+  body { padding:16px 16px 48px; }
+  #prog { font-size:17px; color:var(--dim); min-height:26px; margin-bottom:12px; }
+  #screen { max-width:900px; margin:0 auto; }
+  h1 { font-size:34px; line-height:1.2; margin:8px 0 16px; }
+  p { margin:0 0 14px; }
+  .big { font-size:26px; }
+  ol { padding-left:28px; margin:0 0 16px; } li { margin-bottom:8px; }
+  .btns { display:flex; flex-wrap:wrap; gap:14px; margin-top:22px; }
+  button { font:inherit; font-size:26px; font-weight:600; min-width:110px; min-height:76px; padding:12px 26px; border-radius:16px; border:2px solid var(--line); background:var(--card); color:var(--ink); }
+  button.go { background:var(--accent); color:#06281a; border-color:var(--accent); min-width:240px; }
+  button:disabled { opacity:.45; }
+  .note { color:var(--dim); font-size:18px; }
+  .ok { color:var(--accent); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  table { border-collapse:collapse; width:100%; margin:6px 0 22px; font-size:17px; }
+  th,td { border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top; }
+  th { background:var(--card); }
+  h2 { font-size:22px; margin:22px 0 4px; }
+  .listen { font-size:44px; font-weight:700; text-align:center; margin:60px 0; }
+</style>
+</head>
+<body>
+<div id="prog"></div>
+<div id="screen"></div>
+<script>
+'use strict';
+/* =====================================================================
+   Sound test for the poker clock (one run on Igor's iPad, about 5 min).
+   Every round tests ONE suspect for the lost / cut emoji sounds.
+   Ear rounds (E1-E4) ask Igor; automatic rounds (A1-A7) log timings.
+   Results: on screen, in localStorage (RES_KEY), and sent to the Mac over
+   PeerJS (fixed listener id), only after the rounds have finished.
+   ?fake=1  -> fake Spotify (stubbed fetch) + fake login in its OWN key, auto ear answers.
+              login=valid|expired|none, fail400=1 (token refresh refused), quick=1 (tiny counts).
+   Without ?fake=1 nothing is stubbed and the clock's real Spotify login is used.
+   ===================================================================== */
+const Q = new URLSearchParams(location.search);
+const FAKE = Q.get('fake') === '1';
+const AUTO = FAKE && Q.get('auto') !== '0';
+const QUICK = Q.get('quick') === '1';
+const SPOTIFY_CLIENT_ID = '1af2112558374cc08c7dd725e9be0654';            /* = the clock's */
+const SP_AUTH_KEY = FAKE ? 'soundtest_fake_spotify_auth' : 'poker_spotify_auth_v1';   /* real one = the clock's key */
+const RES_KEY = FAKE ? 'soundtest_results_fake_v1' : 'soundtest_results_v1';
+const PEERJS_SRC = 'https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js';   /* = the clock's PEERJS_SRC */
+const LISTENER_ID = 'pokerclock-soundtest-mac-listener-v1';
+const SFX_MS = { 'oh-my-god': 1615, 'wow': 2600, 'bruh': 629, 'fah': 1927, 'what': 400, 'cool-story-bro': 1110, 'boomshakalaka': 1190,
+  'very-nice': 1075, 'emotional-damage': 2037, 'show-me-the-money': 2060, 'pay-that-man': 1670, 'what-happened': 910 };   /* = the clock's */
+const NAMES = Object.keys(SFX_MS);
+const SND = n => '../sounds/' + n + '.m4a';
+
+const CFG = QUICK ? {
+  earSet: ['what', 'bruh'], earGap: 600, a2Pairs: 2, a2Every: 2500, a2PlayAfter: 1000,
+  a3Runs: 1, a3Sounds: ['fah'], a3StartAt: 900, a3PlayAfter: 500, a3Rest: 800, a4Runs: 1, a4Sounds: ['fah'],
+  a5Rewind: ['what', 'bruh'], a5Other: ['what'], a5Plays: 2, a5Gap: 700,
+  a6Seq: ['what'], a6SeqGap: 300, a6Triple: 'bruh', a6TripleGap: 350, a6AllGap: 250, burstMs: 1500, burstMean: 125
+} : {
+  earSet: ['what', 'bruh', 'what-happened', 'very-nice', 'cool-story-bro'], earGap: 900,
+  a2Pairs: 5, a2Every: 4000, a2PlayAfter: 1500,
+  a3Runs: 3, a3Sounds: ['fah', 'emotional-damage', 'show-me-the-money'], a3StartAt: 900, a3PlayAfter: 500, a3Rest: 1500,
+  a4Runs: 2, a4Sounds: ['fah', 'emotional-damage', 'show-me-the-money'],
+  a5Rewind: ['what', 'bruh', 'what-happened', 'very-nice', 'cool-story-bro', 'boomshakalaka', 'oh-my-god', 'pay-that-man'],
+  a5Other: ['what', 'bruh', 'what-happened', 'very-nice'], a5Plays: 3, a5Gap: 700,
+  a6Seq: ['what', 'bruh', 'what-happened', 'very-nice', 'cool-story-bro', 'boomshakalaka'], a6SeqGap: 300,
+  a6Triple: 'very-nice', a6TripleGap: 350, a6AllGap: 250, burstMs: 8000, burstMean: 125
+};
+/* rough length of the automatic part (s), shown in the log */
+CFG.estimateAutoS = Math.round((
+  CFG.a3Runs * 2 * (CFG.a3StartAt + 2000 + CFG.a3Rest + 300) +
+  CFG.a4Runs * 4 * 2600 +
+  CFG.a5Plays * (CFG.a5Rewind.reduce((s, n) => s + SFX_MS[n] + CFG.a5Gap + 80, 0) + 3 * CFG.a5Other.reduce((s, n) => s + SFX_MS[n] + CFG.a5Gap + 80, 0)) +
+  (CFG.a6Seq.reduce((s, n) => s + SFX_MS[n] + CFG.a6SeqGap, 0) + 2 * (3000 + 12 * CFG.a6AllGap + 2700 + CFG.burstMs + 2700)) +
+  (CFG.burstMs + 3000)) / 1000);
+
+/* ---------------- log + results ---------------- */
+const T0 = performance.now(), now = () => Math.round(performance.now() - T0);
+const wait = ms => new Promise(r => setTimeout(r, ms));
+const rnd = (a, b) => a + Math.random() * (b - a);
+const LOG = [];
+function log(k, o){ const e = Object.assign({ t: now(), k }, o || {}); LOG.push(e); return e; }
+const R = { v: 1, page: 'soundtest', runId: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7), fake: FAKE, quick: QUICK,
+  flags: location.search, ua: navigator.userAgent, startedAt: new Date().toISOString(), cfg: CFG, answers: {}, sp: {}, rounds: {}, log: LOG, done: false };
+function save(){ R.savedAt = new Date().toISOString();
+  try { localStorage.setItem(RES_KEY, JSON.stringify(R)); return true; }
+  catch (e) { try { const lite = Object.assign({}, R, { log: LOG.slice(-400), logTrimmed: LOG.length }); localStorage.setItem(RES_KEY, JSON.stringify(lite)); return true; } catch (x) { log('save-failed', { err: String(x) }); return false; } } }
+
+/* ---------------- screen helpers ---------------- */
+const $ = id => document.getElementById(id);
+function prog(t){ $('prog').textContent = t; }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function show(html){ $('screen').innerHTML = html; window.scrollTo(0, 0); }
+/* a screen with buttons → the value of the tapped one. opts.auto = value to pick by itself in fake mode */
+function screen(title, bodyHtml, buttons, opts){
+  opts = opts || {};
+  return new Promise(res => {
+    show('<h1>' + esc(title) + '</h1>' + bodyHtml + '<div class="btns">' + buttons.map((b, i) =>
+      '<button data-i="' + i + '" aria-label="' + esc(b.label) + '"' + (b.go ? ' class="go"' : '') + (b.disabled ? ' disabled' : '') + '>' + esc(b.label) + '</button>').join('') + '</div>');
+    const at = now(); let done = false;
+    const pick = (i, auto) => { if (done) return; done = true; const b = buttons[i]; log('answer', { title, v: b.v, auto: !!auto, ms: now() - at }); res(b.v); };
+    $('screen').querySelectorAll('button').forEach(el => el.addEventListener('click', () => { if (!el.disabled) pick(+el.dataset.i, false); }));
+    if (opts.enableWhen) opts.enableWhen.then(() => { $('screen').querySelectorAll('button').forEach(el => { el.disabled = false; if (opts.enabledLabel){ el.textContent = opts.enabledLabel; el.setAttribute('aria-label', opts.enabledLabel); } }); });
+    if (AUTO && opts.auto !== undefined){ const i = buttons.findIndex(b => b.v === opts.auto); setTimeout(() => pick(i < 0 ? 0 : i, true), 500); }
+  });
+}
+const countBtns = () => [0, 1, 2, 3, 4, 5].map(v => ({ label: String(v), v }));
+
+/* ---------------- audio session ---------------- */
+const AS = navigator.audioSession || null;
+function sess(type, why){
+  let err = null;
+  try { if (AS) AS.type = type; } catch (e) { err = e.name || String(e); }
+  const got = AS ? AS.type : 'n/a', st = AS ? AS.state : 'n/a';
+  log('sess', { want: type, got, state: st, why: why || '', err });
+  return got;
+}
+if (AS){ try { AS.addEventListener('statechange', () => log('sess-state', { type: AS.type, state: AS.state })); } catch (e) {} }
+document.addEventListener('visibilitychange', () => log('visibility', { hidden: document.hidden }));
+window.addEventListener('pagehide', () => { log('pagehide'); save(); });
+sess('ambient', 'page load (as the clock: SoundFx constructor)');
+
+/* ---------------- fake Spotify (only with ?fake=1) ---------------- */
+if (FAKE){
+  const login = Q.get('login') || 'valid';
+  if (login === 'none') localStorage.removeItem(SP_AUTH_KEY);
+  else localStorage.setItem(SP_AUTH_KEY, JSON.stringify({ access: 'fake-a-0', refresh: 'fake-r-0', exp: login === 'expired' ? Date.now() - 5000 : Date.now() + 3600e3 }));
+  const real = window.fetch.bind(window), fk = { playing: true, vol: 80, n: 0 };
+  const dev = () => ({ id: 'fake-ipad', is_active: true, name: 'Fake iPad', type: 'Tablet', supports_volume: false, volume_percent: fk.vol });
+  const J = (status, obj) => new Response(status === 204 ? null : JSON.stringify(obj || {}), { status, headers: { 'Content-Type': 'application/json' } });
+  window.fetch = async (url, opt) => {
+    const u = String(url); opt = opt || {};
+    if (!/^https:\/\/(api|accounts)\.spotify\.com\//.test(u)) return real(url, opt);
+    await wait(rnd(150, 1200));
+    if (/accounts\.spotify\.com\/api\/token/.test(u)){
+      if (Q.get('fail400') === '1') return J(400, { error: 'invalid_grant', error_description: 'fake refusal' });
+      fk.n++; return J(200, { access_token: 'fake-a-' + fk.n, token_type: 'Bearer', expires_in: 3600, refresh_token: 'fake-r-rotated-' + fk.n, scope: 'x' });
+    }
+    const auth = (opt.headers && opt.headers.Authorization) || '';
+    if (!/^Bearer fake-a-/.test(auth)) return J(401, { error: { status: 401, message: 'fake bad token' } });
+    const p = u.replace('https://api.spotify.com/v1', ''), m = (opt.method || 'GET').toUpperCase();
+    if (m === 'GET' && p.startsWith('/me/player/devices')) return J(200, { devices: [dev()] });
+    if (m === 'GET' && p.startsWith('/me/player')) return J(200, { is_playing: fk.playing, device: dev(), progress_ms: 1000, item: { id: 'x', name: 'Fake song', duration_ms: 200000 } });
+    if (m === 'PUT' && p.startsWith('/me/player/pause')){ if (!fk.playing) return J(403, { error: { status: 403, message: 'Player command failed: Restriction violated', reason: 'UNKNOWN' } }); fk.playing = false; return J(204); }
+    if (m === 'PUT' && p.startsWith('/me/player/play')){ fk.playing = true; return J(204); }
+    if (m === 'PUT' && p.startsWith('/me/player/volume')) return J(403, { error: { status: 403, message: 'Player command failed: Cannot control device volume', reason: 'VOLUME_CONTROL_DISALLOW' } });
+    return J(404, { error: { status: 404, message: 'fake: no such path' } });
+  };
+  log('fake', { login, fail400: Q.get('fail400') === '1' });
+}
+
+/* ---------------- Spotify (the clock's login, the clock's token rules) ---------------- */
+const sp = {
+  device: null, refreshes: [],
+  read(){ try { return JSON.parse(localStorage.getItem(SP_AUTH_KEY) || 'null'); } catch (e) { return null; } },
+  connected(){ const a = this.read(); return !!(a && a.refresh); },
+  /* = the clock's tokenReq for a refresh, with ONE difference: an error never clears or overwrites the saved login.
+     The key is re-read right before (another tab may have refreshed it already) and written back at once, in the clock's format. */
+  async refresh(force){
+    const cur = this.read(); if (!cur || !cur.refresh) return false;
+    if (!force && Date.now() <= cur.exp) return true;
+    if (this.dead) return false;
+    const rec = { at: now(), force: !!force, status: null };
+    this.refreshes.push(rec);
+    let res;
+    try { res = await fetch('https://accounts.spotify.com/api/token', { method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: cur.refresh, client_id: SPOTIFY_CLIENT_ID }) }); }
+    catch (e) { rec.status = 0; rec.err = String(e); log('sp-refresh', rec); return false; }
+    rec.status = res.status;
+    if (!res.ok){ if (res.status === 400) this.dead = true; log('sp-refresh', rec); return false; }   /* the saved login stays as it is; a 400 is not asked again */
+    let j; try { j = await res.json(); } catch (e) { rec.err = 'bad json'; log('sp-refresh', rec); return false; }
+    if (!j.access_token){ rec.err = 'no access_token'; log('sp-refresh', rec); return false; }
+    const next = { access: j.access_token, refresh: j.refresh_token || cur.refresh, exp: Date.now() + (j.expires_in || 3600) * 1000 - 60000 };   /* = the clock's this.auth */
+    try { localStorage.setItem(SP_AUTH_KEY, JSON.stringify(next)); rec.saved = true; } catch (e) { rec.saved = false; rec.err = String(e); }
+    const back = this.read();
+    rec.newRefresh = !!j.refresh_token && j.refresh_token !== cur.refresh;
+    rec.format = back ? Object.keys(back).join(',') + ' / ' + [typeof back.access, typeof back.refresh, typeof back.exp].join(',') : 'missing';
+    rec.expInS = back ? Math.round((back.exp - Date.now()) / 1000) : null;
+    rec.sameKey = SP_AUTH_KEY;
+    log('sp-refresh', rec); return true;
+  },
+  async token(force){
+    let a = this.read(); if (!a || !a.refresh) return null;
+    if (force || Date.now() > a.exp){ if (!(await this.refresh(force))) return null; a = this.read(); }
+    return a && a.access;
+  },
+  /* = the clock's api(): a 401 refreshes once and retries */
+  async api(method, path, retry = true, tag){
+    const sent = now(); const t = await this.token();
+    if (!t){ const e = log('sp', { method, path, status: 0, why: 'no token', sent, back: now(), tag }); return { status: 0, sent, back: e.back }; }
+    const s2 = now(); let res;
+    try { res = await fetch('https://api.spotify.com/v1' + path, { method, headers: { Authorization: 'Bearer ' + t } }); }
+    catch (e) { const r = log('sp', { method, path, status: 0, err: String(e), sent: s2, back: now(), tag }); return { status: 0, sent: s2, back: r.back }; }
+    if (res.status === 401 && retry){ log('sp', { method, path, status: 401, sent: s2, back: now(), tag }); if (await this.refresh(true)) return this.api(method, path, false, tag); return { status: 401, sent: s2, back: now() }; }
+    let data = null; if (res.status === 200 || res.status >= 400){ try { data = await res.json(); } catch (e) {} }
+    const back = now(), e = (data && data.error) || {};
+    log('sp', { method, path, status: res.status, ms: back - s2, sent: s2, back, tag, reason: res.status >= 400 ? (e.reason || '') : undefined, msg: res.status >= 400 ? (e.message || '') : undefined });
+    return { status: res.status, data, sent: s2, back };
+  },
+  async state(tag){
+    const r = await this.api('GET', '/me/player?additional_types=track,episode', true, tag);
+    const d = r.status === 200 && r.data && r.data.device;
+    if (d) this.device = { id: d.id, type: d.type, name: d.name, supports_volume: d.supports_volume, volume_percent: d.volume_percent, is_active: d.is_active };
+    return { status: r.status, playing: r.status === 200 && !!(r.data && r.data.is_playing), device: d ? this.device : null, ms: r.back - r.sent };
+  },
+  /* "play", as the clock's resume: a 404 → play?device_id=..., then once more 1 s later */
+  async play(tag){
+    let r = await this.api('PUT', '/me/player/play', true, tag);
+    if (r.status === 404 && this.device && this.device.id) r = await this.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(this.device.id), true, tag);
+    if (r.status === 404){ await wait(1000); r = await this.api('PUT', '/me/player/play', true, tag);
+      if (r.status === 404 && this.device && this.device.id) r = await this.api('PUT', '/me/player/play?device_id=' + encodeURIComponent(this.device.id), true, tag); }
+    return r;
+  }
+};
+let SPON = false;          /* a saved login exists (decided at Start) */
+/* make sure the music plays again (after a 'playback' set, a pause...). blocking → ask Igor to press play if it would not start */
+async function ensureMusic(tag, blocking){
+  if (!SPON) return { skipped: true };
+  let s = await sp.state(tag + ':check');
+  if (s.playing) return log('music', { tag, playing: true, how: 'was playing' });
+  await sp.play(tag + ':play'); await wait(900);
+  s = await sp.state(tag + ':check2');
+  if (s.playing) return log('music', { tag, playing: true, how: 'page sent play' });
+  if (blocking){
+    await screen('The music stopped', '<p class="big">The page could not start the music again.</p><ol><li>Open the Spotify app.</li><li>Press play.</li><li>Come back to this page and tap Continue.</li></ol>', [{ label: 'Continue', v: 'c', go: true }]);
+    s = await sp.state(tag + ':check3');
+  }
+  return log('music', { tag, playing: s.playing, how: s.playing ? 'Igor pressed play' : 'still not playing' });
+}
+
+/* ---------------- media elements: one tracker for every play ---------------- */
+let JID = 0; const ACTIVE = new Set();
+function wire(a, label){
+  a._label = label;
+  a.addEventListener('play', () => { const j = a._job; if (j && !j.closed) j.sawPlay = true; });
+  a.addEventListener('playing', () => { const j = a._job; if (!j || j.closed || a.muted) return; if (j.playingAt == null){ j.playingAt = now(); j.ct0 = +a.currentTime.toFixed(3); j.durAt = isFinite(a.duration) ? +a.duration.toFixed(3) : null; setTimeout(() => { if (!j.closed) j.ct80 = +a.currentTime.toFixed(3); }, 80); } else j.replaying = (j.replaying || 0) + 1; });
+  a.addEventListener('pause', () => { const j = a._job; if (j && !j.closed && j.sawPlay) closeJob(j, a.ended ? 'ended' : 'pause'); });
+  a.addEventListener('ended', () => { const j = a._job; if (j && !j.closed) closeJob(j, 'ended'); a._busy = false; });
+  a.addEventListener('error', () => { log('el-error', { el: label, code: a.error ? a.error.code : null }); const j = a._job; if (j && !j.closed) closeJob(j, 'error' + (a.error ? a.error.code : '')); a._busy = false; });
+  ['stalled', 'waiting'].forEach(ev => a.addEventListener(ev, () => { const j = a._job; if (j && !j.closed && !a.muted) j[ev] = (j[ev] || 0) + 1; }));
+  return a;
+}
+function mkEl(n, label){ const a = new Audio(SND(n)); a.preload = 'auto'; a.setAttribute('playsinline', ''); a._n = n; a._ok = false; a._try = false; a._busy = false; a._t0 = 0; return wire(a, label || n); }
+setInterval(() => { ACTIVE.forEach(j => { const ct = j.a.currentTime; if (j.playingAt != null && ct > (j.ctMax || 0)) j.ctMax = ct; }); }, 20);
+function newJob(a, meta){
+  const j = Object.assign({ id: ++JID, n: a._n, len: SFX_MS[a._n], el: a._label, a, closed: false, sawPlay: false, calledAt: now(), sess: AS ? AS.type : 'n/a' }, meta || {});
+  j.done = new Promise(r => { j._res = r; }); a._job = j; ACTIVE.add(j);
+  j._to = setTimeout(() => { if (!j.closed) closeJob(j, 'timeout'); }, j.len + 4500);
+  return j;
+}
+function closeJob(j, why){
+  if (j.closed) return; j.closed = true; clearTimeout(j._to); ACTIVE.delete(j);
+  const a = j.a; j.endAt = now(); j.endWhy = why; j.ctEnd = +a.currentTime.toFixed(3);
+  j.ctMax = +Math.max(j.ctMax || 0, a.currentTime).toFixed(3);
+  j.wall = j.playingAt != null ? j.endAt - j.playingAt : null;
+  j.out = classify(j); j._res(j);
+}
+/* full = reached the end AND sounded >= 85 % of the length (wall clock); silent = refused / no playing / < 250 ms; else cut */
+function classify(j){
+  if (j.rej) return 'silent';
+  if (j.wall == null || j.wall < 250) return 'silent';
+  const lenS = j.durAt || j.len / 1000, atEnd = j.endWhy === 'ended' || j.ctEnd >= lenS - 0.06;
+  return atEnd && j.wall >= j.len * 0.85 ? 'full' : 'cut';
+}
+function callPlay(a, j){
+  try { const p = a.play(); j.playCalled = now();
+    if (p && p.then) p.then(() => { j.playRes = now() - j.playCalled; }, x => { j.rej = (x && x.name) || 'Error'; if (!j.closed) closeJob(j, 'refused'); });
+  } catch (x) { j.rej = x.name || 'Error'; closeJob(j, 'threw'); }
+}
+/* the replay methods of A5 (= the simulator's EX matrix) */
+function playHow(a, how, meta){
+  const j = newJob(a, Object.assign({ how }, meta));
+  j.endedBefore = a.ended; j.rs = a.readyState; j.durBefore = isFinite(a.duration) ? +a.duration.toFixed(3) : String(a.duration);
+  if (how === 'rewind') a.currentTime = 0;
+  if (how === 'load') a.load();
+  if (how === 'safe'){ if (!(a.ended || (a.paused && a.currentTime === 0))) { a.load(); j.loaded = true; } }   /* test players: never rewind */
+  a.muted = false; callPlay(a, j); return j;
+}
+const pub = j => { const o = {}; ['id', 'round', 'part', 'set', 'how', 'mode', 'n', 'len', 'el', 'sess', 'calledAt', 'playRes', 'rej', 'playingAt', 'ct0', 'ct80', 'durAt', 'durBefore', 'endedBefore', 'rs', 'loaded', 'endAt', 'endWhy', 'ctEnd', 'ctMax', 'wall', 'out', 'stalled', 'waiting', 'replaying', 'restartedBy', 'i', 'cond', 'flipAt', 'flipTo', 'atSend', 'atReply', 'sendAt', 'replyAt', 'pauseStatus', 'playStatus', 'pauseMs', 'playMs', 'run', 'k'].forEach(k => { if (j[k] !== undefined) o[k] = j[k]; }); return o; };
+
+/* ---------------- A1 pool: the clock's 24 players + the beep, the clock's unlock ---------------- */
+function makeChimeWav(){   /* = the clock's makeChimeWav */
+  const sr = 22050, n = Math.floor(sr * 1.5);
+  const pips = [[0, .12, .015], [.3, .12, .015], [.6, .12, .015], [.9, .5, .06]];
+  const raw = new Float32Array(n);
+  const buf = new ArrayBuffer(44 + n * 2), dv = new DataView(buf);
+  const wr = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  wr(0, 'RIFF'); dv.setUint32(4, 36 + n * 2, true); wr(8, 'WAVE'); wr(12, 'fmt ');
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true); dv.setUint16(34, 16, true);
+  wr(36, 'data'); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++){ const t = i / sr; let s = 0;
+    for (const [st, len, rel] of pips){ const u = t - st; if (u < 0 || u > len) continue;
+      const e = Math.min(1, u / .003) * (u < len - rel ? 1 : Math.max(0, (len - u) / rel)); const w = 2 * Math.PI * 1000 * u;
+      s += e * (Math.sin(w) + Math.sin(3 * w) / 3 + Math.sin(5 * w) / 5 + Math.sin(7 * w) / 7); }
+    raw[i] = s; }
+  let peak = 0; for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(raw[i]));
+  const g = 0.97 / (peak || 1);
+  for (let i = 0; i < n; i++) dv.setInt16(44 + i * 2, Math.round(raw[i] * g * 32767), true);
+  let bin = ''; const bytes = new Uint8Array(buf); for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return 'data:audio/wav;base64,' + btoa(bin);
+}
+const clockPool = {};    /* made at start-up, like the clock's emojiSfx.init() */
+NAMES.forEach(n => { clockPool[n] = [0, 1].map(i => mkEl(n, 'clock:' + n + '#' + i)); });
+const beep = new Audio(); beep.preload = 'auto'; beep.setAttribute('playsinline', ''); try { beep.src = makeChimeWav(); } catch (e) {}
+beep._ok = false; beep._unl = false;
+const clockAll = () => [].concat(...NAMES.map(n => clockPool[n]));
+/* = emojiSfx.unlock() (muted play, then pause + rewind + unmute; refused → the next tap tries again) */
+function clockUnlock(){
+  clockAll().forEach(a => { if (a._ok || a._job && !a._job.closed || a._try) return;
+    a._try = true; a._unlTries = (a._unlTries || 0) + 1;
+    try { a.muted = true; const p = a.play();
+      const ok = () => { a._try = false; a._ok = true; a._okAt = now(); a.pause(); a.currentTime = 0; a.muted = false; };
+      const bad = (x) => { a._try = false; a.muted = false; a._unlErr = (x && x.name) || 'Error'; };
+      if (p && p.then) p.then(ok, bad); else ok(); } catch (x) { a._try = false; a.muted = false; a._unlErr = x.name; } });
+  /* = SoundFx._unlock() for the beep */
+  if (!beep._ok && !beep._unl && beep.paused){ beep._unl = true;
+    try { beep.muted = true; const p = beep.play();
+      const done = () => { beep._unl = false; beep._ok = true; beep._okAt = now(); beep.pause(); beep.currentTime = 0; beep.muted = false; };
+      const bad = (x) => { beep._unl = false; beep.muted = false; beep._unlErr = (x && x.name) || 'Error'; };
+      if (p && p.then) p.then(done, bad); else done(); } catch (e) { beep._unl = false; beep.muted = false; } }
+}
+let firstTapAt = null;
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, (e) => {
+  if (firstTapAt == null && startArmed){ firstTapAt = now(); log('first-tap', { ev }); }
+  if (firstTapAt != null) clockUnlock();
+  onAnyTap(ev);
+}, { passive: true }));
+function a1Snap(label){
+  const els = clockAll().map(a => ({ el: a._label, ok: a._ok, okAt: a._okAt != null ? a._okAt - firstTapAt : null, rs: a.readyState, ns: a.networkState,
+    dur: isFinite(a.duration) ? +a.duration.toFixed(3) : String(a.duration), err: a.error ? a.error.code : null, unlErr: a._unlErr || null, tries: a._unlTries || 0 }));
+  els.push({ el: 'beep', ok: beep._ok, okAt: beep._okAt != null ? beep._okAt - firstTapAt : null, rs: beep.readyState, ns: beep.networkState, dur: isFinite(beep.duration) ? +beep.duration.toFixed(3) : String(beep.duration), err: beep.error ? beep.error.code : null, unlErr: beep._unlErr || null });
+  return { at: label, unlocked: els.filter(x => x.ok).length, of: els.length, els };
+}
+
+/* ---------------- the other players + Web Audio: made and unlocked on a LATER tap ---------------- */
+const testPool = {};   /* 3 per sound: ear rounds, A3, A4 (never rewound: an ended player replays with play() only) */
+const exPool = {};     /* A5: one per sound per method (+ new ones for 'fresh') */
+let poolsAt = null, poolsReady = null, ctx = null, bufs = {}, decodeP = null;
+let startArmed = false;
+function onAnyTap(ev){
+  if (ctx && ev === 'touchend' || ctx && ev === 'pointerdown'){ if (ctx.state !== 'running' && ctx.state !== 'closed'){ try { ctx.resume(); } catch (e) {} } }
+  if (poolsAt == null && firstTapAt != null && now() - firstTapAt >= 5200 && (ev === 'touchend' || ev === 'pointerdown')) makePools(ev);
+  if (poolsAt != null) unlockList(allTest());   /* retried on every tap until each one is unlocked (as the clock does) */
+}
+const allTest = () => [].concat(...Object.values(testPool), ...[].concat(...Object.values(exPool).map(o => [].concat(...Object.values(o)))));
+function unlockList(list, rewind){
+  list.forEach(a => { if (a._ok || a._try || (a._job && !a._job.closed)) return; a._try = true;
+    try { a.muted = true; const p = a.play();
+      const ok = () => { a._try = false; a._ok = true; a.pause(); a.currentTime = 0; a.muted = false; };
+      const bad = x => { a._try = false; a.muted = false; a._unlErr = (x && x.name) || 'Error'; };
+      if (p && p.then) p.then(ok, bad); else ok(); } catch (x) { a._try = false; a.muted = false; } });
+}
+function makePools(ev){
+  poolsAt = now(); log('pools', { ev, afterFirstTap: poolsAt - firstTapAt });
+  NAMES.forEach(n => { testPool[n] = [0, 1, 2].map(i => mkEl(n, 'test:' + n + '#' + i)); });
+  const sets = { rewind: CFG.a5Rewind, plain: CFG.a5Other, load: CFG.a5Other, fresh: CFG.a5Other };
+  Object.keys(sets).forEach(m => { exPool[m] = {}; sets[m].forEach(n => { exPool[m][n] = [mkEl(n, 'ex:' + m + ':' + n)]; }); });
+  unlockList(allTest());
+  try { const C = window.AudioContext || window.webkitAudioContext; ctx = new C(); ctx.onstatechange = () => log('ctx-state', { state: ctx.state, ct: +ctx.currentTime.toFixed(3) });
+    const r = ctx.resume(); log('ctx-made', { state: ctx.state, sr: ctx.sampleRate, baseLatency: ctx.baseLatency, outputLatency: ctx.outputLatency });
+    decodeP = (async () => { for (const n of NAMES){ try { const ab = await (await fetch(SND(n))).arrayBuffer(); bufs[n] = await new Promise((ok, bad) => { const pr = ctx.decodeAudioData(ab, ok, bad); if (pr && pr.catch) pr.catch(() => {}); }); } catch (e) { log('decode-fail', { n, err: String(e) }); } }
+      log('decoded', { n: Object.keys(bufs).length, durs: Object.fromEntries(Object.entries(bufs).map(([k, b]) => [k, +b.duration.toFixed(3)])) }); })();
+  } catch (e) { log('ctx-fail', { err: String(e) }); }
+  poolsReady = (async () => { const t = now(); while (now() - t < 6000){ if (allTest().every(a => a._ok || a._unlErr)) break; await wait(100); }
+    try { await Promise.race([decodeP, wait(6000)]); } catch (e) {}
+    log('pools-ready', { ok: allTest().filter(a => a._ok).length, of: allTest().length, errs: allTest().filter(a => a._unlErr).map(a => a._label + ':' + a._unlErr), ms: now() - t }); })();
+}
+async function waSuspend(why){ if (ctx && ctx.state === 'running'){ try { await ctx.suspend(); } catch (e) {} } log('ctx', { do: 'suspend', why, state: ctx ? ctx.state : 'none' }); }
+async function waResume(why){ if (ctx && ctx.state !== 'running'){ try { await Promise.race([ctx.resume(), wait(1500)]); } catch (e) {} } log('ctx', { do: 'resume', why, state: ctx ? ctx.state : 'none' }); return ctx && ctx.state === 'running'; }
+
+/* a test player for sound n that is free (ended or never played) */
+function testEl(n){ const l = testPool[n]; return l.find(a => a._ok && (!a._job || a._job.closed) && (a.ended || a.currentTime === 0)) || l.find(a => !a._job || a._job.closed) || l[0]; }
+
+/* ---------------- Web Audio play (decoded buffer, a new source per play) ---------------- */
+const WA = [];
+function playBuf(n, meta, gain, comp){
+  const rec = Object.assign({ n, gain: gain || 1, comp: !!comp, schedWall: now() }, meta || {});
+  if (!ctx || !bufs[n]){ rec.err = !ctx ? 'no AudioContext' : 'not decoded'; rec.out = 'silent'; WA.push(rec); return Promise.resolve(rec); }
+  const src = ctx.createBufferSource(); src.buffer = bufs[n];
+  const g = ctx.createGain(); g.gain.value = gain || 1; src.connect(g); let out = g;
+  if (comp){ const c = ctx.createDynamicsCompressor(); c.threshold.value = -3; c.knee.value = 0; c.ratio.value = 20; c.attack.value = 0.002; c.release.value = 0.08; g.connect(c); out = c; }
+  out.connect(ctx.destination);
+  const when = ctx.currentTime + 0.03, dur = src.buffer.duration;
+  Object.assign(rec, { dur: +dur.toFixed(3), when: +when.toFixed(3), state0: ctx.state, outLat: ctx.outputLatency != null ? +(+ctx.outputLatency).toFixed(4) : null, baseLat: ctx.baseLatency != null ? +(+ctx.baseLatency).toFixed(4) : null, states: [] });
+  try { const ts = ctx.getOutputTimestamp && ctx.getOutputTimestamp(); if (ts) rec.outTs = { ctxT: +(+ts.contextTime).toFixed(3), perfLag: +(performance.now() - ts.performanceTime).toFixed(1) }; } catch (e) {}
+  const onSt = () => rec.states.push(ctx.state + '@' + now()); ctx.addEventListener('statechange', onSt);
+  WA.push(rec);
+  return new Promise(res => {
+    let fin = false; const end = why => { if (fin) return; fin = true; ctx.removeEventListener('statechange', onSt);
+      rec.endWall = now(); rec.endCtx = +ctx.currentTime.toFixed(3); rec.why = why; rec.wallMs = rec.endWall - rec.schedWall;
+      rec.ctxLateMs = Math.round((rec.endCtx - (when + dur)) * 1000);
+      rec.out = why === 'ended' && rec.endCtx >= when + dur - 0.03 && !rec.states.some(s => !/^running/.test(s)) && rec.state0 === 'running' ? 'full' : (why === 'ended' ? 'cut' : 'silent');
+      res(rec); };
+    src.onended = () => end('ended');
+    setTimeout(() => end('timeout'), dur * 1000 + 4000);
+    try { src.start(when); } catch (e) { rec.err = String(e); end('start-failed'); }
+  });
+}
+
+/* ---------------- seeded burst (same sequence for A6 and A7) ---------------- */
+function mulberry(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function burstPlan(){ const r = mulberry(4242), out = []; let t = 0; while (t < CFG.burstMs){ out.push({ t: Math.round(t), n: NAMES[Math.floor(r() * 12)] }); t += CFG.burstMean * (0.35 + 1.3 * r()); } return out; }
+async function runPlan(plan, fire){ const t0 = now(), ps = []; for (const s of plan){ const d = t0 + s.t - now(); if (d > 0) await wait(d); ps.push(fire(s)); } return Promise.all(ps); }
+
+/* =====================================================================
+   ROUNDS
+   ===================================================================== */
+async function runA2(){
+  const out = { pairs: [], skipped: null };
+  R.rounds.A2 = out;
+  if (!SPON){ out.skipped = 'no Spotify login saved in this browser'; return out; }
+  const d0 = await sp.state('A2:start'); out.start = d0;
+  if (!d0.playing){ await sp.play('A2:startplay'); await wait(1000); out.start2 = await sp.state('A2:start2'); }
+  const dv = await sp.api('GET', '/me/player/devices', true, 'A2:devices');
+  out.devices = dv.status === 200 && dv.data ? (dv.data.devices || []).map(d => ({ type: d.type, name: d.name, is_active: d.is_active, supports_volume: d.supports_volume, volume_percent: d.volume_percent })) : { status: dv.status };
+  out.device = sp.device;
+  if (sp.device && sp.device.volume_percent != null){
+    const v = await sp.api('PUT', '/me/player/volume?volume_percent=' + sp.device.volume_percent, true, 'A2:volume');
+    out.volume = { sent: sp.device.volume_percent, status: v.status, ms: v.back - v.sent, reason: v.data && v.data.error ? v.data.error.reason || v.data.error.message : null };
+  } else out.volume = { sent: null, status: null, note: 'no device volume known' };
+  for (let i = 0; i < CFG.a2Pairs; i++){
+    const t0 = now(), p = { i };
+    const pr = await sp.api('PUT', '/me/player/pause', true, 'A2:pause'); p.pause = { status: pr.status, ms: pr.back - pr.sent };
+    await wait(Math.max(0, pr.back + 500 - now())); const s1 = await sp.state('A2:after-pause'); p.afterPause = { playing: s1.playing, status: s1.status };
+    await wait(Math.max(0, t0 + CFG.a2PlayAfter - now()));
+    const pl = await sp.play('A2:play'); p.play = { status: pl.status, ms: pl.back - pl.sent };
+    await wait(Math.max(0, pl.back + 500 - now())); const s2 = await sp.state('A2:after-play'); p.afterPlay = { playing: s2.playing, status: s2.status };
+    out.pairs.push(p); prog('Checking the music connection… ' + (i + 1) + ' of ' + CFG.a2Pairs);
+    await wait(Math.max(0, t0 + CFG.a2Every - now()));
+  }
+  out.end = await ensureMusic('A2:end', false);
+  log('A2-done'); save(); prog(''); return out;
+}
+
+async function earSet(round, silent, kind){
+  const set = { round, silent, kind, jobs: [] };
+  prog(round + ' · ' + (silent ? 'Silent Mode on' : 'Silent Mode off') + ' · listening');
+  show('<p class="listen">Listen now…</p><p class="note" style="text-align:center">5 sounds, one after the other</p>');
+  await wait(700);
+  if (kind === 'webaudio'){
+    sess('ambient', round + ' webaudio'); await waResume(round + ' webaudio');
+    for (const n of CFG.earSet){ const r = await playBuf(n, { round, part: 'ear-' + kind }); set.jobs.push({ n, out: r.out, wallMs: r.wallMs, ctxLateMs: r.ctxLateMs, states: r.states, state0: r.state0, err: r.err || null }); await wait(CFG.earGap); }
+    await waSuspend(round + ' webaudio done');
+  } else {
+    await waSuspend(round + ' elements');
+    const mode = kind === 'playback' ? 'playback' : 'ambient';
+    for (const n of CFG.earSet){ sess(mode, round + ' ' + kind); const j = playHow(testEl(n), 'safe', { round, part: 'ear-' + kind }); await j.done; set.jobs.push(pub(j)); await wait(CFG.earGap); }
+    sess('ambient', round + ' set done');
+  }
+  set.engineFull = set.jobs.filter(j => j.out === 'full').length;
+  return set;
+}
+async function earRound(round, silent){
+  const sets = R.rounds[round] = [];
+  const labels = { ambient: 'the clock’s way (mixing with the music)', playback: 'full-volume mode (music may stop)', webaudio: 'a second sound engine' };
+  for (const kind of ['ambient', 'playback', 'webaudio']){
+    const s = await earSet(round, silent, kind);
+    if (kind === 'playback') s.musicAfter = await ensureMusic(round + ':after-playback', true);
+    const auto = silent ? (kind === 'playback' ? 5 : 0) : 5;
+    s.heard = await screen('How many sounds did you hear?', '<p class="note">' + esc(round) + ' · ' + esc(labels[kind]) + '</p><p class="big">Count only the sounds, not the music.</p>', countBtns(), { auto });
+    s.heardAuto = AUTO; sets.push(s); save();
+  }
+}
+async function runE3(){
+  const out = R.rounds.E3 = { plays: [] };
+  prog('E3 · loudness'); show('<p class="listen">Listen now…</p><p class="note" style="text-align:center">The same sound 3 times: number 1, number 2, number 3</p>');
+  sess('ambient', 'E3'); await waResume('E3'); await wait(700);
+  for (const [i, g] of [[1, 1.0], [2, 2.0], [3, 3.0]]){
+    show('<p class="listen">Sound number ' + i + '</p>');
+    const r = await playBuf('very-nice', { round: 'E3', part: 'gain' + g }, g, true); out.plays.push({ i, gain: g, out: r.out, wallMs: r.wallMs, ctxLateMs: r.ctxLateMs, states: r.states }); await wait(1300);
+  }
+  await waSuspend('E3 done');
+  out.loudest = await screen('Which one was loudest?', '<p class="big">Sound number 1, 2 or 3?</p>', [{ label: '1', v: '1' }, { label: '2', v: '2' }, { label: '3', v: '3' }, { label: 'All the same', v: 'same' }], { auto: '3' });
+  out.crushed = await screen('Did the louder ones sound crushed?', '<p class="big">Crushed = harsh, crackly or squashed.</p>', [{ label: 'No', v: 'no' }, { label: 'A bit', v: 'a bit' }, { label: 'Badly', v: 'badly' }], { auto: 'a bit' });
+  out.auto = AUTO; save();
+}
+async function runE4(){
+  const out = R.rounds.E4 = {};
+  await ensureMusic('E4:start', true);
+  for (const type of ['transient', 'transient-solo']){
+    const o = out[type] = { jobs: [] };
+    prog('E4 · ' + type); show('<p class="listen">Listen to the music…</p><p class="note" style="text-align:center">3 sounds will play. Notice what the music does.</p>');
+    await waSuspend('E4'); await wait(900);
+    for (let i = 0; i < 3; i++){ o.got = sess(type, 'E4'); const n = 'show-me-the-money'; const j = playHow(testEl(n), 'safe', { round: 'E4', part: type }); await j.done; o.jobs.push(pub(j)); await wait(900); }
+    sess('ambient', 'E4 done');
+    o.answer = await screen('Did the music get quieter during the sounds?', '', [{ label: 'Yes, quieter', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'It stopped', v: 'it stopped' }], { auto: type === 'transient' ? 'yes' : 'it stopped' });
+    o.auto = AUTO;
+    o.musicAfter = await ensureMusic('E4:after-' + type, true); save();
+  }
+}
+
+/* A3: the clock's dip against real Spotify, the sound deliberately still sounding when "play" goes out and is answered */
+async function runA3(){
+  const out = R.rounds.A3 = { runs: [], skipped: null };
+  if (!SPON){ out.skipped = R.sp.loginBroken ? 'Spotify login did not work (left as it is)' : 'no Spotify login saved in this browser'; return; }
+  let k = 0;
+  for (const mode of ['playback', 'ambient']) for (let i = 0; i < CFG.a3Runs; i++){
+    prog('Automatic test 1 of 6 · music pause and sound · ' + (++k) + ' of ' + (CFG.a3Runs * 2));
+    const m0 = await ensureMusic('A3:before', false);
+    const n = CFG.a3Sounds[i % CFG.a3Sounds.length];
+    const t0 = now(), pr = await sp.api('PUT', '/me/player/pause', true, 'A3:pause');
+    await wait(Math.max(0, t0 + CFG.a3StartAt - now()));
+    sess(mode, 'A3');
+    const j = playHow(testEl(n), 'safe', { round: 'A3', mode, run: i, pauseStatus: pr.status, pauseMs: pr.back - pr.sent, musicBefore: m0.playing });
+    for (let w = 0; w < 100 && j.playingAt == null && !j.closed; w++) await wait(20);
+    await wait(CFG.a3PlayAfter);
+    j.sendAt = now() - (j.playingAt != null ? j.playingAt : now()); j.atSend = +j.a.currentTime.toFixed(3);
+    const pl = sp.play('A3:play').then(r => { j.replyAt = now() - (j.playingAt != null ? j.playingAt : now()); j.atReply = +j.a.currentTime.toFixed(3); j.playStatus = r.status; j.playMs = r.back - r.sent; j.closedBeforeReply = j.closed; return r; });
+    await j.done; await pl;
+    sess('ambient', 'A3 after');
+    const o = pub(j); o.closedBeforeReply = j.closedBeforeReply; o.musicBefore = m0.playing; out.runs.push(o);
+    await wait(CFG.a3Rest);
+  }
+  out.musicEnd = await ensureMusic('A3:end', true); save();
+}
+/* A4: audio mode flipped while a sound plays */
+async function runA4(){
+  const out = R.rounds.A4 = { runs: [] }; let k = 0;
+  const conds = [['playback', 'ambient', 0.3], ['playback', 'ambient', 0.7], ['ambient', 'playback', 0.3], ['ambient', 'playback', 0.7]];
+  for (let i = 0; i < CFG.a4Runs; i++) for (const [from, to, at] of conds){
+    prog('Automatic test 2 of 6 · mode switch during a sound · ' + (++k) + ' of ' + conds.length * CFG.a4Runs);
+    const n = CFG.a4Sounds[k % CFG.a4Sounds.length];
+    sess(from, 'A4 start');
+    const j = playHow(testEl(n), 'safe', { round: 'A4', cond: from + '>' + to + '@' + Math.round(at * 100) + '%', run: i });
+    for (let w = 0; w < 100 && j.playingAt == null && !j.closed; w++) await wait(20);
+    await wait(SFX_MS[n] * at);
+    j.flipAt = j.playingAt != null ? now() - j.playingAt : null; j.flipTo = to; sess(to, 'A4 flip');
+    await j.done; out.runs.push(pub(j));
+    sess('ambient', 'A4 done'); await wait(500);
+  }
+  out.musicEnd = await ensureMusic('A4:end', true); save();
+}
+/* A5: replay methods (the simulator's EX matrix): each sound 3 times, 0.7 s after the previous play ended */
+async function runA5(){
+  const out = R.rounds.A5 = { plays: [] };
+  sess('ambient', 'A5');
+  const order = ['rewind', 'plain', 'load', 'fresh'];
+  const total = CFG.a5Plays * (CFG.a5Rewind.length + 3 * CFG.a5Other.length); let k = 0;
+  for (let i = 0; i < CFG.a5Plays; i++) for (const n of CFG.a5Rewind) for (const m of order){
+    if (!exPool[m][n]) continue;
+    let a = exPool[m][n][exPool[m][n].length - 1];
+    if (m === 'fresh' && i > 0){ a = mkEl(n, 'ex:fresh:' + n + '#' + i); exPool[m][n].push(a); await wait(300); }
+    prog('Automatic test 3 of 6 · replaying sounds · ' + (++k) + ' of ' + total);
+    const j = playHow(a, m === 'fresh' ? 'plain' : m, { round: 'A5', mode: m, i });
+    await j.done; const o = pub(j); o.how = m; out.plays.push(o);
+    await wait(CFG.a5Gap);
+  }
+  save();
+}
+/* A7: the clock's way under the burst: its 24 players, its pick + restart rule (emojiSfx.pick / play), no Spotify calls */
+async function runA7(){
+  const out = R.rounds.A7 = { plays: [] };
+  sess('ambient', 'A7'); prog('Automatic test 5 of 6 · the clock’s way, 10-phone burst');
+  const pick = n => { const l = clockPool[n]; return l.find(a => !a._busy && a.paused && !a._try) || l.find(a => !a._busy) || l.slice().sort((x, y) => x._t0 - y._t0)[0]; };
+  const jobs = await runPlan(burstPlan(), s => {
+    const a = pick(s.n), old = a._job;
+    if (old && !old.closed){ old.restartedBy = JID + 1; closeJob(old, 'restarted'); }
+    a._busy = true; a._t0 = now();
+    const j = newJob(a, { round: 'A7', k: s.t });
+    if (!a.paused) a.pause();                      /* = line 2686-2687 */
+    a.muted = false; a.currentTime = 0; callPlay(a, j);
+    return j.done.then(() => { if (j.rej && a._job === j) a._busy = false; return j; });
+  });
+  out.plays = jobs.map(pub); save();
+}
+/* A6: Web Audio — sequence, the same sound 3x 350 ms apart, all twelve 250 ms apart, then the 10-phone burst */
+async function runA6(type){
+  const out = (R.rounds.A6 = R.rounds.A6 || {})[type] = { parts: {} };
+  sess(type, 'A6 ' + type); const ok = await waResume('A6 ' + type); out.ctxRunning = ok; out.ctxState = ctx ? ctx.state : 'none';
+  const P = (part, arr) => { out.parts[part] = arr.map(r => ({ n: r.n, out: r.out, dur: r.dur, wallMs: r.wallMs, ctxLateMs: r.ctxLateMs, why: r.why, state0: r.state0, states: r.states, outLat: r.outLat, baseLat: r.baseLat, outTs: r.outTs, err: r.err })); };
+  if (type === 'ambient'){
+    prog('Automatic test 4 of 6 · second sound engine, one by one');
+    const seq = []; for (const n of CFG.a6Seq){ seq.push(await playBuf(n, { round: 'A6', part: 'seq' })); await wait(CFG.a6SeqGap); } P('seq', seq);
+  }
+  prog('Automatic test 4 of 6 · second sound engine (' + type + '), quick repeats');
+  P('triple', await runPlan([0, 1, 2].map(i => ({ t: i * CFG.a6TripleGap, n: CFG.a6Triple })), s => playBuf(s.n, { round: 'A6', part: 'triple' }))); await wait(300);
+  P('twelve', await runPlan(NAMES.map((n, i) => ({ t: i * CFG.a6AllGap, n })), s => playBuf(s.n, { round: 'A6', part: 'twelve' }))); await wait(300);
+  prog('Automatic test 4 of 6 · second sound engine (' + type + '), 10-phone burst');
+  P('burst', await runPlan(burstPlan(), s => playBuf(s.n, { round: 'A6', part: 'burst' })));
+  await waSuspend('A6 ' + type + ' done'); sess('ambient', 'A6 done'); save();
+}
+
+/*SUMMARY-START*/
+/* summarise(R) → [{ title, head: [...], rows: [[...]] }] — pure (no DOM); report.js runs this same code on the Mac */
+function summarise(R){
+  const T = [], cnt = (arr, k, v) => arr.filter(x => x[k] === v).length;
+  const tri = arr => ({ n: arr.length, full: cnt(arr, 'out', 'full'), cut: cnt(arr, 'out', 'cut'), silent: cnt(arr, 'out', 'silent') });
+  const A = R.answers || {}, rd = R.rounds || {};
+  T.push({ title: 'Run', head: ['what', 'value'], rows: [['run id', R.runId], ['fake Spotify', R.fake ? 'YES (test run)' : 'no (real)'], ['finished', R.done ? 'yes' : 'NO (partial)'], ['started', R.startedAt],
+    ['Spotify login', R.sp && R.sp.login ? (R.sp.loginBroken ? 'found but not working: Spotify rounds skipped' : 'found') : 'none: Spotify rounds skipped'], ['login refreshed', R.sp && R.sp.refreshes ? R.sp.refreshes.map(r => r.status + (r.saved ? ' saved ' + r.format : '')).join('; ') || 'not needed' : '-'],
+    ['music at start', R.sp && R.sp.atStart ? (R.sp.atStart.playing ? 'playing' : 'not playing') : '-'], ['music at end', R.sp && R.sp.atEnd ? (R.sp.atEnd.playing ? 'playing' : (R.sp.atEnd.skipped ? '-' : 'not playing')) : '-']] });
+  T.push({ title: 'Memory questions', head: ['question', 'answer'], rows: [['Silent Mode on at game night?', A.mem1 == null ? '-' : A.mem1], ['Sounds started working after someone touched the iPad?', A.mem2 == null ? '-' : A.mem2]] });
+  const ear = [];
+  ['E1', 'E2'].forEach(r => (rd[r] || []).forEach(s => ear.push([r, s.silent ? 'ON' : 'off', s.kind, String(s.heard) + ' of 5' + (s.heardAuto ? ' (auto)' : ''), s.engineFull + ' of ' + s.jobs.length])));
+  T.push({ title: 'E1/E2 Silent Mode: sounds heard', head: ['round', 'Silent Mode', 'how played', 'Igor heard', 'engine says full'], rows: ear });
+  if (rd.E3) T.push({ title: 'E3 Loudness (Web Audio + limiter)', head: ['what', 'value'], rows: [['loudest', rd.E3.loudest], ['crushed', rd.E3.crushed], ['plays full', rd.E3.plays.filter(p => p.out === 'full').length + ' of 3']] });
+  if (rd.E4) T.push({ title: 'E4 transient modes, music playing', head: ['mode', 'mode accepted', 'music during sounds', 'sounds full'], rows: ['transient', 'transient-solo'].filter(k => rd.E4[k]).map(k => [k, rd.E4[k].got, rd.E4[k].answer, tri(rd.E4[k].jobs).full + ' of ' + rd.E4[k].jobs.length]) });
+  if (rd.A1) T.push({ title: 'A1 Unlock, the clock’s way (24 players + beep)', head: ['after first tap', 'unlocked', 'readyState 0/1/2/3/4', 'errors'], rows: (rd.A1.snaps || []).map(s => [s.at, s.unlocked + ' of ' + s.of, [0, 1, 2, 3, 4].map(v => s.els.filter(e => e.rs === v).length).join('/'), s.els.filter(e => e.err || e.unlErr).map(e => e.el + ':' + (e.err || e.unlErr)).join(' ') || 'none']) });
+  if (rd.A2){ const a = rd.A2;
+    if (a.skipped) T.push({ title: 'A2 Spotify timings', head: ['note'], rows: [[a.skipped]] });
+    else { T.push({ title: 'A2 Spotify device', head: ['what', 'value'], rows: [['type', a.device ? a.device.type : '-'], ['supports_volume', a.device ? String(a.device.supports_volume) : '-'], ['volume_percent', a.device ? a.device.volume_percent : '-'], ['volume command reply', a.volume ? a.volume.status + (a.volume.reason ? ' ' + a.volume.reason : '') : '-']] });
+      T.push({ title: 'A2 Spotify pause / play timings', head: ['#', 'pause reply', 'ms', 'playing 0.5 s after', 'play reply', 'ms', 'playing 0.5 s after'], rows: a.pairs.map(p => [p.i + 1, p.pause.status, p.pause.ms, String(p.afterPause.playing), p.play.status, p.play.ms, String(p.afterPlay.playing)]) }); } }
+  if (rd.A3){ const a = rd.A3;
+    if (a.skipped) T.push({ title: 'A3 Sound still playing when the music comes back', head: ['note'], rows: [[a.skipped]] });
+    else T.push({ title: 'A3 Sound still playing when the music comes back', head: ['mode', 'sound', 'wanted ms', 'sounded ms', 'furthest ms', 'ended by', 'play sent at ms', 'reply at ms', 'play reply', 'result'], rows: a.runs.map(r => [r.mode, r.n, r.len, r.wall, Math.round((r.ctMax || 0) * 1000), r.endWhy, r.sendAt, r.replyAt, r.playStatus, r.out]) }); }
+  if (rd.A4) T.push({ title: 'A4 Mode switch during a sound', head: ['switch', 'switched at ms', 'sounded ms', 'ended by', 'result'], rows: rd.A4.runs.map(r => [r.cond, r.flipAt, r.wall, r.endWhy, r.out]) });
+  if (rd.A5){ const p = rd.A5.plays, rows = [];
+    ['rewind', 'plain', 'load', 'fresh'].forEach(m => { const f = p.filter(x => x.how === m && x.i === 0), r = p.filter(x => x.how === m && x.i > 0), a = tri(f), b = tri(r);
+      rows.push([m === 'rewind' ? 'currentTime=0 + play (clock)' : m === 'plain' ? 'play() only' : m === 'load' ? 'load() + play' : 'new Audio each time', a.full + ' of ' + a.n, b.full + ' of ' + b.n, b.cut, b.silent]); });
+    T.push({ title: 'A5 Replaying a finished sound', head: ['method', '1st play full', 'replays full', 'replays cut', 'replays silent'], rows }); }
+  const wrow = (label, arr) => { const t = tri(arr); return [label, t.n, t.full, t.cut, t.silent]; };
+  if (rd.A6){ const rows = [];
+    ['ambient', 'playback'].forEach(k => { const o = rd.A6[k]; if (!o) return; Object.keys(o.parts).forEach(p => rows.push(wrow('Web Audio ' + k + ' · ' + p, o.parts[p]))); });
+    if (rd.A7) rows.push(wrow('Clock’s way (A7) · burst', rd.A7.plays));
+    T.push({ title: 'A6/A7 Second sound engine vs the clock’s way', head: ['test', 'sounds', 'full', 'cut', 'silent'], rows });
+    const ctxs = []; ['ambient', 'playback'].forEach(k => { const o = rd.A6[k]; if (!o) return; const all = [].concat(...Object.values(o.parts)); const lat = all.map(x => x.outLat).filter(x => x != null);
+      ctxs.push([k, o.ctxState, all.filter(x => x.states && x.states.length).length, lat.length ? Math.min(...lat) + '–' + Math.max(...lat) : '-', Math.max(0, ...all.map(x => Math.abs(x.ctxLateMs || 0)))]); });
+    T.push({ title: 'A6 Web Audio engine state', head: ['session', 'context state', 'sounds with a state change', 'outputLatency s', 'worst end vs plan ms'], rows: ctxs }); }
+  else if (rd.A7) T.push({ title: 'A7 Clock’s way, burst', head: ['test', 'sounds', 'full', 'cut', 'silent'], rows: [wrow('burst', rd.A7.plays)] });
+  return T;
+}
+/*SUMMARY-END*/
+function tablesHtml(T){ return T.map(t => '<h2>' + esc(t.title) + '</h2><table><tr>' + t.head.map(h => '<th>' + esc(h) + '</th>').join('') + '</tr>' + t.rows.map(r => '<tr>' + r.map(c => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('') + '</table>').join(''); }
+
+/* ---------------- send to the Mac (PeerJS), only after the rounds ---------------- */
+function loadScript(src){ return new Promise((ok, bad) => { if (window.Peer) return ok(); const s = document.createElement('script'); s.src = src; s.async = true; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
+let sending = false, lastSay = '';
+const OLD_KEY = RES_KEY + '_old';
+const say = (t, c) => { lastSay = t; if ($('sendState')){ $('sendState').textContent = t; $('sendState').className = 'big ' + (c || ''); } };
+async function sendResults(){
+  let old = null; try { old = JSON.parse(localStorage.getItem(OLD_KEY) || 'null'); } catch (e) {}
+  if (old && !old.sentOk) await sendOne(old, OLD_KEY);
+  let cur = null; try { cur = JSON.parse(localStorage.getItem(RES_KEY) || 'null'); } catch (e) {}
+  return sendOne(cur && cur.runId === R.runId ? cur : R, RES_KEY);
+}
+async function sendOne(obj, key){
+  if (sending || !obj) return false; sending = true;
+  const runId = obj.runId, body = JSON.stringify(obj), SZ = 12000, n = Math.ceil(body.length / SZ);
+  say('Sending results to the Mac…');
+  let peer = null;
+  const ok = await new Promise(async res => {
+    const to = setTimeout(() => res(false), 30000);
+    try { await loadScript(PEERJS_SRC); } catch (e) { clearTimeout(to); res(false); return; }
+    try { peer = new Peer({ debug: 0 }); } catch (e) { clearTimeout(to); res(false); return; }
+    peer.on('error', e => { log('peer-error', { type: e && e.type }); clearTimeout(to); res(false); });
+    peer.on('open', () => {
+      const c = peer.connect(LISTENER_ID, { reliable: true, serialization: 'json' });
+      c.on('data', m => { if (m && m.t === 'ack' && m.runId === runId){ clearTimeout(to); res(true); } });
+      c.on('error', () => { clearTimeout(to); res(false); });
+      c.on('open', async () => {
+        c.send({ t: 'begin', runId, n, size: body.length });
+        for (let i = 0; i < n; i++){ c.send({ t: 'chunk', runId, i, s: body.slice(i * SZ, (i + 1) * SZ) });
+          for (let w = 0; w < 200 && c.dataChannel && c.dataChannel.bufferedAmount > 64000; w++) await wait(20);
+          say('Sending results to the Mac… ' + Math.round((i + 1) / n * 100) + '%'); }
+        c.send({ t: 'end', runId, n });
+      });
+    });
+  });
+  try { peer && peer.destroy(); } catch (e) {}
+  sending = false;
+  try { const o = JSON.parse(localStorage.getItem(key) || 'null'); if (o && o.runId === runId && ok){ o.sentOk = new Date().toISOString(); localStorage.setItem(key, JSON.stringify(o)); if (runId === R.runId) R.sentOk = o.sentOk; } } catch (e) {}
+  say(ok ? 'Results sent to the Mac ✓' : 'Not sent yet. Tap “Send results again” in a minute.', ok ? 'ok' : 'warn');
+  return ok;
+}
+
+/* =====================================================================
+   THE RUN
+   ===================================================================== */
+async function main(){
+  let prev = null; try { prev = JSON.parse(localStorage.getItem(RES_KEY) || 'null'); } catch (e) {}
+  startArmed = true;
+  const intro = '<p class="big">This checks why the emoji sounds got lost on game night. It takes about 5 minutes.</p>' +
+    '<p><b>Sounds will play, and the music will stop for moments now and then.</b> That is part of the test.</p>' +
+    '<p>Before you start:</p><ol><li>Close the poker clock page, if it is open in another tab.</li><li>Play music in the Spotify app on this iPad.</li><li>Turn the iPad volume up to a normal level.</li></ol>' +
+    '<p>Then tap Start and follow the screens. Each screen asks for one thing.</p>' + (FAKE ? '<p class="warn">Test run with a fake Spotify.</p>' : '') +
+    (prev && !prev.sentOk ? '<p class="note">A previous result has not reached the Mac yet.</p><p id="sendState" class="big"></p>' : '');
+  const btns = [{ label: 'Start', v: 'start', go: true }]; if (prev && !prev.sentOk) btns.push({ label: 'Send results again', v: 'resend' });
+  let v; while ((v = await screen('Sound test', intro + (lastSay ? '<p class="big">' + esc(lastSay) + '</p>' : ''), btns)) === 'resend'){ await sendOne(prev, RES_KEY); }
+  /* an unsent earlier result is kept in its own slot (sent again at the end), never overwritten */
+  if (prev && !prev.sentOk){ try { localStorage.setItem(OLD_KEY, JSON.stringify(prev)); } catch (e) {} }
+  /* ---- Start (tap 1 = the clock's unlock, A1) ---- */
+  log('start', { cfg: CFG, estimateAutoS: CFG.estimateAutoS, session: AS ? AS.type : 'n/a' });
+  R.rounds.A1 = { snaps: [] };
+  [500, 2000, 5000].forEach(ms => setTimeout(() => { R.rounds.A1.snaps.push(a1Snap(ms / 1000 + ' s')); if (ms === 5000) save(); }, ms));
+  SPON = sp.connected(); R.sp.login = SPON; R.sp.key = FAKE ? 'fake key' : 'clock key';
+  let a2 = Promise.resolve();
+  if (SPON){ R.sp.atStart = await sp.state('start');
+    if (R.sp.atStart.status === 0){ await wait(1200); R.sp.atStart = await sp.state('start-retry'); }
+    if (R.sp.atStart.status === 0 || R.sp.atStart.status === 401){ SPON = false; R.sp.loginBroken = 'saved login did not give a token (status ' + R.sp.atStart.status + '); left as it is'; log('login-broken', { status: R.sp.atStart.status }); } }
+  if (SPON){ a2 = wait(600).then(runA2).catch(e => { log('A2-error', { err: String(e) }); }); }
+  else { R.rounds.A2 = { skipped: R.sp.loginBroken ? 'Spotify login did not work (left as it is)' : 'no Spotify login saved in this browser' }; log('no-login'); }
+  R.answers.mem1 = await screen('On game night, was Silent Mode on?', '<p class="big">Silent Mode is the bell in Control Centre. With a line through it, the iPad is silent.</p>', [{ label: 'Yes', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'Don’t know', v: 'don’t know' }], { auto: 'don’t know' });
+  R.answers.mem2 = await screen('On game night, did the sounds start working around the time someone first touched the iPad screen?', '<p class="big">For example, to start the clock.</p>', [{ label: 'Yes', v: 'yes' }, { label: 'No', v: 'no' }, { label: 'Don’t know', v: 'don’t know' }], { auto: 'don’t know' });
+  save();
+  /* ---- E1 Silent Mode ON ---- */
+  await screen('Turn Silent Mode ON', '<ol class="big"><li>Swipe down from the top-right corner of the screen.</li><li>Tap the bell so it shows a line through it.</li><li>Swipe back up and tap Continue.</li></ol>',
+    [{ label: 'Please wait…', v: 'c', go: true, disabled: true }], { enableWhen: a2.then(() => {}), enabledLabel: 'Continue' });
+  if (poolsReady) await poolsReady; else { log('pools-late'); makePools('late'); await poolsReady; }
+  await earRound('E1', true);
+  /* ---- E2 Silent Mode OFF ---- */
+  await screen('Turn Silent Mode OFF', '<ol class="big"><li>Swipe down from the top-right corner.</li><li>Tap the bell again so the line goes away.</li><li>Swipe back up and tap Continue.</li></ol>', [{ label: 'Continue', v: 'c', go: true }]);
+  await earRound('E2', false);
+  await runE3();
+  await runE4();
+  /* ---- automatic part ---- */
+  await screen('Now the page tests by itself', '<p class="big">This takes about ' + Math.max(1, Math.round(CFG.estimateAutoS / 60)) + ' minutes.</p><ol class="big"><li>Leave Silent Mode OFF.</li><li>Put the iPad down and do not touch it.</li><li>Keep this page open.</li></ol><p>Sounds will play and the music will stop and start. That is expected.</p>', [{ label: 'Start', v: 'go', go: true }]);
+  show('<p class="listen">Testing… please do not touch the iPad</p>');
+  await ensureMusic('auto:start', true);
+  await runA6('ambient');
+  await runA7();
+  await runA6('playback');
+  await ensureMusic('after A6 playback', true);
+  await waSuspend('auto elements');
+  await runA3();
+  await runA4();
+  await runA5();
+  /* ---- finish ---- */
+  sess('ambient', 'end');
+  if (SPON && R.sp.atStart && R.sp.atStart.playing){ R.sp.atEnd = await ensureMusic('end', true); }
+  else R.sp.atEnd = SPON ? await sp.state('end') : { skipped: true };
+  R.sp.refreshes = sp.refreshes; R.sp.device = sp.device;
+  R.done = true; R.endedAt = new Date().toISOString(); R.wavs = WA.length; log('DONE');
+  R.summary = summarise(R); save();
+  prog('Finished.');
+  show('<h1>Finished. Thank you!</h1><p id="sendState" class="big"></p><div class="btns"><button id="resend" aria-label="Send results again">Send results again</button></div>' + tablesHtml(R.summary));
+  $('resend').addEventListener('click', () => sendResults());
+  await sendResults();
+}
+main().catch(e => { log('fatal', { err: String(e), stack: e && e.stack }); save(); show('<h1>Something went wrong</h1><p class="big">' + esc(e) + '</p><p id="sendState" class="big"></p><div class="btns"><button id="resend">Send results again</button></div>'); $('resend').addEventListener('click', () => sendResults()); });
+</script>
+</body>
+</html>

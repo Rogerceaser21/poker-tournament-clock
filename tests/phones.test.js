@@ -126,6 +126,10 @@ async function check(name, fn){
       const ok = await until(() => host.evaluate(() => { const f = [...document.querySelectorAll('#emojiLayer .emoji-fly')].map(x => x.textContent), s = window.__sfx || [];
         return f.some(t => t.includes('💵') && t.includes('Ann')) && f.some(t => t.includes('❓') && t.includes('Cat')) && s.some(x => x.endsWith('sounds/pay-that-man.m4a')) && s.some(x => x.endsWith('sounds/what-happened.m4a')); }), 4000);
       return !!ok || await host.evaluate(() => ({ fly: [...document.querySelectorAll('#emojiLayer .emoji-fly')].map(x => x.textContent), sfx: window.__sfx })); });
+    await check('PREVIEW: the iPad tells a phone its sound was skipped (more than 6 waiting) → that phone shows "skipped, too many sounds"', async () => {
+      await host.evaluate(() => { phones.conns.forEach(x => { if (x.name === 'Ann') phones.send(x.c, { t: 'skipped', id: 'zz', e: '🔥' }); }); });
+      const ok = await until(() => phones[0].p.evaluate(() => { const r = document.getElementById('receipt'); return r.classList.contains('show') && r.textContent === '✗ 🔥 skipped, too many sounds'; }), 3000, 100);
+      return !!ok || await phones[0].p.evaluate(() => document.getElementById('receipt').textContent); });
     await check('PREVIEW: phone shows the twelve emojis in order 😂 🔥 🤡 💀 / 🤯 📖 👏 😭 / 💰 💵 ❓ 💣', async () => {
       const r = await phones[0].p.evaluate(() => [...document.querySelectorAll('#emojis button')].map(b => b.dataset.e).join(' '));
       return r === '😂 🔥 🤡 💀 🤯 📖 👏 😭 💰 💵 ❓ 💣' || r; });

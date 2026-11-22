@@ -606,6 +606,16 @@ const PREVIEW_TESTS = [
     await wait(1200); fake.ignorePlay = 1; log.length = 0; emoji(p, '🤡'); await wait(5000);
     const pl = log.filter(e => e.c === 'PUT /me/player/play' || e.c === 'PUT /me/player'), reads = log.filter(e => e.u.startsWith('/me/player?'));
     return (pl.length === 2 && pl[1].u.includes('device_id') && pl[1].t - pl[0].done >= 950 && fake.playing) || { calls: pl.map(e => e.u + '@' + e.t), playing: fake.playing }; }, { spotify: true }],
+  ['PREVIEW: Spotify disconnected in Settings → emoji and level beep play in full, no Spotify calls (like no Spotify at all)', async ({ p, log }) => {
+    await wait(1200); await p.evaluate(() => spotify.disconnect()); log.length = 0;
+    await emoji(p, '🤡'); await wait(300); await p.evaluate(() => window.levelAlert()); await wait(3000);
+    const r = await p.evaluate(() => ({ sfx: window.__sfx.map(x => x.n), ends: window.__ends.map(x => x.n), beeps: window.__sounds, hint: getComputedStyle(document.getElementById('sndHint')).display }));
+    return (dips(log).length === 0 && r.sfx.length === 1 && r.ends.length === 1 && r.beeps === 1 && r.hint === 'none') || r; }, { spotify: true }],
+  ['PREVIEW: Spotify login lost (token refused) while it plays → no sound and no pause (never over the music), the clock says why, music stays playing', async ({ p, log, fake }) => {
+    await wait(1200); await p.context().route('https://accounts.spotify.com/api/token', r => r.fulfill({ status: 400, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: '{"error":"invalid_grant"}' }));
+    await p.evaluate(() => { spotify.auth.exp = 0; }); log.length = 0; await emoji(p, '🔥'); await wait(1500); await p.evaluate(() => window.levelAlert()); await wait(2000);
+    const r = await p.evaluate(() => ({ sfx: window.__sfx.length, beeps: window.__sounds, hint: document.getElementById('sndHint').textContent, shown: getComputedStyle(document.getElementById('sndHint')).display !== 'none', log: emojiSfx.log.map(x => x.err) }));
+    return (dips(log).length === 0 && r.sfx === 0 && r.beeps === 0 && r.shown && /Spotify login lost/.test(r.hint) && fake.playing) || r; }, { spotify: true }],
   ['PREVIEW: the PREVIEW tag shows on the clock (cover + level), small, covers no control, lets taps through', async ({ p }) => {
     const look = () => p.evaluate(() => { const t = document.getElementById('previewTag'); if (!t) return { none: true }; const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
       const ctl = [...document.querySelectorAll('button, input, select, a, [data-sp], .np-card')].filter(b => { const q = b.getBoundingClientRect(); return q.width && q.height && getComputedStyle(b).visibility !== 'hidden'; })

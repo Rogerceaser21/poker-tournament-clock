@@ -24,6 +24,7 @@
   th,td { border:1px solid var(--line); padding:5px 7px; text-align:left; vertical-align:top; }
   th { background:var(--card); }
   h2 { font-size:22px; margin:22px 0 4px; }
+  ol { padding-left:30px; margin:0 0 16px; } li { margin-bottom:8px; }
   .listen { font-size:44px; font-weight:700; text-align:center; margin:60px 0; }
 </style>
 </head>
@@ -50,7 +51,7 @@ const PAGE_VERSION = 2;
 const Q = new URLSearchParams(location.search);
 const FAKE = Q.get('fake') === '1';
 const AUTO = FAKE && Q.get('auto') === '1';
-const QUICK = Q.get('quick') === '1';
+const QUICK = FAKE && Q.get('quick') === '1';
 const SPOTIFY_CLIENT_ID = '1af2112558374cc08c7dd725e9be0654';            /* = the clock's */
 const SP_AUTH_KEY = FAKE ? 'soundtest_fake_spotify_auth' : 'poker_spotify_auth_v1';   /* real one = the clock's key */
 const RES_KEY = FAKE ? 'soundtest_results_fake_v1' + (Q.get('ns') ? '_' + Q.get('ns').replace(/[^a-z0-9]/gi, '') : '') : 'soundtest_results_v1';
@@ -91,11 +92,24 @@ const outbox = () => readJ(OUTBOX, []);
 function setOutbox(l){ try { localStorage.setItem(OUTBOX, JSON.stringify(l)); } catch (e) {} }
 function addOutbox(id){ const l = outbox(); if (!l.includes(id)){ l.push(id); setOutbox(l); } }
 let STARTED = false;
+const ALIVE = id => RES_KEY + '_alive:' + id;
+setInterval(() => { if (STARTED && !R.done && !R.aborted){ try { localStorage.setItem(ALIVE(R.runId), String(Date.now())); } catch (e) {} } }, 3000);
+/* on load: a saved run that is not finished, not on the outbox and no longer alive (page closed) → outbox, marked unfinished */
+function adoptClosedRuns(){ try {
+  const ob = outbox();
+  Object.keys(localStorage).filter(k => k.startsWith(RES_KEY + ':')).forEach(k => {
+    const id = k.slice(RES_KEY.length + 1), o = readJ(k, null);
+    if (!o || o.done || o.aborted || o.sentOk || ob.includes(id)) return;
+    const alive = +(localStorage.getItem(ALIVE(id)) || 0); if (Date.now() - alive < 15000) return;   /* still running in another tab */
+    o.unfinished = true; o.note = 'page closed during ' + (o.currentRound || 'the start'); o.adoptedAt = new Date().toISOString();
+    try { if (o.v === 2) o.summary = summarise(o); } catch (e) {}
+    localStorage.setItem(k, JSON.stringify(o)); addOutbox(id); localStorage.removeItem(ALIVE(id)); log('adopted-closed-run', { id, note: o.note }); });
+} catch (e) {} }
 function save(){ if (!STARTED) return false; R.savedAt = new Date().toISOString();
   let ok = false;
   try { localStorage.setItem(DATA(R.runId), JSON.stringify(R)); ok = true; }
   catch (e) { try { const lite = Object.assign({}, R, { log: LOG.slice(-600), logTrimmed: LOG.length }); localStorage.setItem(DATA(R.runId), JSON.stringify(lite)); ok = true; } catch (x) { log('save-failed', { err: String(x) }); } }
-  if (ok && (R.done || R.aborted) && !R.sentOk) addOutbox(R.runId);
+  if (ok && (R.done || R.aborted) && !R.sentOk){ addOutbox(R.runId); try { localStorage.removeItem(ALIVE(R.runId)); } catch (e) {} }
   return ok; }
 
 /* ---------------- screen helpers ---------------- */
@@ -132,7 +146,7 @@ const visWaiters = [];
 document.addEventListener('visibilitychange', () => { log('visibility', { hidden: document.hidden });
   if (!document.hidden && STARTED && wakeLock && wakeLock.released) askWakeLock('back visible');
   visWaiters.splice(0).forEach(f => f(document.hidden)); });
-window.addEventListener('pagehide', () => { log('pagehide'); save(); musicBackOnLeave(); });
+window.addEventListener('pagehide', () => { log('pagehide'); save(); musicBackOnLeave(); try { localStorage.removeItem(ALIVE(R.runId)); } catch (e) {} });   /* closed: the next load offers this run */
 
 /* ---------------- audio session ('playback' all the time, except round 5 and the probes) ---------------- */
 const AS = navigator.audioSession || null;
@@ -251,26 +265,29 @@ async function restartMusic(tag){
     ['transfer', () => id ? sp.api('PUT', '/me/player', true, tag + ':transfer', { device_ids: [id], play: true }) : Promise.resolve({ status: -1, sent: now(), back: now() }), 1500]];
   for (const [how, send, settle] of tries){
     const r = await send(); await wait(settle); const s = await sp.state(tag + ':after-' + how);
-    out.steps.push({ how, status: r.status, ms: r.back - r.sent, stateStatus: s.status, playing: s.playing });
+    out.steps.push({ how, status: r.status, ms: r.back - r.sent, sent: r.sent, stateStatus: s.status, playing: s.playing });
     if (s.playing){ out.worked = how; break; }
+    if (r.status === 0 || s.status === 0){ out.noAnswer = true; break; }   /* no answer (network): not Spotify failing to come back */
   }
-  log('restart', { tag, worked: out.worked, steps: out.steps.map(x => x.how + ':' + x.status + '/' + (x.playing ? 'playing' : 'not')) });
+  log('restart', { tag, worked: out.worked, noAnswer: !!out.noAnswer, steps: out.steps.map(x => x.how + ':' + x.status + '/' + (x.playing ? 'playing' : 'not')) });
   return out;
 }
 /* "The music stopped" screen: Igor presses play in Spotify; afterwards the screen that was up comes back */
 async function musicStoppedScreen(tag){
   const prevTop = $('prog').textContent, prevHtml = $('screen').innerHTML, hadButtons = !!$('screen').querySelector('button');
-  await screen('The music stopped', '<p class="big">The page could not start the music again.</p><p class="big">Open the Spotify app, press play, then come back to this page and tap Continue.</p>', [{ label: 'Continue', v: 'c', go: true }]);
+  await screen('The music stopped', '<p class="big">The page could not start the music again.</p><ol class="big"><li>Open the Spotify app.</li><li>Press play.</li><li>Come back to this page.</li><li>Tap Continue.</li></ol>', [{ label: 'Continue', v: 'c', go: true }]);
   if (fakeIgorPlay) fakeIgorPlay();
   prog(prevTop); if (hadButtons) show('<p class="listen">One moment…</p>'); else show(prevHtml);
-  const s = await sp.state(tag + ':after-igor'); log('music', { tag, playing: s.playing, how: 'Igor pressed play' });
-  return s.playing;
+  const s = await sp.state(tag + ':after-igor'); log('music', { tag, playing: s.status === 0 ? null : s.playing, how: 'Igor pressed play' });
+  return s.status === 0 ? null : s.playing;
 }
 /* make sure the music plays before a round that needs it */
 async function musicOn(tag){
   if (!SPON) return { skipped: true };
   const s = await sp.state(tag + ':check'); if (s.playing) return { playing: true, how: 'was playing' };
+  if (s.status === 0) return { playing: null, how: 'no answer (network)' };
   const r = await restartMusic(tag); if (r.worked) return { playing: true, how: r.worked };
+  if (r.noAnswer) return { playing: null, how: 'no answer (network)' };
   return { playing: await musicStoppedScreen(tag), how: 'Igor' };
 }
 /* a pause window, the design under test: pause, 'playback', the sounds, music back (with the 3-step restart, then Igor) */
@@ -281,7 +298,7 @@ async function pauseWindow(tag, fn, noIgor){
   try { await fn(w); }
   finally {
     w.pausedMs = now() - t0;
-    if (SPON){ w.restart = await restartMusic(tag); if (!w.restart.worked && !noIgor) w.igor = await musicStoppedScreen(tag); }
+    if (SPON){ w.restart = await restartMusic(tag); if (!w.restart.worked && !w.restart.noAnswer && !noIgor) w.igor = await musicStoppedScreen(tag); }
   }
   return w;
 }
@@ -444,6 +461,7 @@ async function health(before){
 const P = { ear: 'Part 2 of 3: listening', auto: 'Part 3 of 3: the page tests by itself' };
 async function round(name, label, fn){
   if (FAKE && Q.get('kill') === name){ fakeKill(); await wait(1000); }   /* let the errors land, as they had on the iPad */
+  R.currentRound = name; save();
   await health(name);
   try { prog(label); if (FAKE && Q.get('throwIn') === name) throw new Error('forced test error (fake only)'); return await fn(); }
   catch (e) { log('round-error', { round: name, err: String(e), stack: e && e.stack }); R.errors.push({ round: name, err: String(e) });
@@ -488,21 +506,30 @@ async function runR2(){
     const m = await musicOn('R2:' + N);
     const row = { N, withSounds, musicBefore: m.playing, sounds: [] };
     const pr = await sp.api('PUT', '/me/player/pause', true, 'R2:' + N + ':pause'); row.pause = pr.status;
-    const t0 = pr.back; sess('playback', 'R2');
+    if (!(pr.status >= 200 && pr.status < 300)){   /* refused or unanswered pause: not a survived pause */
+      row.pauseRefused = pr.status === 0 ? 'no answer (network)' : 'pause refused (' + pr.status + ')'; out.rows.push(row); save(); return row; }
+    const t0 = pr.back; sess('playback', 'R2');                         /* pause accepted */
+    /* the device list is read just BEFORE the end of the pause, in parallel, so the first play still goes out at N */
+    const devP = wait(Math.max(0, t0 + N * 1000 - 900 - now())).then(() => sp.activeListed('R2:' + N + ':devices'));
     if (withSounds){ let k = 0; while (true){ const n = filler[k++ % filler.length]; if (now() + SFX_MS[n] + 150 > t0 + N * 1000) break;
       const j = playEl(freeSafe(n), 'safe', { round: 'R2', i: N }); await j.done; row.sounds.push(j.out); await wait(150); } }
     await wait(Math.max(0, t0 + N * 1000 - now()));
-    row.pausedMs = now() - t0;
-    row.device = await sp.activeListed('R2:' + N + ':devices');
-    const r = await restartMusic('R2:' + N); row.steps = r.steps; row.worked = r.worked;
-    if (!r.worked){ row.igor = await musicStoppedScreen('R2:' + N); }
+    const r = await restartMusic('R2:' + N); row.steps = r.steps; row.worked = r.worked; row.noAnswer = !!r.noAnswer;
+    row.pausedMs = r.steps.length ? r.steps[0].sent - t0 : null;          /* REAL pause: accepted → first play sent */
+    row.device = await devP;
+    if (!r.worked && !r.noAnswer){ row.igor = await musicStoppedScreen('R2:' + N); }
     out.rows.push(row); save(); return row;
   };
   let k = 0;
   for (const N of CFG.r2N){ prog(P.auto + ' · check 5 of 6 · pause ' + (++k) + ' of ' + CFG.r2N.length);
-    const row = await one(N, true); if (!row.worked){ out.stopN = N; break; } await wait(CFG.r2Music); }
-  prog(P.auto + ' · check 5 of 6 · one quiet pause');
-  out.silent = await one(CFG.r2Silent, false); await wait(CFG.r2Music);
+    let row = await one(N, true);
+    if (row.pauseRefused){ await wait(1000); row = await one(N, true); row.retry = true; }   /* retry that N once, then move on */
+    if (!row.pauseRefused && !row.worked && !row.noAnswer){ out.stopN = N; break; }      /* the stop point: nothing more pauses the music in this round */
+    await wait(CFG.r2Music);
+    /* the quiet pause runs right after the sounded pause of the same length, so only while that length is below the stop point */
+    if (N === CFG.r2Silent && !out.silent){ prog(P.auto + ' · check 5 of 6 · one quiet pause'); out.silent = await one(CFG.r2Silent, false); await wait(CFG.r2Music); }
+  }
+  if (!out.silent) out.silentSkipped = out.stopN != null ? 'not run: the music already stopped coming back at ' + out.stopN + ' s' : 'not run';
 }
 /* 3. the music coming back mid-sound, and a 'playback' sound with the music NOT paused */
 async function runR3(){
@@ -600,7 +627,7 @@ async function runR6(){
 async function runR7(){
   const out = R.rounds.R7 = {};
   prog(P.auto + ' · check 6 of 6');
-  show('<h1>Last step</h1><p class="big">Open the Spotify app, wait 5 seconds, then come back to Safari.</p><p class="big"><b>Do not tap this page.</b> It carries on by itself.</p>');
+  show('<h1>Last step</h1><ol class="big"><li>Open the Spotify app.</li><li>Wait 5 seconds.</li><li>Come back to Safari.</li><li><b>Do not tap this page.</b> It carries on by itself.</li></ol>');
   const waitVis = want => new Promise(res => { const to = setTimeout(() => res('timeout'), CFG.r7Wait); visWaiters.push(h => { clearTimeout(to); res(h === want ? 'ok' : 'other'); }); });
   const tapsBefore = tapCount;
   out.hidden = await waitVis(true); const th = now();
@@ -617,13 +644,14 @@ async function runR7(){
 /*SUMMARY-START*/
 /* summarise(R) → [{ title, head: [...], rows: [[...]] }] — pure (no DOM); report.js runs this same code on the Mac. Version 1 and 2 runs. */
 function summarise(R){ return R && R.v === 2 ? summariseV2(R) : summariseV1(R); }
+function CFG_R2SILENT(R){ return R.cfg && R.cfg.r2Silent != null ? R.cfg.r2Silent + ' s' : ''; }
 function summariseV2(R){
   const T = [], rd = R.rounds || {}, A = R.answers || {};
   const tri = arr => { arr = (arr || []).filter(Boolean); return { n: arr.length, full: arr.filter(x => x.out === 'full').length, cut: arr.filter(x => x.out === 'cut').length, silent: arr.filter(x => x.out === 'silent').length }; };
   const yn = v => v == null ? '-' : v === true ? 'yes' : v === false ? 'no' : String(v);
-  T.push({ title: 'Run (page version 2)', head: ['what', 'value'], rows: [['run id', R.runId], ['fake Spotify', R.fake ? 'YES (test run)' : 'no (real)'], ['finished', R.done ? 'yes' : 'NO'], ['started', R.startedAt],
+  T.push({ title: 'Run (page version 2)', head: ['what', 'value'], rows: [['run id', R.runId], ['fake Spotify', R.fake ? 'YES (test run)' : 'no (real)'], ['finished', R.done ? 'yes' : R.unfinished ? 'NO: ' + R.note : 'NO'], ['started', R.startedAt],
     ['run time s', R.runS != null ? R.runS : '-'], ['Spotify login', R.sp && R.sp.login ? (R.sp.loginBroken ? 'found, not working' : 'found') : 'none'], ['music at start', R.sp && R.sp.atStart ? yn(R.sp.atStart.playing) : '-'],
-    ['music at end', R.sp && R.sp.atEnd ? yn(R.sp.atEnd.playing) : '-'], ['screen wake lock', R.wakeLock || '-'], ['Silent Mode now (Igor)', A.silentNow || '-'], ['rounds that failed', (R.errors || []).map(e => e.round + ': ' + e.err).join('; ') || 'none']] });
+    ['music at end', R.sp && R.sp.atEnd ? (R.sp.atEnd.playing === null ? 'unknown (no network)' : yn(R.sp.atEnd.playing)) : '-'], ['screen wake lock', R.wakeLock || '-'], ['Silent Mode now (Igor)', A.silentNow || '-'], ['rounds that failed', (R.errors || []).map(e => e.round + ': ' + e.err).join('; ') || 'none']] });
   T.push({ title: 'Health checks (before each round)', head: ['before', 'players in error', 'player probe', 'Web Audio before → after', 'clock advanced s', 'repairs', 'after repair'],
     rows: (R.health || []).map(h => [h.before, h.elErrored, h.elProbe ? (h.elProbe.ok ? 'ok' : 'NOT ok') + ' ' + (h.elProbe.ct != null ? h.elProbe.ct : '') : '-', h.wa ? h.wa.before + ' → ' + h.wa.after : '-', h.wa ? h.wa.advanced : '-', h.repairs.join('; ') || 'none',
       [h.elProbe2 ? 'players ' + (h.elProbe2.ok ? 'ok' : 'NOT ok') : '', h.wa2 ? 'Web Audio ' + h.wa2.after + ' ' + h.wa2.advanced : ''].filter(Boolean).join(', ') || '-']) });
@@ -631,9 +659,10 @@ function summariseV2(R){
     [['a', 'heard to the end', rd.R1.a ? rd.R1.a.answer + ' of 4' : '-', rd.R1.a ? rd.R1.a.engineFull + ' of ' + rd.R1.a.jobs.length : '-'], ['b (ambient half-way)', 'stopped half-way', rd.R1.b ? rd.R1.b.answer + ' of 4' : '-', rd.R1.b ? rd.R1.b.engineFull + ' of ' + rd.R1.b.jobs.length : '-']] });
   if (rd.R2){ const r2 = rd.R2;
     if (r2.skipped) T.push({ title: '2 How long Spotify survives a pause', head: ['note'], rows: [[r2.skipped]] });
-    else { const row = x => [x.N + (x.withSounds ? '' : ' (quiet)'), x.sounds.length + ' (' + x.sounds.filter(s => s === 'full').length + ' full)', x.pausedMs, x.device ? (x.device.listed ? (x.device.active ? 'active' : 'listed, not active') : 'not listed') : '-',
-        (x.steps || []).map(s => s.how + ' ' + s.status + (s.playing ? ' ✓' : '')).join(', '), x.worked || (x.igor ? 'Igor pressed play' : 'nothing')];
-      T.push({ title: '2 How long Spotify survives a pause (stop at N = ' + (r2.stopN == null ? 'none' : r2.stopN + ' s') + ')', head: ['pause s', 'sounds in it', 'paused ms', 'device', 'restart steps', 'music back by'], rows: r2.rows.concat(r2.silent ? [] : []).map(row) }); } }
+    else { const row = x => [x.N + (x.withSounds ? '' : ' (quiet)') + (x.retry ? ' (retry)' : ''), x.sounds.length + ' (' + x.sounds.filter(s => s === 'full').length + ' full)', x.pausedMs == null ? '-' : x.pausedMs, x.device ? (x.device.status === 0 ? 'no answer' : x.device.listed ? (x.device.active ? 'active' : 'listed, not active') : 'not listed') : '-',
+        x.pauseRefused ? x.pauseRefused : (x.steps || []).map(s => s.how + ' ' + (s.status === 0 ? 'no answer' : s.status) + (s.playing ? ' ✓' : '')).join(', '),
+        x.pauseRefused ? 'not counted' : x.worked || (x.noAnswer ? 'no answer (network)' : x.igor === null ? 'unknown (no network)' : x.igor ? 'Igor pressed play' : 'nothing')];
+      T.push({ title: '2 How long Spotify survives a pause (stop at N = ' + (r2.stopN == null ? 'none' : r2.stopN + ' s') + ')', head: ['pause s', 'sounds in it', 'real pause ms (accepted → first play)', 'device', 'restart steps', 'music back by'], rows: r2.rows.map(row).concat(r2.silentSkipped ? [['quiet ' + CFG_R2SILENT(R), '-', '-', '-', r2.silentSkipped, '-']] : []) }); } }
   if (rd.R3){ T.push({ title: '3a Music sent "play" at 40 % of a playback sound', head: ['engine', 'sound', 'play sent at ms', 'reply', 'sound result', 'ended by', 'sounded ms', 'reached s', 'interrupted', 'Spotify playing 1 s after'],
       rows: rd.R3.mid.map(r => [r.engine, r.n, r.playSentAt, r.playStatus, r.sound ? r.sound.out : '-', r.sound ? (r.sound.endWhy || r.sound.why) : '-', r.sound ? r.sound.wall : '-', r.sound && r.sound.ctMax != null ? r.sound.ctMax : '-', yn(r.interrupted), yn(r.spotifyAfter)]) });
     T.push({ title: '3b Playback sound with the music NOT paused', head: ['engine', 'sound', 'sound result', 'Spotify playing 1 s in', 'plain play reply', 'playing after'],
@@ -653,7 +682,7 @@ function summariseV2(R){
     T.push({ title: '7 Back from the Spotify app, no tap', head: ['what', 'value'], rows: [['left Safari', r.hidden], ['came back', r.visible || '-'], ['away ms', r.awayMs || '-'], ['tapped on return', yn(r.tappedOnReturn)],
       ['players in error', h.elErrored], ['player probe', h.elProbe ? (h.elProbe.ok ? 'ok' : 'NOT ok') : '-'], ['Web Audio', h.wa ? h.wa.before + ' → ' + h.wa.after + ' (' + h.wa.advanced + ' s)' : '-'], ['repairs', (h.repairs || []).join('; ') || 'none'],
       ['players full', el.full + ' of ' + el.n], ['Web Audio full', wa.full + ' of ' + wa.n]] }); }
-  if (rd.R2 && rd.R2.silent){ const x = rd.R2.silent; T.push({ title: '2 (quiet pause, no sounds)', head: ['pause s', 'paused ms', 'device', 'restart steps', 'music back by'], rows: [[x.N, x.pausedMs, x.device ? (x.device.listed ? (x.device.active ? 'active' : 'listed, not active') : 'not listed') : '-', (x.steps || []).map(s => s.how + ' ' + s.status + (s.playing ? ' ✓' : '')).join(', '), x.worked || (x.igor ? 'Igor pressed play' : 'nothing')]] }); }
+  if (false && rd.R2 && rd.R2.silent){ const x = rd.R2.silent; T.push({ title: '2 (quiet pause, no sounds)', head: ['pause s', 'paused ms', 'device', 'restart steps', 'music back by'], rows: [[x.N, x.pausedMs, x.device ? (x.device.listed ? (x.device.active ? 'active' : 'listed, not active') : 'not listed') : '-', (x.steps || []).map(s => s.how + ' ' + s.status + (s.playing ? ' ✓' : '')).join(', '), x.worked || (x.igor ? 'Igor pressed play' : 'nothing')]] }); }
   return T;
 }
 /* summarise(R) → [{ title, head: [...], rows: [[...]] }] — pure (no DOM); report.js runs this same code on the Mac */
@@ -756,8 +785,9 @@ async function sendLoop(stopFn){ for (let i = 0; i < 200; i++){ if (stopFn && st
 function plainSummary(){
   const L = [], rd = R.rounds;
   if (rd.R1 && !rd.R1.skipped) L.push('Listening: you heard ' + (rd.R1.a ? rd.R1.a.answer : '-') + ' of 4 to the end, and ' + (rd.R1.b ? rd.R1.b.answer : '-') + ' of 4 stopped half-way.');
-  if (rd.R2 && !rd.R2.skipped) L.push(rd.R2.stopN == null ? 'The music always came back after a pause.' : 'The music did not come back by itself after a ' + rd.R2.stopN + ' second pause.');
-  if (SPON && MUSIC_AT_START) L.push(R.sp.atEnd && R.sp.atEnd.playing ? 'The music is playing again.' : 'The music did not come back by itself. Please press play in Spotify.');
+  if (rd.R2 && !rd.R2.skipped){ const na = (rd.R2.rows || []).some(x => x.noAnswer || x.pauseRefused === 'no answer (network)');
+    L.push(rd.R2.stopN != null ? 'The music did not come back by itself after a ' + rd.R2.stopN + ' second pause.' : na ? 'Some music checks got no answer (network).' : 'The music always came back after a pause.'); }
+  if (SPON && MUSIC_AT_START) L.push(R.sp.atEnd && R.sp.atEnd.playing ? 'The music is playing again.' : R.sp.atEnd && R.sp.atEnd.playing === null ? 'The music could not be checked (no network).' : 'The music did not come back by itself. Please press play in Spotify.');
   else if (!SPON) L.push('Spotify was not connected, so the music checks were skipped.');
   L.push(R.errors.length ? 'Some checks had a problem and were skipped (' + R.errors.length + '). The rest ran.' : 'All checks ran.');
   return L;
@@ -767,17 +797,18 @@ function plainSummary(){
    THE RUN
    ===================================================================== */
 async function main(){
+  adoptClosedRuns();
   const pending = outbox().length;
   let started = false;
   if (pending) sendLoop(() => started);
-  const intro = '<p class="big">A second, shorter sound check for the poker clock. It takes about 5 minutes, and most of it runs by itself.</p>' +
+  const intro = '<p class="big">A second, shorter sound check for the poker clock. It takes about 7 minutes, and most of it runs by itself.</p>' +
     '<p class="big"><b>Sounds will play, and the music will stop for moments now and then.</b> That is part of the test.</p>' +
     (FAKE ? '<p class="warn">Test run with a fake Spotify.</p>' : '') +
     (pending ? '<p class="note">' + pending + ' earlier result' + (pending > 1 ? 's have' : ' has') + ' not reached the Mac yet. The page keeps trying.</p><p id="sendState" class="big">' + esc(lastSay) + '</p>' : '');
   const btns = [{ label: 'Next', v: 'next', go: true }]; if (pending) btns.push({ label: 'Send results again', v: 'resend' });
   while ((await screen('Sound test 2', intro, btns)) === 'resend'){ await sendAll(); }
   await screen('Close the poker clock', '<p class="big">If the poker clock page is open in another Safari tab, close that tab now.</p>', [{ label: 'Next', v: 'next', go: true }]);
-  await screen('Start the music', '<p class="big">Play music in the Spotify app on this iPad, then come back to this page.</p>', [{ label: 'Next', v: 'next', go: true }]);
+  await screen('Start the music', '<ol class="big"><li>Open the Spotify app on this iPad.</li><li>Play some music.</li><li>Come back to this page.</li><li>Tap Next.</li></ol>', [{ label: 'Next', v: 'next', go: true }]);
   /* the Start tap: players made and unlocked, the AudioContext made, the wake lock asked for — all inside this tap */
   const startTap = () => { if (started) return; started = true; STARTED = true; makePools(); try { ctx = makeCtx('start tap'); decodeAll(); } catch (e) { log('ctx-fail', { err: String(e) }); } askWakeLock('start tap'); };
   const st = screen('Set the volume', '<p class="big">Turn the iPad volume up to a normal level, then tap Start.</p>', [{ label: 'Start', v: 'start', go: true }]);
@@ -798,7 +829,7 @@ async function main(){
   save();
   try { await Promise.race([decodeP, wait(9000)]); } catch (e) {}
   await round('R1', P.ear, runR1);
-  await screen('Now the page tests by itself', '<p class="big">Put the iPad down and do not touch it for about 4 minutes.</p><p class="big">Near the end it asks you to open the Spotify app for a moment.</p><p>Sounds will play and the music will stop and start. That is expected.</p>',
+  await screen('Now the page tests by itself', '<p class="big">Put the iPad down and do not touch it for about 5 minutes.</p><p class="big">Near the end it asks you to open the Spotify app for a moment.</p><p>Sounds will play and the music will stop and start. That is expected.</p>',
     [{ label: 'Start', v: 'go', go: true }], { top: P.auto });
   askWakeLock('auto part');
   show('<p class="listen">Testing… please do not touch the iPad</p>');

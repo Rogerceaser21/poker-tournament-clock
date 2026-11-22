@@ -813,6 +813,9 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
         <div class="ph-list" id="phList"></div>
         <label class="music-chk"><input type="checkbox" id="phAllowChips"> Players can change their own chips</label>
         <label class="music-chk"><input type="checkbox" id="phEmojiSounds"> Emoji sounds on this iPad (💀 FAAAH, 🤯 WHAT?!…) — the music pauses for them</label>
+        <button class="set-btn" id="phSoundCheck" type="button" style="align-self:flex-start">Sound check</button>
+        <div id="phScAsk" hidden><span class="ph-status">Did you hear it?</span> <button class="set-btn" id="phScYes" type="button">Yes</button> <button class="set-btn" id="phScNo" type="button">No</button></div>
+        <div class="ph-status" id="phScMsg" hidden></div>
         <button class="ph-diag-link" id="phDiagToggle" type="button">Status</button>
         <pre class="ph-diag" id="phDiag" hidden></pre>
       </div>
@@ -2688,7 +2691,7 @@ const PH_KEY = 'poker_phones_v1';
 const EMOJI_SOUNDS = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'fah', '🤯': 'what', '📖': 'cool-story-bro',
   '👏': 'very-nice', '😭': 'emotional-damage', '💰': 'show-me-the-money', '💵': 'pay-that-man', '❓': 'what-happened', '💣': 'boomshakalaka' };
 /* real length of each file (ms, ffprobe) = how long the music dip holds */
-const SFX_MS = { 'oh-my-god': 1615, 'wow': 2600, 'bruh': 629, 'fah': 1927, 'what': 400, 'cool-story-bro': 1110, 'boomshakalaka': 1190,
+const SFX_MS = { 'oh-my-god': 1623, 'wow': 2621, 'bruh': 647, 'fah': 1948, 'what': 400, 'cool-story-bro': 1110, 'boomshakalaka': 1190,
   'very-nice': 1075, 'emotional-damage': 2037, 'show-me-the-money': 2060, 'pay-that-man': 1670, 'what-happened': 910 };
 /* PER players per sound (4), all made at start-up (iPad: an element made later is not unlocked): four copies of one emoji
    overlap, a new play never takes a sounding player (it waits for a free one). Per element: _ok = unlocked (a play worked),
@@ -2756,6 +2759,15 @@ const phones = {
     ac.addEventListener('change', () => { this.allowChips = ac.checked; this.save(); this.push(); });
     const es = this.el('phEmojiSounds'); es.checked = emojiSfx.on;
     es.addEventListener('change', () => { emojiSfx.on = es.checked; this.save(); if (es.checked) emojiSfx.play('🤯'); else emojiSfx.stop(); });
+    /* Sound check: one emoji sound through the same path as a phone's emoji (emojiSfx.play: the music pauses and comes back), no flying emoji.
+       The tap is itself a tap on the screen (the players unlock on it); if the unlock is still on its way the sound waits for it (max 5 s). */
+    const scAsk = this.el('phScAsk'), scMsg = this.el('phScMsg'), scShow = t => { scMsg.innerHTML = t; scMsg.hidden = !t; };
+    this.el('phSoundCheck').addEventListener('click', async () => { scAsk.hidden = true; scShow('');
+      emojiSfx.unlock(); const end = Date.now() + 5000; while (!emojiSfx.ready() && Date.now() < end) await dipWait(30);
+      await emojiSfx.play('😂'); scAsk.hidden = false; });
+    this.el('phScYes').addEventListener('click', () => { scAsk.hidden = true; scShow('Sounds are working.'); });
+    this.el('phScNo').addEventListener('click', () => { scAsk.hidden = true;
+      scShow('Turn the iPad volume up.<br>Tap the screen once, then try again.<br>If Emoji sounds is switched off above, switch it on.'); });
     this.el('phDiagToggle').addEventListener('click', () => { const d = this.el('phDiag'); d.hidden = !d.hidden; clearInterval(this.diagT); this.diagT = null;
       if (!d.hidden){ this.renderDiag(); this.diagT = setInterval(() => this.renderDiag(), 1000); } });
     this.el('phNewRoom').addEventListener('click', () => { if (!confirm('Make a new room code? Phones on the old code will need to scan the new QR.')) return;

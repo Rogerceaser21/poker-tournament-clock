@@ -196,6 +196,7 @@ function onData(d){
   if (d.t === 'photos'){ photos = d.photos || []; photoRev = d.rev; render(); return; }
   if (d.t === 'emoji'){ flyEmoji(d.e, d.name); return; }
   if (d.t === 'ack'){ const p = pending.get(d.id); if (!p) return; clearTimeout(p.t); pending.delete(d.id); receipt(d.ok ? p.okText : '✗ ' + (d.why || 'Not accepted'), !d.ok); }
+  if (d.t === 'skipped'){ receipt('✗ ' + (d.e ? d.e + ' ' : '') + 'skipped, too many sounds', true); return; }   /* PREVIEW: the iPad had more than 6 sounds waiting */
 }
 
 /* ---------- screens ---------- */

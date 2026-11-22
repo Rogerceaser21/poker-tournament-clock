@@ -5,19 +5,23 @@
  *   ONLY=<text>     just the scenarios whose name has it
  *   CLOCK_URL=…     another page (control: an older preview copy)
  *
- * iPad model (assumptions, as in the probe):
- *   - Spotify left paused longer than FREEZE (3.5 s) falls asleep: every later play = 404.
+ * iPad model:
+ *   - PREVIEW (22 Nov rule): Spotify left paused longer than FREEZE falls asleep: every later play = 404, until a transfer
+ *     playback (PUT /me/player, play: true) wakes it. FREEZE was 3.5 s (an assumption); Igor's real iPad (run mwrwlvfg,
+ *     22 Nov, ipad-run2-tables.md table 2) came back by a plain play after every pause up to 15 s, so FREEZE = 15 s now.
  *   - a non-muted sound that starts while navigator.audioSession.type === 'playback' and Spotify is playing (no pause
  *     sent) = iPadOS stops Spotify ("OS-INTERRUPT"); nothing in the clock knows.
- * After EVERY scenario: (i) Spotify ends playing (unless the user had paused it) and the last pause/play call is a 2xx
- * play or there were none; (ii) every pause Spotify carried out is followed by a play sent ≤ 2850 ms after the pause was
- * sent; (iii) no sound starts in 'playback' while Spotify plays; (iv) the session ends 'ambient'; (v) user paused → no
- * pause / play calls at all. Chromium (muted), iPad user agent. Prints a table; exits 1 on any failure.
+ * After EVERY scenario: (i) Spotify ends playing (unless the user had paused it); (ii) every pause Spotify carried out is
+ * followed by a play sent ≤ 10 s (CAP) + 2.6 s (the longest sound) + 1.5 s (the longest wait for a pause answer) + 0.5 s
+ * after the pause was sent (was 2850 ms: the 22 Nov rule holds the pause until the last sound ended); (iii) no sound starts
+ * in 'playback' while Spotify plays; (iv) the session ends 'ambient' (nothing sounds); (v) user paused → no pause / play
+ * calls at all; (vi) PREVIEW: every clock sound starts with the session 'playback' (one way of playing, never over the music).
+ * Chromium (muted), iPad user agent. Prints a table; exits 1 on any failure.
  */
 const { chromium } = require('playwright');
 const PAGE = process.env.CLOCK_URL || 'http://localhost:8791/preview/Poker%20Tournament%20Clock.html';
 const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
-const FREEZE = 3500, CAP = 2850;
+const FREEZE = 15000, CAP = 10000 + 2600 + 1500 + 500;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const LEVELS = [[5, 10], [10, 20], [20, 40], [30, 60], [50, 100], [100, 200]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 }));
 
@@ -26,7 +30,7 @@ async function setup(browser, opt = {}){
   const p = await ctx.newPage(); const errors = []; p.on('pageerror', e => errors.push(e.message));
   const calls = [];   /* every pause / play call: { c, t (sent), st } */
   const fake = { playing: !opt.userPaused && !opt.noSpotify, asleep: false, pausedAt: opt.userPaused ? Date.now() - 60000 : 0, staleMs: opt.staleMs || 0, staleUntil: 0,
-    rules: { pause: [], play: [], poll: [], token: [] }, interrupts: [], pauses: [] };
+    rules: { pause: [], play: [], poll: [], token: [] }, interrupts: [], pauses: [], starts: [] };
   await ctx.route('**/*', r => { const u = r.request().url(); if (u.startsWith('http://localhost:') || u.startsWith('data:')) return r.continue();
     if (u.includes('api.spotify.com') || u.includes('accounts.spotify.com')) return r.fallback(); return r.abort(); });
   await ctx.route('https://accounts.spotify.com/api/token', async r => {
@@ -58,6 +62,7 @@ async function setup(browser, opt = {}){
       if (rule.status && rule.status !== 204) return fin(rule, rule.status === 'abort' ? {} : err(rule.status));
       return fin(rule, { status: 204, body: '' });
     }
+    if (c === 'PUT /me/player'){ fake.asleep = false; resumeFake(); fake.transfers = (fake.transfers || 0) + 1; return fin(null, { status: 204, body: '' }); }   /* transfer playback, play: true */
     if (c === 'PUT /me/player/play'){
       const rule = fake.rules.play.shift() || {};
       if (!fake.asleep && !fake.playing && fake.pausedAt && Date.now() - fake.pausedAt > FREEZE) fake.asleep = true;
@@ -69,7 +74,7 @@ async function setup(browser, opt = {}){
     return fin(null, { status: 204, body: '' });
   });
   function resumeFake(){ fake.playing = true; fake.staleUntil = Date.now() + fake.staleMs; }
-  await p.exposeBinding('__osPlay', (src, info) => { if (info.session === 'playback' && fake.playing){ fake.playing = false; fake.pausedAt = Date.now(); fake.interrupts.push(info.what + '@' + Date.now()); } });
+  await p.exposeBinding('__osPlay', (src, info) => { fake.starts.push(info.session); if (info.session === 'playback' && fake.playing){ fake.playing = false; fake.pausedAt = Date.now(); fake.interrupts.push(info.what + '@' + Date.now()); } });
   await p.addInitScript(() => {
     window.__sess = []; let type = 'auto'; const sess = { get type(){ return type; }, set type(v){ window.__sess.push(v); type = v; } };
     Object.defineProperty(Navigator.prototype, 'audioSession', { get(){ return sess; }, configurable: true });
@@ -138,15 +143,16 @@ const SC = [
       const pl = calls.filter(c => c.c === 'play').length;
       const userPaused = opt.userPaused && name.startsWith('I1');
       const r = {
-        i: userPaused || opt.playsMax || opt.noSpotify || (fake.playing && (!last || (last.c === 'play' && last.st >= 200 && last.st < 300))),
+        i: userPaused || opt.playsMax || opt.noSpotify || fake.playing,   /* PREVIEW: the last call may be a 403 play (= already playing) or a transfer */
         ii: late.every(v => v <= CAP),
         iii: fake.interrupts.length === 0,
         iv: st.session === 'ambient',
         v: !userPaused || calls.length === 0,
+        vi: fake.starts.length > 0 && fake.starts.every(x => x === 'playback'),
         extra: opt.playsMax ? st.plMax === 9 && pl >= 2 && pl <= 9 : opt.noSpotify ? calls.length === 0 && st.sess.includes('playback') : true,
       };
       ok = Object.values(r).every(Boolean) && !errors.length;
-      if (!ok) detail = JSON.stringify({ r, playing: fake.playing, calls: calls.map(c => c.c + ':' + c.st), late, interrupts: fake.interrupts, session: st.session, plays: pl, errors });
+      if (!ok) detail = JSON.stringify({ r, playing: fake.playing, calls: calls.map(c => c.c + ':' + c.st), late, interrupts: fake.interrupts, starts: fake.starts, session: st.session, plays: pl, errors });
     } catch (e) { detail = e.message.split('\n')[0]; }
     if (!ok) failed++;
     rows.push((ok ? 'PASS  ' : 'FAIL  ') + 'PREVIEW: level music — ' + name + (detail ? '\n        ' + detail : '')); console.log(rows[rows.length - 1]);

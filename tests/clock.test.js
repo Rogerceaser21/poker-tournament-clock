@@ -11,7 +11,7 @@
  */
 const { webkit, chromium } = require('playwright');
 const P = process.env.PREVIEW === '1';
-const NSND = P ? 12 : 8, NPL = NSND * 2 + 1;   /* sounds; sound players (2 per sound) + the level beep */
+const NSND = P ? 12 : 8, NPER = P ? 4 : 2, NPL = NSND * NPER + 1;   /* sounds; sound players (PREVIEW: 4 per sound, root: 2) + the level beep */
 const PAGE = process.env.CLOCK_URL || (P ? 'http://localhost:8791/preview/Poker%20Tournament%20Clock.html' : 'http://localhost:8791/Poker%20Tournament%20Clock.html');
 const IPAD_UA = 'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1';
 const LEVELS = [[1, 2], [2, 4], [5, 10]].map(([sb, bb], i) => ({ id: 'L' + (i + 1), sb, bb, mins: 20 }));
@@ -21,8 +21,14 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
    of being asked 0.7-4 s after the first tap, all played in full; log /Users/igor/wt/poker-fixes-logs/sim-walk-t3-first-tap-timing.log).
    So the checks whose 2nd tap times a beep let that first tap settle first. */
 const SETTLE = 3000;
+/* PREVIEW: with 49 players the headless-WebKit stall after the unlock tap lasts up to ~9 s on this Mac (measured: the first
+   load() + play() after the tap took 9.3 s, the next 143 ms). So: a throwaway muted player (not one of the clock's) does
+   load() + play() until one reaches "playing" within 250 ms, max 15 s. Chrome passes at once. */
+const settle = p => p.evaluate(async () => { const a = new Audio('sounds/what.m4a'); a.muted = true; const end = Date.now() + 15000;
+  while (Date.now() < end){ const t = Date.now(); a.load(); const pl = new Promise(r => a.addEventListener('playing', r, { once: true }));
+    try { await a.play(); } catch (e) {} await Promise.race([pl, new Promise(r => setTimeout(r, 3000))]); const ms = Date.now() - t; a.pause(); if (ms < 250) break; await new Promise(r => setTimeout(r, 100)); } });
 
-async function newPage(browserType, { spotify = false } = {}) {
+async function newPage(browserType, { spotify = false, noTap = false } = {}) {
   const b = await browserType.launch();
   const ctx = await b.newContext({ viewport: { width: 1180, height: 820 }, userAgent: browserType === webkit ? IPAD_UA : undefined, hasTouch: browserType === webkit });
   const p = await ctx.newPage();
@@ -45,7 +51,11 @@ async function newPage(browserType, { spotify = false } = {}) {
     if (e.c === 'PUT /me/player/play' && (fake.playFails.length || fake.playFailAll)){ const st = fake.playFails.shift() || fake.playFailAll;   /* resume refused: Spotify stays paused */
       if (st === 'abort'){ e.done = Date.now(); return r.abort('failed'); }   /* no answer (network) = status 0 */
       return reply({ status: st, headers: st === 429 ? { 'Retry-After': '1', 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'Retry-After' } : {}, contentType: 'application/json', body: JSON.stringify({ error: { status: st, message: 'fail' } }) }); }
+    if (e.c === 'PUT /me/player/play' && fake.ignorePlay > 0){ fake.ignorePlay--; return reply({ status: 204, body: '' }); }   /* PREVIEW: 204 but nothing happens */
     if (e.c === 'PUT /me/player/play'){ const res = reply({ status: 204, body: '' }); await res; fake.playing = true; return; }
+    /* PREVIEW: transfer playback (PUT /me/player { device_ids, play: true }) = the 3rd way the clock brings the music back */
+    if (e.c === 'PUT /me/player'){ fake.transfers = (fake.transfers || 0) + 1; if (fake.playFailAll){ const st = fake.playFailAll; return reply({ status: st, contentType: 'application/json', body: JSON.stringify({ error: { status: st, message: 'fail' } }) }); }
+      const res = reply({ status: 204, body: '' }); await res; fake.playing = true; return; }
     return reply({ status: 204, body: '' });
   });
   /* spy: every meme sound started / ended (page clock) */
@@ -68,6 +78,10 @@ async function newPage(browserType, { spotify = false } = {}) {
     window.__alerts = 0; const a = window.levelAlert; window.levelAlert = (...x) => { window.__alerts++; return a(...x); };
     window.__sounds = 0; const s = sound.playTransition.bind(sound); sound.playTransition = (...x) => { window.__sounds++; return s(...x); };
   });
+  /* PREVIEW rule: no sound before the first tap (the iPad refuses it), so a check that plays sounds taps once first
+     (a synthetic pointerdown = the clock's unlock) and lets headless WebKit's media side settle (see SETTLE) */
+  if (P && !noTap){ await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown')));
+    await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 8000); await settle(p); }
   return { b, p, errors, spotifyCalls, fake, log };
 }
 const state = p => p.evaluate(() => {
@@ -83,10 +97,30 @@ const clean = d => d.every((e, i) => e.c !== 'pause' || (i === 0 || (d[i - 1].c 
 const until = async (fn, ms) => { const end = Date.now() + ms; while (Date.now() < end){ const v = await fn(); if (v) return v; await wait(50); } return null; };
 const emoji = (p, e) => p.evaluate(e => emojiSfx.play(e), e);
 /* PREVIEW: the longest sound that still pauses the music (≤ musicDip.LONG); root: the old pick */
-const dipE = (p, rootE) => P ? p.evaluate(() => { const L = (typeof musicDip !== 'undefined' && musicDip.LONG) || 2700; let b = null;
-  for (const [e, n] of Object.entries(EMOJI_SOUNDS)) if (SFX_MS[n] <= L && (!b || SFX_MS[n] > SFX_MS[EMOJI_SOUNDS[b]])) b = e; return b; }) : Promise.resolve(rootE);
+/* PREVIEW (22 Nov rule): every sound pauses the music, so this is simply the longest sound (🔥 wow, 2.6 s) */
+const dipE = (p, rootE) => P ? p.evaluate(() => { let b = null;
+  for (const [e, n] of Object.entries(EMOJI_SOUNDS)) if (!b || SFX_MS[n] > SFX_MS[EMOJI_SOUNDS[b]]) b = e; return b; }) : Promise.resolve(rootE);
 const sndOf = (p, e) => p.evaluate(e => EMOJI_SOUNDS[e], e);
-const TOL = 0;   /* PREVIEW timers aim 150 ms under the 2850-ms cap (musicDip.SAFE: play by 2700 ms): no extra slack in the checks */
+const TOL = 0;
+/* (an 'ended' is paired with a start only when it comes > 30 ms after it: the clock starts the next play on a player inside that
+   player's own 'ended' handler, before the spy's 'ended' listener runs) */
+/* PREVIEW (22 Nov rule) checks on a log of pause / play calls + the page's sound starts / ends:
+   rule(p, d) → { pauses: [{ accepted→play ms, limit }], playWhileSounding: [...], musicGap: [play reply → next pause ms] }
+   - every pause → its play: play sent ≤ CAP (10 s) + the longest sound (2.6 s) + 0.5 s slack after the pause was answered
+     (+ main-thread stall time measured inside it, headless noise)
+   - no "play" sent while a clock sound was sounding (between a sound's start and its ended)
+   - at least 2 s between the music coming back (its play reply) and the next pause */
+const rule = async (p, d) => { const st = await p.evaluate(() => ({ s: window.__sfx.slice(), e: window.__ends.slice(), stalls: window.__stalls || [] }));
+  const iv = st.s.map(x => { const e = st.e.find(y => y.i === x.i && y.t > x.t + 30); return [x.t, e ? e.t : Infinity, x.n]; });
+  const out = { pauses: [], playWhileSounding: [], musicGap: [] };
+  d.forEach((e, i) => { if (e.c === 'pause'){ const n = d.slice(i + 1).find(x => x.c === 'play'); const from = e.done || e.t;
+      const frozen = n ? st.stalls.reduce((a, [s, t]) => a + Math.max(0, Math.min(t, n.t) - Math.max(s, from) - 20), 0) : 0;
+      out.pauses.push({ ms: n ? n.t - from : Infinity, ok: !!n && n.t - from <= 10000 + 2600 + 500 + frozen });
+      const prevPlay = d.slice(0, i).reverse().find(x => x.c === 'play'), firstPlay = prevPlay && d.slice(0, i).find(x => x.c === 'play' && x.t > (d.slice(0, i).reverse().find(y => y.c === 'pause') || { t: 0 }).t);
+      if (firstPlay && firstPlay.done) out.musicGap.push(e.t - firstPlay.done); }
+    if (e.c === 'play'){ const hit = iv.filter(([a, b]) => e.t > a + 5 && e.t < b - 5).map(x => x[2]); if (hit.length) out.playWhileSounding.push({ at: e.t, hit }); } });
+  out.ok = out.pauses.every(x => x.ok) && !out.playWhileSounding.length && out.musicGap.every(g => g >= 1950);
+  return out; };
 /* each pause → play stretch, and how much of it the page's main thread was frozen (test-harness noise) */
 const capCheck = async (p, d) => { const stalls = await p.evaluate(() => window.__stalls || []), out = [];
   d.forEach((e, i) => { if (e.c !== 'pause') return; const n = d.slice(i + 1).find(x => x.c === 'play'); if (!n){ out.push({ v: Infinity, frozen: 0, ok: false }); return; }
@@ -181,9 +215,9 @@ const TESTS = [
     await wait(1200); fake.playDelay = 600; log.length = 0; emoji(p, '🤡');
     await until(() => dips(log).some(e => e.c === 'play'), 4000); await wait(100); const t1 = Date.now(); emoji(p, '🤡'); await wait(3500);
     const d = dips(log);
-    if (P){ /* PREVIEW: a sound while the "play" is on its way plays at once, over (no wait, no new pause within GAP) */
-      const s = await p.evaluate(() => window.__sfx.map(x => x.t)), late = s[1] ? s[1] - t1 : null;
-      return (d.map(e => e.c).join() === 'pause,play' && clean(d) && late !== null && late < 300) || { d, late }; }
+    if (P){ /* PREVIEW (22 Nov rule): it WAITS until the music is back + 2 s of music, then its own pause (never over the music) */
+      await wait(3000); const d2 = dips(log), s = await p.evaluate(() => window.__sfx.map(x => x.t)), play1 = d2[1];
+      return (d2.map(e => e.c).join() === 'pause,play,pause,play' && clean(d2) && s.length === 2 && play1.done && s[1] >= play1.done + 1950 && d2[2].t >= play1.done + 1950) || { d: d2, s, t1 }; }
     return (d.map(e => e.c).join() === 'pause,play,pause,play' && clean(d)) || { d }; }, { spotify: true }],
   ['Music dip: Spotify not playing → no pause sent at all', async ({ p, log, fake }) => {
     fake.playing = false; await p.evaluate(() => spotify.poll()); await wait(1200); log.length = 0; emoji(p, '🤡'); await wait(2000);
@@ -205,13 +239,14 @@ const TESTS = [
     const e = await dipE(p, '😭'), len = P ? await p.evaluate(e => SFX_MS[EMOJI_SOUNDS[e]], e) : 4500;
     await wait(1200); log.length = 0; emoji(p, e); await wait(6500);
     const d = dips(log), gap = d.length === 2 ? d[1].t - d[0].t : null;
-    return (d.length === 2 && d[0].c === 'pause' && d[1].c === 'play' && gap >= len - 100 && (!P || gap <= 2850 + TOL)) || { e, len, d, gap }; }, { spotify: true }],
+    const ends = await p.evaluate(() => window.__ends.map(x => x.t));   /* PREVIEW: the play goes out only after the sound ended */
+    return (d.length === 2 && d[0].c === 'pause' && d[1].c === 'play' && gap >= len - 100 && (!P || (ends.length === 1 && d[1].t >= ends[0]))) || { e, len, d, gap, ends }; }, { spotify: true }],
   ['Music dip: a waiting sound is NOT played (and no extra pause) when sound was muted meanwhile', async ({ p, log, fake }) => {
-    if (P){ /* PREVIEW: only a VOLUME dip (speaker) still makes a sound wait — a pause dip plays it at once, over */
-      fake.speaker = true; await p.evaluate(() => spotify.poll()); await wait(1200); await p.evaluate(() => { musicDip.VMAX = 3000; }); log.length = 0; emoji(p, '💀'); await wait(1500); emoji(p, '🔥');
+    if (P){ /* PREVIEW (22 Nov rule): a sound waits when the pause reached its cap (CAP set to 1.5 s here); mute drops it */
+      await wait(1200); await p.evaluate(() => { musicDip.CAP = 1500; }); log.length = 0; emoji(p, '💀'); await wait(1700); emoji(p, '🔥');
       await wait(100); await p.evaluate(() => sound.toggleMute()); await wait(5500);
-      const v = log.filter(e => e.c === 'PUT /me/player/volume').map(e => e.v), sfx = await p.evaluate(() => window.__sfx.length), q = await p.evaluate(() => musicDip.queue.length);
-      return (v.join() === '18,70' && sfx === 1 && q === 0) || { v, sfx, q }; }
+      const d = dips(log), sfx = await p.evaluate(() => window.__sfx.length), q = await p.evaluate(() => musicDip.waiting.length);
+      return (d.map(e => e.c).join() === 'pause,play' && sfx === 1 && q === 0 && clean(d)) || { d, sfx, q }; }
     await wait(1200); await p.evaluate(() => { musicDip.MAX = 3000; }); log.length = 0; emoji(p, '😭'); await wait(1500); emoji(p, '🔥');   /* 🔥 (2.6 s) can't end before the 3-s cap → waits */
     await wait(100); await p.evaluate(() => sound.toggleMute()); await wait(5500);
     const d = dips(log), sfx = await p.evaluate(() => window.__sfx.length), q = await p.evaluate(() => musicDip.queue.length);
@@ -227,16 +262,18 @@ const TESTS = [
     return (d.map(e => e.c).join() === 'pause,play,play,play' && fake.playing && r === true) || { d, r, fake: fake.playing }; }, { spotify: true }],
   ['Music dip: resume fails every time → shows Paused, next sound sends NO pause', async ({ p, log, fake }) => {
     await wait(1200); fake.playFailAll = 500; log.length = 0; emoji(p, '🤡');
-    await until(() => dips(log).filter(e => e.c === 'play' && e.done).length === 3, 7000); await wait(100);
-    const r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent })); emoji(p, '🤡'); await wait(1500);
+    if (P) await until(() => p.evaluate(() => musicDip.state === 'rest' || musicDip.state === 'idle').then(x => x && dips(log).length > 1), 15000);
+    else await until(() => dips(log).filter(e => e.c === 'play' && e.done).length === 3, 7000);
+    await wait(100);
+    const r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent })); emoji(p, '🤡'); await wait(P ? 3500 : 1500);
     const d = dips(log);
-    /* PREVIEW (round D): after the 3 tries one poll; the fake says paused on our device → ONE last play */
-    return (d.map(e => e.c).join() === (P ? 'pause,play,play,play,play' : 'pause,play,play,play') && r.playing === false && r.k !== 'Now playing') || { d, r }; }, { spotify: true }],
+    /* PREVIEW (22 Nov rule): plain play ×3, play with device_id ×3, transfer playback ×3 (= PLAYS_MAX 9), then the card shows Paused */
+    return (d.map(e => e.c).join() === (P ? 'pause,play,play,play,play,play,play' : 'pause,play,play,play') && (!P || fake.transfers === 3) && r.playing === false && r.k !== 'Now playing') || { d, r, transfers: fake.transfers }; }, { spotify: true }],
   ['Music dip (speaker): volume restore fails 3 times → next dip still restores the ORIGINAL 70, never lowers from the lowered level', async ({ p, log, fake }) => {
     fake.speaker = true; await p.evaluate(() => spotify.poll()); await wait(1200);
     fake.volFails = 3; log.length = 0; emoji(p, '🤡');
     await until(() => log.filter(e => e.c === 'PUT /me/player/volume' && e.st === 500).length === 3, 8000); await wait(300);
-    await p.evaluate(() => spotify.poll()); await wait(600); emoji(p, '🤡'); await wait(2500);
+    await p.evaluate(() => spotify.poll()); await wait(600); emoji(p, '🤡'); await wait(P ? 4500 : 2500);   /* PREVIEW: it waits the 2 s of music first */
     const v = log.filter(e => e.c === 'PUT /me/player/volume').map(e => e.v + ':' + e.st);
     return (v.join() === '18:204,70:500,70:500,70:500,18:204,70:204' && fake.vol === 70) || { v, vol: fake.vol }; }, { spotify: true }],
   ['Music dip: slow pause (answers after 6 s) → 4 emojis + level alert fired together ALL start within 2 s, one pause + one play', async ({ p, log, fake }) => {
@@ -250,16 +287,22 @@ const TESTS = [
     await wait(1200); fake.playDelay = 6000; log.length = 0; emoji(p, '🤡');
     await until(() => dips(log).some(e => e.c === 'play'), 4000); await wait(100);
     const t0 = Date.now(); p.evaluate(() => window.levelAlert());
-    const heard = await until(() => p.evaluate(() => window.__sounds > 0), 8000), dt = Date.now() - t0; await wait(7500);
+    const heard = await until(() => p.evaluate(() => window.__sounds > 0), 12000), dt = Date.now() - t0; await wait(P ? 9000 : 7500);
     const d = dips(log);
+    if (P){ /* PREVIEW (22 Nov rule): the beep waits for the music to be back (6 s reply) + 2 s of music, then its own pause; never during the play */
+      const play1 = d[1];
+      return (heard && play1 && play1.done && t0 + dt >= play1.done + 1950 && d.map(e => e.c).join() === 'pause,play,pause,play' && clean(d) && fake.playing) || { dt, d, playing: fake.playing }; }
     return (heard && dt < 2000 && clean(d) && d.length && d[d.length - 1].c === 'play' && fake.playing) || { dt, d, playing: fake.playing }; }, { spotify: true }],
   ['Music dip: slow resume (play answers after 6 s) → 4 emojis + level alert fired together ALL start within 2 s', async ({ p, log, fake }) => {
     await wait(1200); fake.playDelay = 6000; log.length = 0; emoji(p, '🤡');
     await until(() => dips(log).some(e => e.c === 'play'), 4000); await wait(100);
     const t0 = await p.evaluate(() => { window.__alertAt = 0; const o = sound.playTransition.bind(sound); sound.playTransition = (...x) => { window.__alertAt = Date.now(); return o(...x); };
       const t = Date.now(); window.__sfx.length = 0; ['😂', '🔥', '💀', '👏'].forEach(e => emojiSfx.play(e)); window.levelAlert(); return t; });
-    await wait(9000);
+    await wait(P ? 18000 : 9000);
     const r = await p.evaluate(() => ({ sfx: window.__sfx.map(x => x.t), alert: window.__alertAt })), late = [...r.sfx, r.alert].map(t => t ? t - t0 : null), d = dips(log);
+    if (P){ /* PREVIEW (22 Nov rule): all five wait for the music (6 s reply) + 2 s, then play together in ONE new pause */
+      const play1 = d[1], all = [...r.sfx, r.alert];
+      return (r.sfx.length === 4 && r.alert && play1 && play1.done && all.every(t => t >= play1.done + 1950) && Math.max(...all) - Math.min(...all) < 1000 && clean(d) && d.map(e => e.c).join() === 'pause,play,pause,play' && fake.playing) || { late, d: d.map(x => x.c + '@' + (x.t - t0)), playing: fake.playing }; }
     return (r.sfx.length === 4 && late.every(x => x !== null && x < 2000) && clean(d) && d.map(e => e.c).join() === 'pause,play' && fake.playing) || { late, d, playing: fake.playing }; }, { spotify: true }],
   ['Emoji: same emoji twice 300 ms apart → two players overlap, the first is NOT restarted (runs to its own end)', async ({ p }) => {
     await wait(600); emoji(p, '💀'); await wait(300); emoji(p, '💀'); await wait(3500);
@@ -283,16 +326,19 @@ const TESTS = [
     await p.evaluate(() => { window.__refuse = false; window.dispatchEvent(new Event('touchend')); });
     const b = await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total && emojiSfx.unlockedCount), 4000);
     const quiet = await p.evaluate(() => emojiSfx.all().every(x => x.paused && !x.muted) && sound.audio.paused && !sound.audio.muted);
-    return (typeof a.n === 'number' && a.total === NPL && a.n < a.total && b === NPL && quiet) || { a, b, quiet }; }],
+    return (typeof a.n === 'number' && a.total === NPL && a.n < a.total && b === NPL && quiet) || { a, b, quiet }; }, { noTap: true }],
   ['Emoji: an unlock still on its way does not silence a real play started at the same moment', async ({ p }) => {
     await wait(600);
     await p.evaluate(() => { const o = HTMLMediaElement.prototype.play;   /* the 💀 players' unlock (muted) plays answer 400 ms late (only those: 17 running at once stalls headless WebKit) */
       HTMLMediaElement.prototype.play = function(){ const r = o.apply(this, arguments); return this.muted && this.src.includes('fah') ? new Promise((ok, bad) => setTimeout(() => r.then(ok, bad), 400)) : r; };
       window.dispatchEvent(new PointerEvent('pointerdown')); emojiSfx.play('💀'); });
     /* the real play must run to its own end, unmuted (an unlock that paused / muted it would never end, or end muted) */
-    await until(() => p.evaluate(() => window.__ends.some(x => x.n === 'fah.m4a')), 8000);
-    const r = await p.evaluate(() => ({ s: window.__sfx.filter(x => x.n === 'fah.m4a'), e: window.__ends.filter(x => x.n === 'fah.m4a') })), s = r.s[0], e = s && r.e.find(x => x.i === s.i);
-    return (r.s.length === 1 && e && !e.m && e.t - s.t >= 1800) || r; }],
+    await until(() => p.evaluate(() => window.__ends.some(x => x.n === 'fah.m4a')), P ? 20000 : 8000);
+    const r = await p.evaluate(() => ({ s: window.__sfx.filter(x => x.n === 'fah.m4a'), e: window.__ends.filter(x => x.n === 'fah.m4a') }));
+    /* PREVIEW: a play that does not reach "playing" within 1.5 s is over and gets ONE more go (the 22 Nov rule); headless WebKit's
+       stall right after the tap (up to ~9 s here) can use that second go, so the LAST play must end in full, unmuted */
+    const s = r.s[r.s.length - 1], e = s && r.e.find(x => x.i === s.i && x.t > s.t + 30);
+    return ((P ? r.s.length >= 1 && r.s.length <= 2 : r.s.length === 1) && e && !e.m && e.t - s.t >= 1800) || r; }, { noTap: true }],
   ['Emoji: emojiSfx.log records a refused play (error name) and a good play (ok true)', async ({ p }) => {
     await wait(600);
     await p.evaluate(() => { const o = HTMLMediaElement.prototype.play; window.__refuseFah = true;
@@ -308,7 +354,7 @@ const TESTS = [
       window.dispatchEvent(new PointerEvent('pointerdown')); emojiSfx.play(e); emojiSfx.on = false; }, [e, n]);   /* switched off before its dip turn → dropped */
     await wait(1500);
     const r = await p.evaluate(n => emojiSfx.pool[n].map(a => ({ paused: a.paused, muted: a.muted, t: +a.currentTime.toFixed(2), ok: a._ok, job: !!a._job })), n);
-    return r.every(a => a.paused && !a.muted && a.t === 0 && a.ok && !a.job) || r; }],
+    return r.every(a => a.paused && !a.muted && a.t === 0 && a.ok && !a.job) || r; }, { noTap: true }],
   ['Emoji: mute while 😭 plays → it stops within 200 ms and the music is back within ~1 s', async ({ p, log }) => {
     const e = await dipE(p, '😭'), n = await sndOf(p, e);
     await wait(1200); log.length = 0; emoji(p, e);
@@ -325,14 +371,21 @@ const TESTS = [
     const stop = await until(() => p.evaluate(n => emojiSfx.pool[n].every(a => a.paused), n), 2000), dt = Date.now() - t0;
     const back = await until(() => dips(log).find(e => e.c === 'play'), 3000), d = dips(log);
     return (stop && dt <= 200 && back && back.t - t0 <= 1000 && d.map(e => e.c).join() === 'pause,play') || { dt, back: back && back.t - t0, d }; }, { spotify: true }],
-  ['Emoji: mute while a 3rd 😭 reuses a playing player and still waits for its dip turn → no emoji player plays 250 ms later', async ({ p }) => {
+  ...(P ? [['Emoji: mute while 4 🔥 sound and a 5th waits for a free player → no emoji player plays 250 ms later (PREVIEW: replaces the "3rd 😭 waits for its dip turn" check)', async ({ p }) => {
+    await wait(600); for (let i = 0; i < 5; i++){ emoji(p, '🔥'); await wait(120); }   /* 4 players per sound: the 5th waits, it never takes a sounding one */
+    const r0 = await p.evaluate(() => ({ n: emojiSfx.pool['wow'].filter(a => !a.paused && !a.muted).length, q: musicDip.waiting.length }));
+    await wait(100); await p.evaluate(() => sound.toggleMute()); await wait(250);
+    const r = await p.evaluate(() => emojiSfx.all().filter(a => !a.paused && !a.muted).map(a => a.src.split('/').pop() + '@' + a.currentTime.toFixed(2)));
+    await wait(1800); const later = await p.evaluate(() => emojiSfx.all().filter(a => !a.paused && !a.muted).length), q = await p.evaluate(() => musicDip.waiting.length);
+    return (r0.n === 4 && r0.q === 1 && r.length === 0 && later === 0 && q === 0) || { r0, r, later, q }; }]] : []),
+  ...(P ? [] : [['Emoji: mute while a 3rd 😭 reuses a playing player and still waits for its dip turn → no emoji player plays 250 ms later', async ({ p }) => {
     const e = await dipE(p, '😭');
     await wait(600); emoji(p, e); await wait(300); emoji(p, e); await wait(500);
     await p.evaluate(e => { musicDip.run(() => new Promise(r => setTimeout(r, 1500))); emojiSfx.play(e); }, e);   /* dip chain busy 1.5 s: the 3rd waits */
     await wait(100); await p.evaluate(() => sound.toggleMute()); await wait(250);
     const r = await p.evaluate(() => emojiSfx.all().filter(a => !a.paused && !a.muted).map(a => a.src.split('/').pop() + '@' + a.currentTime.toFixed(2)));
     await wait(1800); const later = await p.evaluate(() => emojiSfx.all().filter(a => !a.paused && !a.muted).length);
-    return (r.length === 0 && later === 0) || { r, later }; }],
+    return (r.length === 0 && later === 0) || { r, later }; }]]),
   ['Beep: mute while the level beep plays → the music is back within ~1 s; the next alert still dips and sounds', async ({ p, log }) => {
     await wait(1200); log.length = 0; p.evaluate(() => window.levelAlert());
     await until(() => dips(log).some(e => e.c === 'pause' && e.done), 3000); await wait(200);
@@ -342,9 +395,12 @@ const TESTS = [
     p.evaluate(() => window.levelAlert()); await wait(3500); const d = dips(log), s1 = await p.evaluate(() => window.__sounds);
     return (back && back.t - t0 <= 1000 && d.map(e => e.c).join() === 'pause,play' && s1 === s0 + 1) || { back: back && back.t - t0, d, s0, s1 }; }, { spotify: true }],
   ['Beep: a real beep that played counts the beep player as unlocked (unlock never ran)', async ({ p }) => {
-    await p.evaluate(() => { sound._unlock = () => {}; window.levelAlert(); }); await wait(1500);
+    /* PREVIEW: a beep needs a tap first like every sound — the tap unlocks the emoji players only (the beep's own unlock is switched off) */
+    await p.evaluate(() => { sound._unlock = () => {}; if (typeof emojiSfx.ready === 'function') window.dispatchEvent(new PointerEvent('pointerdown')); });
+    if (P){ await until(() => p.evaluate(() => emojiSfx.ready()), 4000); await settle(p); }
+    await p.evaluate(() => window.levelAlert()); await wait(P ? 2500 : 1500);
     const r = await p.evaluate(() => ({ unlocked: sound.unlocked, n: emojiSfx.unlockedCount, emoji: emojiSfx.all().filter(a => a._ok).length }));
-    return (r.unlocked === true && r.n === r.emoji + 1) || r; }],
+    return (r.unlocked === true && r.n === r.emoji + 1) || r; }, { noTap: true }],
   ['Old stored Premium=false (v1 key) is ignored after reload and the old key is removed', async ({ p }) => {
     await wait(1200); await p.evaluate(() => localStorage.setItem('poker_spotify_auth_v1_premium', 'false'));
     await p.reload(); await wait(1500);
@@ -365,11 +421,13 @@ const TESTS = [
     await p.click('#phDiagToggle'); await wait(200);
     const hid2 = await p.evaluate(() => getComputedStyle(document.getElementById('phDiag')).display === 'none');
     return (hid && vis && hid2 && box && /^Spotify: Tablet, volume control no, Premium yes$/.test(L[0]) && /^Last Spotify error: 403 UNKNOWN \/me\/player\/pause, \d+ s ago$/.test(L[1])
-      && L[2] === 'Sounds unlocked: ' + NPL + ' of ' + NPL && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4]) && (P ? /^Last beep: none yet$/.test(L[5]) && /^Last sounds: 🤡 ok/.test(L[6]) && L.length === 7 : /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6)) || { hid, vis, hid2, box, t }; }, { spotify: true }],
+      && L[2] === 'Sounds unlocked: ' + NPL + ' of ' + NPL && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4])
+      && (P ? /^Last pause: \d\d:\d\d:\d\d, no pause \(Spotify was not playing\) \(answer \d+ ms\), 1 sound, \d+\.\d s, nothing to bring back$/.test(L[5]) && /^Last beep: none yet$/.test(L[6]) && /^Last sounds: 🤡 ok/.test(L[7]) && L.length === 8
+        : /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6)) || { hid, vis, hid2, box, t }; }, { spotify: true }],
   ['Phones panel: Status block says "Spotify: not connected" when Spotify is not connected (and "none" errors, sounds not unlocked yet)', async ({ p }) => {
     await p.click('#phonesBtn'); await wait(500); await p.click('#phDiagToggle'); await wait(300);
     const t = await p.evaluate(() => document.getElementById('phDiag').textContent), L = t.split('\n');
-    return (L[0] === 'Spotify: not connected' && L[1] === 'Last Spotify error: none' && new RegExp('^Sounds unlocked: \\d+ of ' + NPL + '( — tap the screen once)?$').test(L[2]) && L[P ? 6 : 5] === 'Last sounds: none yet' && (!P || L[5] === 'Last beep: none yet')) || { t }; }],
+    return (L[0] === 'Spotify: not connected' && L[1] === 'Last Spotify error: none' && new RegExp('^Sounds unlocked: \\d+ of ' + NPL + '( — tap the screen once)?$').test(L[2]) && L[P ? 7 : 5] === 'Last sounds: none yet' && (!P || (L[5] === 'Last pause: none yet' && L[6] === 'Last beep: none yet'))) || { t }; }, { noTap: true }],
 ];
 
 /* ---- PREVIEW only (PREVIEW=1): the music-safety rule, the 404 retry, the PREVIEW tag, the join link ---- */
@@ -381,7 +439,7 @@ const burst = (p, list, every) => p.evaluate(([list, every]) => list.forEach((e,
 const fired = (p, list, every) => p.evaluate(([list, every]) => { window.__fired = []; list.forEach((e, i) => setTimeout(() => { window.__fired.push(Date.now()); emojiSfx.play(e); }, i * every)); }, [list, every]);
 const startLate = p => p.evaluate(() => { const f = window.__fired.slice().sort((a, b) => a - b), s = window.__sfx.map(x => x.t).sort((a, b) => a - b);
   return { n: s.length, fired: f.length, worst: Math.max(...f.map((t, i) => s[i] != null ? s[i] - t : 1e9)) }; });
-const settled = (p, log) => until(async () => { const d = dips(log); return d.length && d[d.length - 1].c === 'play' && d[d.length - 1].done && !(await p.evaluate(() => musicDip.mode || musicDip.ending || musicDip.queue.length)); }, 40000);
+const settled = (p, log) => until(async () => { const d = dips(log); return d.length && d[d.length - 1].c === 'play' && d[d.length - 1].done && !(await p.evaluate(() => musicDip.busy())); }, 40000);
 const SEED40 = () => { const a = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰']; let t = 0, s = 7; const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
   for (let i = 0; i < 40; i++){ t += Math.floor(rnd() * 600); const e = a[Math.floor(rnd() * 8)]; setTimeout(() => emojiSfx.play(e), t); } };
 const TEN = ['😂', '🔥', '🤡', '💀', '🤯', '📖', '👏', '😭', '💰', '💵', '❓', '💣'];   /* (name kept) the twelve emojis, 3 rows of 4 on the phone */
@@ -399,12 +457,22 @@ const PREVIEW_TESTS = [
     const probe = n => { try { return Math.round(1000 * +require('child_process').execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', dir + '/' + n + '.m4a']).toString().trim()); } catch (e) { return null; } };
     const ff = r ? Object.fromEntries(files.map(n => [n, { file: probe(n), table: r.len[n] && r.len[n].table, browser: r.len[n] && r.len[n].real }])) : null;
     return (r && JSON.stringify(r.emojis) === JSON.stringify(TEN) && JSON.stringify(r.map) === JSON.stringify(TEN_SND) && new Set(files).size === 12 && Object.keys(r.len).length === 12
-      && Object.entries(ff).every(([n, x]) => x.file != null && Math.abs(x.browser - x.table) <= 100 && (!NEW5.includes(n) || Math.abs(x.file - x.table) <= 30)) && r.players === 24) || { emojis: r && r.emojis, ff }; }],
-  ['PREVIEW: ONE tap unlocks all 24 emoji players (+ the beep = 25 of 25)', async ({ p }) => {
+      && Object.entries(ff).every(([n, x]) => x.file != null && Math.abs(x.browser - x.table) <= 100 && (!NEW5.includes(n) || Math.abs(x.file - x.table) <= 30)) && r.players === 48) || { emojis: r && r.emojis, ff, players: r && r.players }; }],
+  ['PREVIEW: ONE tap unlocks all 48 emoji players (4 per sound, + the beep = 49 of 49)', async ({ p }) => {
     await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown')));
-    const ok = await until(() => p.evaluate(() => emojiSfx.unlockedCount === 25 && emojiSfx.all().length === 24 && emojiSfx.all().every(a => a._ok)), 8000);
+    const ok = await until(() => p.evaluate(() => emojiSfx.unlockedCount === 49 && emojiSfx.all().length === 48 && emojiSfx.all().every(a => a._ok)), 8000);
     const r = await p.evaluate(() => ({ n: emojiSfx.unlockedCount, total: emojiSfx.total, quiet: emojiSfx.all().every(a => a.paused && !a.muted) }));
-    return (ok && r.total === 25 && r.quiet) || r; }],
+    return (ok && r.total === 49 && r.quiet) || r; }, { noTap: true }],
+  ['PREVIEW: before the first tap an emoji pauses NOTHING (no Spotify pause / play), plays nothing, shows "Tap the screen once to turn sounds on"; the tap hides it and the next emoji pauses and plays', async ({ p, log, fake }) => {
+    await wait(1200); log.length = 0;
+    const hid0 = await p.evaluate(() => getComputedStyle(document.getElementById('sndHint')).display === 'none');
+    for (const e of ['🔥', '💀', '🤡']){ await emoji(p, e); await wait(300); } await wait(800);
+    const a = await p.evaluate(() => { const h = document.getElementById('sndHint'); return { shown: getComputedStyle(h).display !== 'none', text: h.textContent, sfx: window.__sfx.length, pe: getComputedStyle(h).pointerEvents }; }), d0 = dips(log).length;
+    await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown'))); await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 8000);
+    const gone = await p.evaluate(() => getComputedStyle(document.getElementById('sndHint')).display === 'none');
+    await settle(p);
+    await emoji(p, '🤡'); await wait(2500); const d = dips(log), sfx = await p.evaluate(() => window.__sfx.length);
+    return (hid0 && a.shown && a.text === 'Tap the screen once to turn sounds on' && a.pe === 'none' && a.sfx === 0 && d0 === 0 && gone && d.map(x => x.c).join() === 'pause,play' && sfx === 1 && fake.playing) || { hid0, a, d0, gone, d, sfx }; }, { spotify: true, noTap: true }],
   ['PREVIEW: 💵 and ❓ from a phone are accepted, fly up on the iPad and play their own sounds (pay-that-man, what-happened)', async ({ p }) => {
     await wait(600); const r = await p.evaluate(async () => { const out = {};
       for (const [i, e] of [['a', '💵'], ['b', '❓']]){ const c = { connectionId: 'tc' + i, open: true, sent: [], send(m){ this.sent.push(m); } };
@@ -446,74 +514,98 @@ const PREVIEW_TESTS = [
     await wait(1500); await p.click('#startBtn'); await wait(SETTLE); await p.click('#nextBtn'); await wait(3500);
     await p.click('#phonesBtn'); await wait(400); await p.click('#phDiagToggle'); await wait(1300);
     const L = (await p.evaluate(() => document.getElementById('phDiag').textContent)).split('\n');
-    return (L.length === 7 && /^Last beep: \d\d:\d\d:\d\d, dip pause, session playback, clock thought Spotify playing \(poll \d+ s old\), pause to play [12]\.\d s, play reply 204$/.test(L[5])) || L; }, { spotify: true }],
+    return (L.length === 8 && /^Last beep: \d\d:\d\d:\d\d, dip pause, session playback, clock thought Spotify playing \(poll \d+ s old\), pause to play [12]\.\d s, play reply 204$/.test(L[6])
+      && /^Last pause: \d\d:\d\d:\d\d, music paused \(answer \d+ ms\), 1 sound, [12]\.\d s, plain play 204, confirmed playing$/.test(L[5])) || L; }, { spotify: true }],
   ['PREVIEW: Spotify not connected → phones state says now: null', async ({ p }) => {
     const r = await p.evaluate(() => phones.snapshot().now); return r === null || { r }; }],
-  ...[2800, 3500].map(ms => ['PREVIEW: slow pause answer (' + ms + ' ms) → "play" goes out at once after it (no tail), never before it', async ({ p, log, fake }) => {
-    await wait(1200); fake.pauseDelay = ms; log.length = 0; emoji(p, '👏'); await wait(ms + 1500);
-    const d = dips(log), st = stretches(d);
-    return (d.map(x => x.c).join() === 'pause,play' && d[1].t >= d[0].done && st[0] <= ms + 60 && fake.playing) || { d, st }; }, { spotify: true }]),
-  ['PREVIEW: cap margin — 👏 alone, 🔥 ×20 @1 s, 40 mixed (random 0-0.6 s apart): every pause → play ≤ 2850 ms', async ({ p, log, fake }) => {
+  ...[2800, 3500].map(ms => ['PREVIEW: slow pause answer (' + ms + ' ms) → the sound starts after 1.5 s anyway; "play" goes out at once after the later of the pause answer and the sound\'s end, never before either', async ({ p, log, fake }) => {
+    await wait(1200); fake.pauseDelay = ms; log.length = 0; emoji(p, '👏'); await wait(ms + 2500);
+    const d = dips(log), st = stretches(d), ends = await p.evaluate(() => window.__ends.map(x => x.t)), s = await p.evaluate(() => window.__sfx.map(x => x.t));
+    const after = d.length === 2 && ends.length === 1 ? Math.max(d[0].done, ends[0]) : null;
+    return (d.map(x => x.c).join() === 'pause,play' && after && d[1].t >= after && d[1].t - after <= 400 && s.length === 1 && s[0] - d[0].t < 2000 && fake.playing) || { d, st, ends, s }; }, { spotify: true }]),
+  ['PREVIEW: the 22 Nov rule — 👏 alone, 🔥 ×20 @1 s, 40 mixed (random 0-0.6 s apart): every pause ≤ 10 s + the longest sound, no "play" while a sound sounds, ≥ 2 s of music between pauses, music ends playing (replaces the 2850-ms cap-margin check)', async ({ p, log, fake }) => {
     const out = {};
     for (const [k, go] of [['clap', () => emoji(p, '👏')], ['fire20', () => burst(p, Array(20).fill('🔥'), 1000)], ['mixed40', () => p.evaluate(SEED40)]]){
-      await wait(1500); log.length = 0; await go(); await wait(k === 'clap' ? 1000 : k === 'fire20' ? 19500 : 12000); await settled(p, log); await wait(300);
-      const d = dips(log); out[k] = { cc: await capCheck(p, d), clean: clean(d), end: d.length && d[d.length - 1].c }; }
-    return (Object.values(out).every(x => x.cc.length >= 1 && x.cc.every(c => c.ok) && x.clean && x.end === 'play') && fake.playing) || out; }, { spotify: true }],
+      await p.evaluate(() => { window.__sfx.length = 0; window.__ends.length = 0; });
+      await wait(2500); log.length = 0; await go(); await wait(k === 'clap' ? 1000 : k === 'fire20' ? 19500 : 12000); await settled(p, log); await wait(300);
+      const d = dips(log); out[k] = { rule: await rule(p, d), clean: clean(d), end: d.length && d[d.length - 1].c }; }
+    return (Object.values(out).every(x => x.rule.pauses.length >= 1 && x.rule.ok && x.clean && x.end === 'play') && fake.playing) || JSON.stringify(out).slice(0, 1500); }, { spotify: true }],
   ['PREVIEW: slow "play" (answers after 2 s) + all 8 ×2 @250 ms → every sound starts within 300 ms of being fired', async ({ p, log, fake }) => {
     await wait(1200); fake.playDelay = 2000; log.length = 0; const a = ['😂', '🔥', '🤡', '💀', '👏', '😭', '🤯', '💰'];
     await fired(p, a.concat(a), 250); await wait(9000);
     const r = await startLate(p), d = dips(log);
     return (r.n === 16 && r.fired === 16 && r.worst <= 300 && clean(d) && fake.playing) || { r, d: d.map(x => x.c) }; }, { spotify: true }],
-  ...[10, 30].map(k => ['PREVIEW: burst 🤡 ×' + k + ' @300 ms → ONE pause in the first 2850 ms, then no pause in the next 2 s of music', async ({ p, log, fake }) => {
-    await wait(1200); log.length = 0; await burst(p, Array(k).fill('🤡'), 300); await wait(k * 300 + 2000); await settled(p, log); await wait(300);
-    const d = dips(log), back = d.find(x => x.c === 'play'), early = d.filter(x => x.c === 'pause' && back && x.t < back.done + 2000), cc = await capCheck(p, d);
-    return (early.length === 1 && d[0].c === 'pause' && back && cc.every(c => c.ok) && clean(d) && fake.playing) || { d: d.map(x => x.c + '@' + (x.t - d[0].t)), cc }; }, { spotify: true }]),
+  ...[[10, 300], [30, 400]].map(([k, every]) => ['PREVIEW: burst 🤡 ×' + k + ' @' + every + ' ms → ' + (k === 10 ? 'ONE pause, ONE play after the last sound' : 'the pause stops at 10 s, music back, ≥ 2 s of music, then the rest in a new pause') + ' (replaces the 2850-ms burst check)', async ({ p, log, fake }) => {
+    await wait(1200); log.length = 0; await burst(p, Array(k).fill('🤡'), every); await wait(k * every + 2000); await settled(p, log); await wait(300);
+    const d = dips(log), rr = await rule(p, d), r = await p.evaluate(() => ({ n: window.__sfx.length, skipped: emojiSfx.log.filter(x => x.err === 'skipped').length, ends: window.__ends.length }));
+    const ok = k === 10 ? d.map(x => x.c).join() === 'pause,play' && r.n === 10 : d.filter(x => x.c === 'pause').length === 2 && r.n + r.skipped >= 28 && r.n >= 22;
+    return (ok && rr.ok && clean(d) && fake.playing && r.ends === r.n) || { d: d.map(x => x.c + '@' + (x.t - d[0].t)), rr, r }; }, { spotify: true }]),
   ['PREVIEW: resume retry spacing — no answer, then 500 → tries again 0.5 s apart → music back by ~1.2 s', async ({ p, log, fake }) => {
     await wait(1200); fake.playFails = ['abort', 500]; log.length = 0; emoji(p, '🤡'); await wait(4000);
     const pl = log.filter(e => e.c === 'PUT /me/player/play'), g = pl.slice(1).map((e, i) => e.t - pl[i].done);
     const r = await p.evaluate(() => spotify.now && spotify.now.playing);
     return (pl.length === 3 && g.every(x => x >= 400 && x <= 700) && fake.playing && r === true) || { g, n: pl.length, r }; }, { spotify: true }],
-  ['PREVIEW: musicDip.MAX is 2850 ms (pause dip), SAFE 150 (play by 2700, holds go at 2550), LONG 2700, TAIL 150, speaker volume dip still 9 s', async ({ p }) => {
-    const r = await p.evaluate(() => ({ MAX: musicDip.MAX, SAFE: musicDip.SAFE, LONG: musicDip.LONG, TAIL: musicDip.TAIL, VMAX: musicDip.VMAX, lim: (musicDip.mode = 'pause', musicDip.limit()), _: (musicDip.mode = null) }));
-    return (r.MAX === 2850 && r.SAFE === 150 && r.lim === 2550 && r.LONG === 2700 && r.TAIL === 150 && r.VMAX === 9000) || r; }],
-  ['PREVIEW: 🔥 then 💰 fired 2780 ms after the pause was sent → play out ≤ 2850 ms after the pause (hard timer at 2700)', async ({ p, log, fake }) => {
+  ['PREVIEW: the limits in one place — musicDip.CAP 10 s, MUSIC_MIN 2 s, QMAX 6 waiting, 4 players per sound, pause answer waited for max 1.5 s, PLAYS_MAX 9 (replaces the MAX / SAFE / LONG constants check)', async ({ p }) => {
+    const r = await p.evaluate(() => ({ CAP: musicDip.CAP, MIN: musicDip.MUSIC_MIN, Q: musicDip.QMAX, PER: emojiSfx.PER, PW: musicDip.PAUSE_WAIT, PM: musicDip.PLAYS_MAX, old: ['MAX', 'SAFE', 'LONG', 'GAP', 'hardEnd', 'begin', 'join'].filter(k => k in musicDip) }));
+    return (r.CAP === 10000 && r.MIN === 2000 && r.Q === 6 && r.PER === 4 && r.PW === 1500 && r.PM === 9 && r.old.length === 0) || r; }],
+  ['PREVIEW: the 10-s cap — 🔥 every 2 s keeps the pause going: 💰 fired 9.6 s after the pause was answered still plays; 🤡 fired 10.4 s after waits, the music comes back after the last sound, ≥ 2 s of music, then 🤡 in a new pause (replaces the 2780-ms hard-timer check)', async ({ p, log, fake }) => {
     await wait(1200); log.length = 0;
-    await p.evaluate(() => { emojiSfx.play('🔥'); const t = setInterval(() => { if (musicDip.mode === 'pause'){ clearInterval(t); setTimeout(() => emojiSfx.play('💰'), Math.max(0, musicDip.startedAt + 2780 - Date.now())); } }, 5); });
-    await wait(5000); await settled(p, log);
-    const d = dips(log), cc = await capCheck(p, d), st = stretches(d);
-    return (d.length && d[0].c === 'pause' && cc.length >= 1 && cc.every(c => c.ok) && clean(d) && fake.playing) || { d: d.map(x => x.c + '@' + (x.t - d[0].t)), cc, st }; }, { spotify: true }],
-  ['PREVIEW: a sound longer than 2.7 s sends NO pause (no play either) and still plays', async ({ p, log }) => {
-    await wait(1200); const e = await longE(p), n = await sndOf(p, e); log.length = 0; emoji(p, e); await wait(2500);
-    const d = dips(log), r = await p.evaluate(n => ({ started: window.__sfx.filter(x => x.n === n + '.m4a').length, mode: musicDip.mode }), n);
-    return (d.length === 0 && r.started === 1 && !r.mode) || { e, d, r }; }, { spotify: true }],
-  ['PREVIEW: a long sound fired during a pause dip plays over it; the dip still ends within 2.85 s', async ({ p, log, fake }) => {
-    await wait(1200); const e = await longE(p), n = await sndOf(p, e); log.length = 0; emoji(p, '🤡'); await wait(300); emoji(p, e); await wait(4500);
-    const d = dips(log), st = stretches(d), started = await p.evaluate(n => window.__sfx.filter(x => x.n === n + '.m4a').length, n);
-    return (d.map(x => x.c).join() === 'pause,play' && st[0] <= 2850 + TOL && started === 1 && fake.playing) || { d, st, started }; }, { spotify: true }],
-  ['PREVIEW: a sound that does not fit the pause dip (🔥 again 1.4 s later) plays AT ONCE over the music — no wait, no 2nd pause', async ({ p, log, fake }) => {
+    await p.evaluate(() => { window.__fired = {}; emojiSfx.play('🔥'); const t = setInterval(() => { if (musicDip.state === 'open' && musicDip.acceptedAt){ clearInterval(t); const a0 = musicDip.acceptedAt;
+      [2000, 4000, 6000, 8000].forEach(ms => setTimeout(() => emojiSfx.play('🔥'), a0 + ms - Date.now()));
+      setTimeout(() => { window.__fired.money = Date.now(); emojiSfx.play('💰'); }, a0 + 9600 - Date.now()); setTimeout(() => { window.__fired.clown = Date.now(); emojiSfx.play('🤡'); }, a0 + 10400 - Date.now()); } }, 5); });
+    await wait(13000); await settled(p, log); await wait(300);
+    const d = dips(log), rr = await rule(p, d), r = await p.evaluate(() => ({ f: window.__fired, money: window.__sfx.filter(x => x.n === 'show-me-the-money.m4a').map(x => x.t), clown: window.__sfx.filter(x => x.n === 'bruh.m4a').map(x => x.t), ends: window.__ends.map(x => x.n + '@' + x.t) }));
+    const play1 = d.find(x => x.c === 'play');
+    return (d.map(x => x.c).join() === 'pause,play,pause,play' && r.money.length === 1 && r.money[0] - r.f.money < 400 && r.clown.length === 1 && play1 && r.clown[0] >= play1.done + 1950 && rr.ok && clean(d) && fake.playing) || { d: d.map(x => x.c + '@' + (x.t - d[0].t)), rr, r }; }, { spotify: true }],
+  ['PREVIEW: one way of playing — 🔥, 💀 and the level beep all start with the session "playback"; it is "ambient" only when nothing sounds, never changed while a sound sounds (replaces "a sound longer than 2.7 s sends NO pause")', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => { window.__ss = []; const AS = navigator.audioSession; if (!AS) return; const d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(AS), 'type') || {};
+      let cur = AS.type; try { Object.defineProperty(AS, 'type', { configurable: true, get(){ return d.get ? d.get.call(AS) : cur; }, set(v){ if (d.set) d.set.call(AS, v); cur = v; window.__ss.push({ v, t: Date.now() }); } }); } catch (e) {}
+      const o = HTMLMediaElement.prototype.play; HTMLMediaElement.prototype.play = function(){ if (!this.muted) (window.__ss_starts = window.__ss_starts || []).push({ s: navigator.audioSession.type, t: Date.now() }); return o.apply(this, arguments); }; });
+    log.length = 0; emoji(p, '🔥'); await wait(400); emoji(p, '💀'); await wait(300); p.evaluate(() => window.levelAlert()); await wait(6000); await settled(p, log); await wait(300);
+    const r = await p.evaluate(() => ({ has: !!navigator.audioSession, ss: window.__ss, starts: window.__ss_starts || [], s: window.__sfx.map(x => x.t), e: window.__ends.map(x => x.t), now: navigator.audioSession && navigator.audioSession.type }));
+    if (!r.has) return true;   /* Chrome: no navigator.audioSession — nothing to check */
+    const first = Math.min(...r.starts.map(x => x.t)), last = Math.max(...r.e), during = r.ss.filter(x => x.t > first + 2 && x.t < last - 2);
+    return (r.starts.length === 3 && r.starts.every(x => x.s === 'playback') && during.length === 0 && r.now === 'ambient' && dips(log).map(x => x.c).join() === 'pause,play' && fake.playing) || r; }, { spotify: true }],
+  ['PREVIEW: the same emoji 4 times 350 ms apart → 4 players overlap, none cut; a 5th waits for a free player and plays in full; one pause, one play after the last (replaces "a long sound plays over a pause dip")', async ({ p, log, fake }) => {
+    await wait(1200); log.length = 0; for (let i = 0; i < 4; i++){ emoji(p, '🔥'); await wait(350); } emoji(p, '🔥'); await wait(9000); await settled(p, log); await wait(300);
+    const r = await p.evaluate(() => { const s = window.__sfx.filter(x => x.n === 'wow.m4a'), e = window.__ends.filter(x => x.n === 'wow.m4a');
+      return s.map(x => { const y = e.find(z => z.i === x.i && z.t > x.t + 30); return { i: x.i, t: x.t, ms: y ? y.t - x.t : null }; }); });
+    const d = dips(log), ids = new Set(r.slice(0, 4).map(x => x.i));
+    return (r.length === 5 && ids.size === 4 && r.every(x => x.ms !== null && x.ms >= 2400) && r[4].t >= Math.min(...r.slice(0, 4).map(x => x.t + x.ms)) - 30 && d.map(x => x.c).join() === 'pause,play' && fake.playing) || { r, d }; }, { spotify: true }],
+  ['PREVIEW: 🔥 again 1.4 s later joins the SAME pause — both play in full, one pause, the play only after the 2nd ended (replaces "plays AT ONCE over the music")', async ({ p, log, fake }) => {
     await wait(1200); log.length = 0; emoji(p, '🔥'); await wait(1400); const t1 = await p.evaluate(() => Date.now()); emoji(p, '🔥'); await wait(5500);
-    const d = dips(log), st = stretches(d), s = await p.evaluate(() => window.__sfx.filter(x => x.n === 'wow.m4a').map(x => x.t)), late = s[1] ? s[1] - t1 : null;
-    return (s.length === 2 && late !== null && late < 400 && d.map(x => x.c).join() === 'pause,play' && st[0] <= 2850 + TOL && fake.playing) || { s, late, d, st }; }, { spotify: true }],
-  ['PREVIEW: burst — the same emoji 10× (300 ms apart) never keeps Spotify paused > 2850 ms in one stretch, music ends playing', async ({ p, log, fake }) => {
-    await wait(1200); log.length = 0; await burst(p, Array(10).fill('🤡'), 300); await wait(3000);
-    await until(async () => { const d = dips(log); return d.length && d[d.length - 1].c === 'play' && d[d.length - 1].done && !(await p.evaluate(() => musicDip.mode || musicDip.queue.length)); }, 25000); await wait(500);
-    const d = dips(log), cc = await capCheck(p, d), n = await p.evaluate(() => window.__sfx.length);
-    return (cc.length >= 1 && cc.every(c => c.ok) && clean(d) && d[d.length - 1].c === 'play' && fake.playing && n >= 7) || { cc, d: d.map(x => x.c + '@' + x.t), n }; }, { spotify: true }],
-  ['PREVIEW: burst — 10 different emojis (250 ms apart, long ones too) never keep Spotify paused > 2850 ms in one stretch, music ends playing', async ({ p, log, fake }) => {
-    await wait(1200); log.length = 0; await burst(p, ['🔥', '👏', '💀', '😂', '🤡', '🤯', '💰', '😭', '🔥', '👏'], 250); await wait(3000);
-    await until(async () => { const d = dips(log); return d.length && d[d.length - 1].c === 'play' && d[d.length - 1].done && !(await p.evaluate(() => musicDip.mode || musicDip.queue.length)); }, 25000); await wait(500);
-    const d = dips(log), cc = await capCheck(p, d), n = await p.evaluate(() => window.__sfx.length);
-    return (cc.length >= 1 && cc.every(c => c.ok) && clean(d) && d[d.length - 1].c === 'play' && fake.playing && n >= 6) || { cc, d: d.map(x => x.c + '@' + x.t), n }; }, { spotify: true }],
-  ['PREVIEW: resume gets 404 (plain + device_id) → ONE more try ~1 s later → music back, card shows Now playing', async ({ p, log, fake }) => {
-    await wait(1200); fake.playFails = [404, 404]; log.length = 0; emoji(p, '🤡'); await wait(5000);
-    const pl = log.filter(e => e.c === 'PUT /me/player/play'), gap = pl.length >= 3 ? pl[2].t - pl[1].done : null;
+    const d = dips(log), s = await p.evaluate(() => window.__sfx.filter(x => x.n === 'wow.m4a').map(x => x.t)), e = await p.evaluate(() => window.__ends.filter(x => x.n === 'wow.m4a').map(x => x.t)), late = s[1] ? s[1] - t1 : null;
+    return (s.length === 2 && e.length === 2 && late !== null && late < 400 && d.map(x => x.c).join() === 'pause,play' && d[1].t >= Math.max(...e) && fake.playing) || { s, e, late, d }; }, { spotify: true }],
+  ...[['the same emoji 10× (300 ms apart)', () => Array(10).fill('🤡'), 300, 7], ['10 different emojis (250 ms apart, long ones too)', () => ['🔥', '👏', '💀', '😂', '🤡', '🤯', '💰', '😭', '🔥', '👏'], 250, 10]].map(([what, list, every, min]) =>
+    ['PREVIEW: burst — ' + what + ': every sound plays in full in one pause, no "play" while one sounds, music ends playing (replaces the 2850-ms stretch check)', async ({ p, log, fake }) => {
+    await wait(1200); log.length = 0; await burst(p, list(), every); await wait(3000); await settled(p, log); await wait(500);
+    const d = dips(log), rr = await rule(p, d), r = await p.evaluate(() => ({ n: window.__sfx.length, full: window.__sfx.filter(x => { const e = window.__ends.find(y => y.i === x.i && y.t > x.t + 30); return e && e.t - x.t >= SFX_MS[x.n.replace('.m4a', '')] * 0.85; }).length }));
+    return (rr.ok && clean(d) && d.map(x => x.c).join() === 'pause,play' && fake.playing && r.n >= min && r.full === r.n) || { rr, d: d.map(x => x.c + '@' + x.t), r }; }, { spotify: true }]),
+  ['PREVIEW: more than 6 waiting → the OLDEST waiting emoji is skipped, its phone gets "skipped" (the newest ones play); the emoji still flies', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => { musicDip.CAP = 800; });   /* a short cap so the next ones must wait */
+    const r = await p.evaluate(async () => { const names = ['Ann', 'Bob', 'Cat'], C = []; const mk = (k) => ({ connectionId: 'sk' + k, open: true, sent: [], send(m){ this.sent.push(m); } });
+      for (let k = 0; k < 10; k++){ const c = mk(k); C.push(c); phones.conns.set(c.connectionId, { c, name: null }); }
+      phones.onData(C[0], { t: 'emoji', e: '🔥', name: 'Ann', id: 'k0' }); await new Promise(r => setTimeout(r, 1200));   /* the cap passed: the next 9 wait */
+      for (let k = 1; k < 10; k++){ phones.lastEmoji.clear(); phones.onData(C[k], { t: 'emoji', e: ['💀', '🤡', '😂', '👏', '🤯', '💰', '📖', '❓', '💣'][k - 1], name: names[k % 3], id: 'k' + k }); }
+      await new Promise(r => setTimeout(r, 30)); const q = musicDip.waiting.length; await new Promise(r => setTimeout(r, 170));
+      return { q, sent: C.map(c => c.sent.filter(m => m.t === 'ack' || m.t === 'skipped').map(m => m.t + (m.ok === false ? ':no' : ''))), fly: document.querySelectorAll('#emojiLayer .emoji-fly').length }; });
+    await wait(9000); await settled(p, log); await wait(300);
+    const sk = r.sent.map((x, k) => x.includes('skipped') ? k : -1).filter(k => k >= 0), d = dips(log), n = await p.evaluate(() => window.__sfx.length);
+    return (r.q === 6 && JSON.stringify(sk) === '[1,2,3]' && r.sent.every(x => x[0] === 'ack') && r.fly === 10 && n === 7 && fake.playing && (await rule(p, d)).ok) || { r, sk, n, d: d.map(x => x.c) }; }, { spotify: true }],
+  ['PREVIEW: resume gets 404 (plain + device_id) → transfer playback (play: true) ~1 s later → music back, card shows Now playing (replaces "ONE more plain try")', async ({ p, log, fake }) => {
+    await wait(1200); fake.playFails = [404, 404]; log.length = 0; emoji(p, '🤡'); await wait(6000);
+    const pl = log.filter(e => e.c === 'PUT /me/player/play' || e.c === 'PUT /me/player'), gap = pl.length >= 3 ? pl[2].t - pl[1].done : null;
     const r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent }));
-    return (pl.length === 3 && !pl[0].u.includes('device_id') && pl[1].u.includes('device_id=ipad') && !pl[2].u.includes('device_id') && gap >= 900 && gap <= 1500
+    return (pl.length === 3 && pl[0].c.endsWith('/play') && !pl[0].u.includes('device_id') && pl[1].u.includes('device_id=ipad') && pl[2].c === 'PUT /me/player' && gap >= 900 && gap <= 1500
       && fake.playing && r.playing === true && r.k === 'Now playing') || { calls: pl.map(e => e.u + '@' + e.t), gap, r, playing: fake.playing }; }, { spotify: true }],
-  ['PREVIEW: resume 404 every time → 2 tries (play, device_id, then again 1 s later), one poll, ONE last play (5 plays, ≤ PLAYS_MAX 9), then the card shows Paused', async ({ p, log, fake }) => {
-    await wait(1200); fake.playFailAll = 404; log.length = 0; emoji(p, '🤡'); await wait(5500);
-    const pl = log.filter(e => e.c === 'PUT /me/player/play'), r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent, max: musicDip.PLAYS_MAX }));
-    return (pl.length === 5 && pl[3].u.includes('device_id') && !pl[4].u.includes('device_id') && r.max === 9 && r.playing === false && r.k !== 'Now playing') || { calls: pl.map(e => e.u), r }; }, { spotify: true }],
+  ['PREVIEW: resume refused every time (404) → plain play, play with device_id, transfer playback (3 calls, ≤ PLAYS_MAX 9), then the card shows Paused (replaces the 5-play 404 ladder)', async ({ p, log, fake }) => {
+    await wait(1200); fake.playFailAll = 404; log.length = 0; emoji(p, '🤡'); await wait(6000);
+    const pl = log.filter(e => e.c === 'PUT /me/player/play' || e.c === 'PUT /me/player'), r = await p.evaluate(() => ({ playing: spotify.now && spotify.now.playing, k: document.getElementById('npK').textContent, max: musicDip.PLAYS_MAX }));
+    return (pl.length === 3 && pl[1].u.includes('device_id') && pl[2].c === 'PUT /me/player' && r.max === 9 && r.playing === false && r.k !== 'Now playing') || { calls: pl.map(e => e.u), r }; }, { spotify: true }],
+  ['PREVIEW: "play" answered 204 but Spotify did not start (state read 1 s later says paused) → play with device_id → music back', async ({ p, log, fake }) => {
+    await wait(1200); fake.ignorePlay = 1; log.length = 0; emoji(p, '🤡'); await wait(5000);
+    const pl = log.filter(e => e.c === 'PUT /me/player/play' || e.c === 'PUT /me/player'), reads = log.filter(e => e.u.startsWith('/me/player?'));
+    return (pl.length === 2 && pl[1].u.includes('device_id') && pl[1].t - pl[0].done >= 950 && fake.playing) || { calls: pl.map(e => e.u + '@' + e.t), playing: fake.playing }; }, { spotify: true }],
   ['PREVIEW: the PREVIEW tag shows on the clock (cover + level), small, covers no control, lets taps through', async ({ p }) => {
     const look = () => p.evaluate(() => { const t = document.getElementById('previewTag'); if (!t) return { none: true }; const r = t.getBoundingClientRect(), cs = getComputedStyle(t);
       const ctl = [...document.querySelectorAll('button, input, select, a, [data-sp], .np-card')].filter(b => { const q = b.getBoundingClientRect(); return q.width && q.height && getComputedStyle(b).visibility !== 'hidden'; })

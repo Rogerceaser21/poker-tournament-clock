@@ -546,6 +546,10 @@ body.tv-open .nav-dots{ display:none; }
 .ph-list span::before{ content:''; display:inline-block; width:7px; height:7px; border-radius:50%; background:#3ddc84; margin-right:.45em; vertical-align:middle; }
 @media (max-width:560px){ .ph-body{ flex-direction:column; align-items:center; } }
 .emoji-layer{ position:fixed; inset:0; pointer-events:none; z-index:9450; overflow:hidden; }
+/* PREVIEW: an emoji came before the first tap (the iPad cannot play a sound before it) */
+.snd-hint{ position:fixed; left:50%; bottom:calc(clamp(5rem,12vh,7rem) + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); z-index:9455; display:none; pointer-events:none;
+  font-size:clamp(1rem,1.8vw,1.35rem); letter-spacing:.06em; color:var(--cream); background:rgba(8,8,10,.9); border:1.5px solid rgba(232,184,75,.7); border-radius:999px; padding:.55em 1.3em; white-space:nowrap; box-shadow:0 10px 26px rgba(0,0,0,.45); }
+.snd-hint.show{ display:block; }
 .emoji-fly{ position:absolute; bottom:-120px; display:flex; flex-direction:column; align-items:center; animation:emojiUp 3.4s cubic-bezier(.2,.7,.3,1) forwards; }
 .emoji-fly .e{ font-size:clamp(3rem,7vw,5.5rem); line-height:1; filter:drop-shadow(0 6px 12px rgba(0,0,0,.45)); }
 .emoji-fly .n{ margin-top:.2em; font-size:clamp(.8rem,1.4vw,1.1rem); letter-spacing:.12em; text-transform:uppercase; font-weight:600; color:var(--cream);
@@ -817,6 +821,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   </div>
 </div>
 <div class="emoji-layer" id="emojiLayer" aria-hidden="true"></div>
+<div class="snd-hint" id="sndHint" role="status">Tap the screen once to turn sounds on</div>
 <div class="toast-layer" id="toastLayer" aria-live="polite"></div>
 
 <!-- TABLE VIEW (TABLE button on the chip strip, or T) -->
@@ -1896,15 +1901,15 @@ function makeChimeWav(){
 }
 class SoundFx {
   constructor(){
-    /* iPad: by default any sound from Safari STOPS other apps' audio (Spotify), and a paused Spotify
-       gets frozen by iPadOS. "ambient" makes the alert play OVER the music instead (iPadOS 17+).
-       Trade-off: ambient sounds follow the silent switch. */
+    /* PREVIEW: 'ambient' only while NOTHING sounds (the tap-time silent unlocks must never stop Spotify). Every sound plays
+       with the music paused and the session 'playback' (Silent Mode does not mute it): see musicDip. */
     try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
     this.muted = false; this.unlocked = false;
     this.audio = new Audio();
     this.audio.preload = 'auto';
     this.audio.setAttribute('playsinline', '');
     try { this.audio.src = makeChimeWav(); } catch (e) {}
+    this.audio._job = null; this.audio._try = false; musicDip.wire(this.audio);   /* PREVIEW: the beep reports to musicDip like the emoji players */
     this.btn = document.getElementById('muteBtn');
     this.btn.addEventListener('click', () => this.toggleMute());
     document.addEventListener('keydown', (e) => {
@@ -1920,27 +1925,25 @@ class SoundFx {
     this.applyBtn();
   }
   _unlock(){
-    const a = this.audio; if (this._unl || !a.paused) return;   /* one try at a time; never touch a beep that is playing */
+    const a = this.audio; if (this._unl || !a.paused || a._job) return;   /* one try at a time; never touch a beep that is playing */
     const t = this._tok = (this._tok || 0) + 1; this._unl = true;
     try {
       a.muted = true;                                   /* silent unlock: never blip (or pause Spotify) on a tap */
       const p = a.play();
-      const done = () => { this._unl = false; this.unlocked = true; if (this._tok !== t) return;   /* a real beep took over: leave it */
-        a.pause(); a.currentTime = 0; a.muted = false; };
-      const bad = () => { this._unl = false; if (this._tok === t) a.muted = false; };   /* refused: the next tap tries again */
+      const done = () => { this._unl = false; this.unlocked = true; if (this._tok === t){ a.pause(); a.currentTime = 0; a.muted = false; }   /* a real beep took over: leave it */
+        if (typeof emojiSfx !== 'undefined') emojiSfx.hintOff(); if (typeof musicDip !== 'undefined') musicDip.pump(); };
+      const bad = () => { this._unl = false; if (this._tok === t) a.muted = false; if (typeof musicDip !== 'undefined') musicDip.pump(); };   /* refused: the next tap tries again */
       if (p && p.then) this._p = p.then(done, bad); else done();
     } catch (e) { this._unl = false; a.muted = false; }
   }
-  toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){} const h = this._hold; this._hold = null; if (h) h.release();   /* beep stopped: music back now */
-    if (typeof emojiSfx !== 'undefined') emojiSfx.stop(); } }
+  toggleMute(){ this.muted = !this.muted; this.applyBtn(); if (this.muted){ try { this.audio.pause(); } catch(e){}   /* beep and emoji sounds stopped: music back now */
+    if (typeof musicDip !== 'undefined') musicDip.stopAll(() => true); } }
   applyBtn(){ setIcon(this.btn, this.muted ? 'mute' : 'sound'); this.btn.classList.toggle('off', this.muted); this.btn.title = this.muted ? 'Sound off (M)' : 'Sound on (M)'; }
-  /* session: 'ambient' = plays over other apps' music (muted by the iPad's silent mode);
-              'playback' = full alert, plays even on silent, but stops other apps' music */
-  playTransition(session){                               /* → the play() promise, or false when nothing will play */
+  /* PREVIEW: the beep itself; musicDip calls it inside a music pause (session already 'playback'). load() then play(). */
+  playTransition(){                                      /* → the play() promise, or false when nothing will play */
     if (this.muted) return false;
-    try { if (navigator.audioSession && session) navigator.audioSession.type = session; } catch (e) {}
     this._tok = (this._tok || 0) + 1;                    /* an unlock still on its way must not pause / mute this beep */
-    try { this.audio.muted = false; this.audio.volume = 1; this.audio.currentTime = 0; const p = this.audio.play(); if (p && p.then) p.then(() => { this.unlocked = true; }, () => {}); return p; } catch (e) { return false; }   /* a beep that played = unlocked too */
+    try { this.audio.load(); this.audio.muted = false; this.audio.volume = 1; const p = this.audio.play(); if (p && p.then) p.then(() => { this.unlocked = true; }, () => {}); return p; } catch (e) { return false; }   /* a beep that played = unlocked too */
   }
 }
 
@@ -2133,10 +2136,11 @@ const spotify = {
     if (Date.now() > this.auth.exp && !(await this.tokenReq({ grant_type: 'refresh_token', refresh_token: this.auth.refresh, client_id: SPOTIFY_CLIENT_ID }))) return null;
     return this.auth && this.auth.access;
   },
-  async api(method, path, retry = true){
+  async api(method, path, retry = true, body){   /* PREVIEW: body (JSON) for the transfer-playback call */
     const t = await this.token(); if (!t) return { status: 0 };
-    let res; try { res = await fetch('https://api.spotify.com/v1' + path, { method, headers: { Authorization: 'Bearer ' + t } }); } catch (e) { return { status: 0 }; }
-    if (res.status === 401 && retry && this.auth){ this.auth.exp = 0; return this.api(method, path, false); }
+    const o = { method, headers: { Authorization: 'Bearer ' + t } }; if (body){ o.headers['Content-Type'] = 'application/json'; o.body = JSON.stringify(body); }
+    let res; try { res = await fetch('https://api.spotify.com/v1' + path, o); } catch (e) { return { status: 0 }; }
+    if (res.status === 401 && retry && this.auth){ this.auth.exp = 0; return this.api(method, path, false, body); }
     if (res.status === 429) this.backoffUntil = Date.now() + (parseInt(res.headers.get('Retry-After') || '10', 10) * 1000);
     let data = null; if (res.status === 200 || res.status >= 400){ try { data = await res.json(); } catch (e) {} }   /* errors too: Spotify says WHY in { error: { reason } } */
     if (res.status >= 400){ const e = (data && data.error) || {}; this.lastError = { status: res.status, reason: e.reason || '', message: e.message || '', path, at: Date.now() }; }
@@ -2307,206 +2311,222 @@ const spotify = {
   }
 };
 /* ============================================================
-   LEVEL ALERT — the pips, with the music dipped around them:
-   1. Spotify on a speaker / computer → turn it down, pips, back up
-   2. Spotify on the iPad / phone (no remote volume there) + Premium →
-      pause, pips, play again straight away (~1.5 s gap)
-   3. otherwise → pips over the music (ambient; silent mode mutes)
+   SOUNDS AND THE MUSIC (PREVIEW, rule approved by Igor on 22 Nov 2026)
+   ONE way of playing: every clock sound (the emoji sounds and the level beep) plays with the music PAUSED (Spotify on
+   the iPad) or turned down (Spotify on a speaker / computer), and with the audio session 'playback', which the iPad's
+   Silent Mode does not mute. Never over the music, never 'ambient' while a sound sounds.
+   1. A sound comes: the music pauses (the pause is answered first, see PAUSE_WAIT), then the sound plays.
+   2. More sounds while paused play too, overlapping: 4 players per sound, a new play never takes a sounding player.
+   3. The music comes back only after the LAST sound has ended: "play" is sent from ONE place (close()), only when
+      nothing sounds, and nothing may start until the music is back and confirmed (or given up).
+   4. The pause is capped at CAP (10 s, counted from the pause being accepted): no new sound starts after it, the
+      sounding ones finish, then "play". Then at least MUSIC_MIN (2 s) of music before the next pause; sounds arriving
+      in between wait and play right after.
+   5. More than QMAX (6) waiting: the oldest waiting emoji is skipped and its phone is told. The level beep goes first
+      and is never skipped (it waits like the rest when it comes during the music's 2 s).
+   Window states: 'idle' → 'deciding' (reading Spotify / pause on its way) → 'open' (sounds start) → 'closing' (cap
+   reached: the sounding ones finish) → 'resuming' (music back + confirmed; nothing starts) → 'rest' (MUSIC_MIN) → 'idle'.
+   Decisions where the rule left room:
+   - pause not answered within PAUSE_WAIT (1.5 s): the sounds start anyway ('playback'); the "play" waits for the pause's
+     answer at the end. Answer 2xx / none / 5xx / 429 → play at the end; 403 → play only if the clock believed the music
+     was playing (our sound may have stopped it), else not; 404 / Premium required → no play.
+   - the clock believes no music plays: a state read that finished after the request counts, else ONE shared read
+     (max FRESH 0.5 s). Paused → no pause, no play. No answer → the pause is sent anyway (a 403 answer = it was paused).
+   - a sound refused / failed / not started within START_TO / not ended within its length + END_SLACK is over: the music
+     comes back as soon as nothing else sounds. One that did not start gets ONE more go (first in line, fresh load()). A sound needs a tap first (iPad): before it, no pause at all (hint shown).
+   - Spotify connected before but not controllable now (login lost; or no Premium while it shows playing): the sound
+     is dropped (a 'playback' sound would stop Spotify for good, 'ambient' is not allowed); the Status block says so.
+   - between windows the session goes back to 'ambient' (nothing sounds then): the tap-time silent unlocks must never
+     stop Spotify (as before; soundtest.html did the same for its silent probes).
    ============================================================ */
 const PIPS_MS = 1500;
-/* MUSIC DIP — shared by the level alert and the emoji sounds.
-   begin(ms) → a hold { mode, release } (or null when dropped). mode = the audio mode our sound should use:
-     speaker / computer → volume down to 25 %  → our sound plays over it ('ambient')
-     iPad / phone + Premium → pause             → our sound plays at full volume ('playback', even on silent)
-     otherwise → nothing to dip                 → 'ambient' over the music (or 'playback' when nothing plays)
-   The caller calls release() when its sound really ended (ended / error / play refused); each hold also
-   lets go by itself ms + 1.5 s later, so a lost event never keeps the music paused.
-   Rules: one dip at a time — begin and end run through ONE promise chain, so there is never a 2nd pause,
-   never a pause while the "play" is still on its way, never a play without our pause before it.
-   Several sounds share ONE dip; the music comes back ~150 ms after the LAST one ended.
-   PREVIEW music-safety rule (iPadOS puts a Spotify left paused to sleep within a few seconds, then "play" gets a 404):
-   a PAUSE dip lasts at most MAX = 2.85 s, counted from when the pause was SENT: at MAX - SAFE - TAIL every hold lets
-   go (2.55 s), the "play" goes out at MAX - SAFE (2.7 s) at the latest (a hard timer makes sure; SAFE = 150 ms
-   leaves room for a timer that fires up to 150 ms late), still-playing sounds simply
-   carry on over the music. A pause that Spotify answers only after that goes straight back to "play" (no tail; never
-   a "play" before the pause was answered). After the music is back from a pause dip, sounds within GAP (2 s) play
-   over it — no new pause — so a burst gives one pause, then at least 2 s of music.
-   A sound longer than LONG (2.7 s) never pauses the music: it plays over it (ambient). A volume dip (speaker /
-   computer) stays as before: up to VMAX = 9 s. A sound that would end after its PAUSE dip's limit plays at once,
-   over (the music comes back at the limit, the sound carries on) — never a wait, never a 2nd pause for it.
-   In a VOLUME dip such a sound still waits and plays in the next dip, ~2 s after the music is back (max 4 waiting;
-   the level alert jumps the queue). */
+const dipWait = ms => new Promise(r => setTimeout(r, ms));
 const musicDip = {
-  MAX: 2850, SAFE: 150, VMAX: 9000, LONG: 2700, TAIL: 150, GAP: 2000, QMAX: 4, RETRY404: 1000, RETRYP: 500,
-  mode: null, sfx: 'ambient', startedAt: 0, restoreVol: null, holds: new Set(), chain: Promise.resolve(), queue: [],
-  ending: null, flying: null, cancelWait: null, owedVol: null, backAt: { pause: 0, volume: 0 }, tailT: null, capT: null, hardT: null, qT: null,
+  CAP: 10000, MUSIC_MIN: 2000, QMAX: 6,                                   /* Igor's three limits */
+  PAUSE_WAIT: 1500, FRESH: 500, START_TO: 1500, END_SLACK: 1500, TAIL: 150, CONFIRM: 1000, RETRYP: 500, CALL_TO: 8000, PLAYS_MAX: 9,
+  state: 'idle', kind: null, maybe: false, late: false, believed: null, pauseP: null, pauseRes: null, acceptedAt: 0, openedAt: 0, capAt: 0,
+  waiting: [], sounding: new Set(), restoreVol: null, owedVol: null, backAt: { pause: 0, volume: 0 },
+  tailT: null, capT: null, restT: null, win: null, lastWin: null, lastResume: null, lastBeep: null, seq: 0,
   live(){ const sp = spotify; return sp.connected() && sp.now && sp.now.playing && !sp.now.gone; },
   /* did OUR dip (kind 'pause' / 'volume') cover a poll that started at t0? then the dip's state is the truth */
-  ours(kind, t0){ return this.mode === kind || this.ending === kind || this.backAt[kind] >= t0; },
-  run(fn){ this.chain = this.chain.then(fn).catch(() => {}); return this.chain; },
-  /* still(): is this sound still wanted? (asked again when a waiting sound's turn comes — e.g. muted meanwhile → no dip, no sound) */
-  begin(ms, front, still, noPause){ return new Promise(ok => this.run(() => this.join({ ms, front: !!front, ok, still, noPause: !!noPause }, false))); },
-  /* how long after startedAt every hold of THIS dip must have let go */
-  limit(){ return this.mode === 'volume' ? this.VMAX : this.MAX - this.SAFE - this.TAIL; },
-  /* a long sound: no dip at all, it plays over the music ('playback' only when a FRESH check says no music plays) */
-  async over(){ const m = this.live() ? 'ambient' : (await this.check()) === 'paused' ? 'playback' : 'ambient';
-    return { mode: m, over: true, done: false, release(){}, renew(){} }; },
-  /* PREVIEW (fix 1): the clock thinks no music plays — is that true NOW? 'playing' | 'paused' | 'unknown'.
-     Never connected in this page → 'paused' (as before: full sound). Otherwise: a poll that finished ≤ 1.5 s ago counts;
-     else poll now (one shared check, wait max 0.5 s). No fresh answer (slow, error, token refused) → 'unknown' → 'ambient'. */
-  async check(){
-    const sp = spotify;
-    if (sp._clockPlayP) await Promise.race([sp._clockPlayP, new Promise(r => setTimeout(r, 1500))]);   /* the clock's own ▶ (pause with clock) first */
-    if (this.live()) return 'playing';
-    if (!sp.everConnected) return 'paused';
-    if (!sp.connected()) return 'unknown';
-    if (!(sp.pollOk && Date.now() - sp.polledAt <= 1500)){
-      const t0 = Date.now();
-      await Promise.race([sp.poll(), new Promise(r => setTimeout(r, 500))]);
-      if (!(sp.pollOk && sp.polledAt >= t0)) return 'unknown';
-    }
-    return this.live() ? 'playing' : 'paused';
+  ours(kind, t0){ return (this.kind === kind && this.state !== 'idle' && this.state !== 'rest') || this.backAt[kind] >= t0; },
+  busy(){ return this.state !== 'idle' || this.waiting.length > 0 || this.sounding.size > 0; },
+  /* a Spotify call that always answers: no reply within CALL_TO = status 0 */
+  call(p){ return Promise.race([p, dipWait(this.CALL_TO).then(() => ({ status: 0, slow: true }))]); },
+  setSession(t){ try { if (navigator.audioSession && navigator.audioSession.type !== t) navigator.audioSession.type = t; } catch (e) {} },
+  /* every sound player (24 + 24 emoji players and the beep) reports here */
+  wire(a){
+    a.addEventListener('playing', () => { const j = a._job; if (!j || j.done || !j.started || a.muted || j.playingAt) return;
+      j.playingAt = Date.now(); clearTimeout(j.timer); j.timer = setTimeout(() => this.over(j, 'did not end'), j.len + this.END_SLACK); });
+    a.addEventListener('ended', () => { const j = a._job; if (j && !j.done && j.started) this.over(j, 'ended'); });
+    a.addEventListener('error', () => { const j = a._job; if (j && !j.done && j.started) this.over(j, 'MediaError' + (a.error ? a.error.code : ''));
+      else if (!j && !a._try){ try { a.load(); } catch (e) {} } });   /* a player in error is reloaded */
   },
-  /* would a new dip right now be a volume dip (speaker / computer), or is one on? */
-  volumeOk(){ const sp = spotify, d = sp.device;
-    return this.mode === 'volume' || (!this.mode && this.live() && !!(d && d.canVolume && d.volume != null && sp.premium !== false)); },
-  async join(q, drained){
-    const { ms, front, ok, still } = q;
-    if (still && !still()){ ok(null); return; }
-    if (q.noPause && this.mode === 'pause'){ ok(await this.over()); return; }   /* a long sound never joins a pause dip */
-    const dipping = this.mode === 'pause' || this.mode === 'volume';
-    if (this.mode === 'pause' && Date.now() + ms > this.startedAt + this.limit()){ ok(await this.over()); return; }   /* doesn't fit the pause dip: play now, over */
-    if ((dipping && Date.now() + ms > this.startedAt + this.limit()) || (!this.mode && !drained && this.queue.length)){
-      if (front) this.queue.unshift(q);                                     /* the level alert is never dropped */
-      else if (this.queue.length < this.QMAX) this.queue.push(q);
-      else ok(null);
-      return;
+  /* a sound wants to play: j = { e, n, len, pick() → a free player or null, want() → still wanted?, front, onSkip } */
+  request(j){ j.id = ++this.seq; j.at = Date.now();
+    if (j.front) this.waiting.unshift(j); else this.waiting.push(j);
+    while (this.waiting.length > this.QMAX){ const i = this.waiting.findIndex(x => !x.front); if (i < 0) break; const x = this.waiting.splice(i, 1)[0]; this.drop(x, 'skipped'); }
+    this.pump(); },
+  drop(j, why){ if (j.done) return; j.done = true; j.why = why; emojiSfx.note(j, false, why); if (why === 'skipped' && j.onSkip){ try { j.onSkip(); } catch (e) {} } },
+  pump(){
+    this.waiting = this.waiting.filter(j => { if (j.want && !j.want()){ this.drop(j, 'switched off'); return false; } return true; });
+    if (this.state === 'idle'){ if (this.waiting.length) this.open(); return; }
+    if (this.state === 'open'){
+      if (Date.now() >= this.capAt){ this.state = 'closing'; }
+      else for (const j of this.waiting.slice()){ if (!this.fits(j)) continue; const a = j.pick(); if (!a) continue; this.waiting.splice(this.waiting.indexOf(j), 1); this.start(j, a); }
+      if (this.state === 'open' && !this.sounding.size && this.waiting.length && !this.waiting.some(j => this.fits(j))) this.state = 'closing';   /* nothing sounds and nothing may start: music back now */
     }
-    /* the music is on its way back: wait max 1.5 s for that reply, ONCE per reply (later sounds don't wait again);
-       during a retry WAIT just re-join (Spotify is still dipped) */
-    if (this.ending === 'volume' && this.flying && this.mode !== 'resuming'){ await Promise.race([this.flying, new Promise(r => setTimeout(r, 1500))]); await null; }
-    if (this.ending === 'volume' && this.cancelWait){ const m = this.ending; this.cancelWait(); this.ending = null; this.mode = m; this.sfx = m === 'pause' ? 'playback' : 'ambient'; this.capped(); }
+    if ((this.state === 'open' && !this.waiting.length) || this.state === 'closing'){
+      if (!this.sounding.size){ clearTimeout(this.tailT); this.tailT = setTimeout(() => { if (!this.sounding.size && (this.state === 'closing' || (this.state === 'open' && !this.waiting.length))) this.close(); }, this.TAIL); }
+    }
+  },
+  /* near the cap a sound starts only if it ends (with START_SLACK for the engine's start delay and the tail) by
+     cap + the longest sound, so no pause is longer than CAP + the longest sound; later ones wait for the next pause */
+  START_SLACK: 500,
+  fits(j){ const longest = Math.max(PIPS_MS, ...Object.values(SFX_MS)); return Date.now() + j.len + this.START_SLACK + this.TAIL <= this.capAt + longest; },
+  /* a new window: decide what the music needs, then open */
+  async open(){
+    this.state = 'deciding'; const t0 = Date.now(), sp = spotify;
+    this.kind = null; this.maybe = false; this.late = false; this.pauseP = null; this.pauseRes = null; this.acceptedAt = 0;
+    const w = this.win = { at: t0, how: '', sounds: 0, pausedMs: null, back: null, acceptMs: null };
+    if (sp._clockPlayP) await Promise.race([sp._clockPlayP, dipWait(1500)]);   /* the clock's own ▶ (pause music with the clock) first */
+    let v;
+    /* Spotify was connected but the clock cannot pause it now (login lost / no Premium) while it last showed playing: a
+       'playback' sound would stop the music for good (iPadOS), and 'ambient' is never used → no sound this time */
+    const blocked = () => sp.everConnected && (!sp.connected() || (sp.premium === false && sp.now && sp.now.playing && !sp.now.gone));   /* login lost: the clock no longer knows, so it assumes music */
+    if (blocked()){
+      w.how = 'no sound (Spotify plays but cannot be paused: ' + (sp.connected() ? 'no Premium' : 'login lost, tap Reconnect') + ')';
+      this.waiting.splice(0).forEach(j => this.drop(j, 'music cannot be paused')); this.lastWin = w; this.state = 'idle'; this.kind = null; return; }
+    if (!sp.everConnected || !sp.connected() || sp.premium === false) v = 'none';
+    else if (this.live()) v = 'playing';
+    else v = await this.fresh(t0);
+    this.believed = v;
+    if (v === 'none' || v === 'paused'){ this.kind = 'none'; w.how = v === 'none' ? 'no pause (Spotify not connected)' : 'no pause (Spotify not playing)'; this.openNow(); return; }
+    const d = sp.device;
+    if (v === 'playing' && d && d.canVolume && d.volume != null){   /* speaker / computer: turn it down instead */
+      const vol = this.owedVol != null ? this.owedVol : d.volume, r = await this.call(sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(vol, 100) * 0.25)));
+      if (r.status >= 200 && r.status < 300){ this.kind = 'volume'; this.restoreVol = vol; this.acceptedAt = Date.now(); w.how = 'music turned down'; this.openNow(); return; }
+    }
+    this.kind = 'pause'; const sent = Date.now();
+    const p = this.pauseP = sp.api('PUT', '/me/player/pause').then(r => { this.pauseRes = r; return r; }, () => { this.pauseRes = { status: 0 }; return this.pauseRes; });
+    const r = await Promise.race([p, dipWait(this.PAUSE_WAIT).then(() => null)]);
+    if (!r){ this.late = true; w.how = 'pause sent, no answer in 1.5 s: sounds started'; this.openNow();
+      p.then(r => { w.acceptMs = Date.now() - sent; this.onPause(r, true); }); return; }
+    w.acceptMs = Date.now() - sent;
+    if (r.status === 0 && !sp.connected()){ w.how = 'no sound (Spotify login lost, tap Reconnect)'; this.waiting.splice(0).forEach(j => this.drop(j, 'music cannot be paused')); this.lastWin = w; this.state = 'idle'; this.kind = null; return; }   /* the pause never left: the token was refused */
+    this.onPause(r, false);
+    this.openNow();
+  },
+  /* the clock believes no music plays: is that true NOW? 'playing' | 'paused' | 'unknown' */
+  async fresh(t0){ const sp = spotify;
+    if (!(sp.pollOk && sp.polledAt >= t0)){ await Promise.race([sp.poll(), dipWait(this.FRESH)]); if (!(sp.pollOk && sp.polledAt >= t0)) return 'unknown'; }
+    return this.live() ? 'playing' : 'paused'; },
+  /* the pause's answer: is it ours to resume? */
+  onPause(r, late){ const sp = spotify, st = r.status, w = this.win;
+    if (st >= 200 && st < 300){ sp.premium = true; this.kind = 'pause'; if (!late) this.acceptedAt = Date.now(); if (w) w.how = late ? w.how + ', pause accepted late' : 'music paused'; return; }
+    if (st === 403 && spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); this.kind = 'none'; if (w) w.how = 'no pause (Premium needed)'; return; }
+    if (st === 403){ if (late && this.believed === 'playing'){ this.kind = 'pause'; this.maybe = true; } else { this.kind = 'none'; setTimeout(() => sp.poll(), 700); }
+      if (w) w.how = this.kind === 'none' ? 'no pause (Spotify was not playing)' : w.how + ', pause answer 403 (resume anyway)'; return; }
+    if (st === 404){ this.kind = 'none'; if (w) w.how = 'no pause (Spotify asleep, 404)'; return; }
+    this.kind = 'pause'; this.maybe = true; if (w) w.how = (late ? w.how + ', ' : '') + 'pause answer ' + st + ' (maybe paused)';   /* 0 / 5xx / 429: maybe paused → play at the end */
+  },
+  openNow(){ this.state = 'open'; this.openedAt = Date.now(); this.capAt = (this.acceptedAt || this.openedAt) + this.CAP;
+    this.setSession('playback');                                          /* nothing sounds yet: the only moment it changes */
+    clearTimeout(this.capT); this.capT = setTimeout(() => this.pump(), Math.max(0, this.capAt - Date.now()) + 5);
+    this.pump(); },
+  /* load() then play() on a free player (soundtest.html "load() + play": 18 of 18 full on the iPad) */
+  start(j, a){ const w = this.win; j.a = a; a._job = j; j.started = true; j.startAt = Date.now(); this.sounding.add(j); if (w) w.sounds++;
+    if (j.info) { j.info.dip = this.kind === 'none' ? 'none' : this.kind; j.info.session = 'playback'; }   /* the session every clock sound plays with */
     clearTimeout(this.tailT);
-    if (this.ending){ this.mode = 'resuming'; this.sfx = 'ambient'; }    /* "play" still on its way: play over (the music may be back) */
-    else if (!this.mode){
-      const v = this.live() && !spotify._clockPlayP ? 'playing' : await this.check();
-      if (this.mode){ ok(this.hold(ms)); return; }                       /* (another sound set the mode while we checked) */
-      if (v === 'paused'){ this.mode = 'none'; this.sfx = 'playback'; }  /* fresh answer: no music to protect → full sound */
-      else if (v === 'unknown'){ this.mode = 'none'; this.sfx = 'ambient'; }   /* no fresh answer: never 'playback' on a guess */
-      else if (Date.now() - this.backAt.pause < this.GAP){ ok(await this.over()); return; }   /* music just came back: 2 s of music before any new pause */
-      else await this.start(q.noPause);
-    }
-    ok(this.hold(ms));
+    j.timer = setTimeout(() => this.over(j, 'did not start'), this.START_TO);
+    try { let p; if (j.beep) p = sound.playTransition(); else { a.load(); a.muted = false; a.volume = 1; p = a.play(); }
+      if (p && p.then) p.then(() => { a._ok = true; if (j.beep) sound.unlocked = true; emojiSfx.note(j, true); emojiSfx.hintOff(); },
+        x => { emojiSfx.note(j, false, (x && x.name) || 'Error'); this.over(j, 'refused'); });
+      else if (p === false) this.over(j, 'refused');
+    } catch (x) { emojiSfx.note(j, false, x.name || 'Error'); this.over(j, 'refused'); } },
+  /* this sound is over (ended / refused / failed / timed out / stopped): free its player */
+  over(j, why){ if (j.done) return; j.done = true; j.why = why; clearTimeout(j.timer); this.sounding.delete(j);
+    const a = j.a; if (a && a._job === j){ a._job = null; if (why !== 'ended'){ try { if (!a.paused) a.pause(); } catch (e) {} }
+      if (/^MediaError/.test(why)){ try { a.load(); } catch (e) {} } }
+    /* a play that never reached "playing" (seen on the simulator for the first sounds right after the tap, while 49 players
+       load) gets ONE more go, first in line, on a freshly loaded player; it is over for the music either way */
+    if (why === 'did not start' && !j.retried && !j.beep && (!j.want || j.want())){ const r = Object.assign({}, j, { retried: true, done: false, started: false, playingAt: 0, a: null, timer: null, noted: false });
+      this.waiting.unshift(r); this.pump(); return; }
+    if (why !== 'ended') emojiSfx.note(j, false, why);
+    this.pump(); },
+  /* mute / Emoji sounds off: stop the sounding ones now (filter = which), the waiting ones are dropped by pump() */
+  stopAll(which){ [...this.sounding].filter(which).forEach(j => { try { j.a.pause(); } catch (e) {} this.over(j, 'stopped'); }); this.pump(); },
+  /* the last sound is over: the music comes back (the ONLY place a "play" / volume restore is sent) */
+  async close(){
+    if (this.sounding.size || (this.state !== 'open' && this.state !== 'closing')) return;
+    this.state = 'resuming'; clearTimeout(this.capT); const w = this.win;
+    if (w) w.pausedMs = Date.now() - (this.acceptedAt || this.openedAt);
+    let back = false;
+    if (this.kind === 'pause' && this.pauseP && !this.pauseRes) await Promise.race([this.pauseP, dipWait(10000)]);   /* never a play before the pause's answer */
+    if (this.kind === 'pause') back = await this.resume();
+    else if (this.kind === 'volume') back = await this.restore();
+    if (w) w.back = this.kind === 'none' ? 'nothing to bring back' : (this.lastResume && this.lastResume.text) || '';
+    this.lastWin = w; this.setSession('ambient');                        /* nothing sounds now */
+    if (this.kind === 'pause' || this.kind === 'volume'){
+      this.state = 'rest'; const t = Math.max(0, (this.lastResume && this.lastResume.okAt ? this.lastResume.okAt : Date.now()) + this.MUSIC_MIN - Date.now());
+      clearTimeout(this.restT); this.restT = setTimeout(() => { this.state = 'idle'; this.kind = null; this.pump(); }, t);
+    } else { this.state = 'idle'; this.kind = null; this.pump(); }
+    return back;
   },
-  /* our sound waits at most ~1.5 s for Spotify: if the pause / volume reply is slower, the sound plays over the music
-     ('ambient') and the dip counts from when Spotify finally says yes (then the music comes back after the last sound) */
-  async start(noPause){
-    this.mode = 'starting'; this.sfx = 'ambient'; let late = false;
-    const job = this.ask(noPause).then(() => { if (late && !this.holds.size) this.idle(); });
-    await Promise.race([job, new Promise(r => setTimeout(() => { late = true; r(); }, 1500))]);
-  },
-  async ask(noPause){
-    const sp = spotify, d = sp.device;
-    if (d && d.canVolume && d.volume != null && sp.premium !== false){
-      const v = this.owedVol != null ? this.owedVol : d.volume, r = await sp.api('PUT', '/me/player/volume?volume_percent=' + Math.round(Math.min(v, 100) * 0.25));
-      if (r.status >= 200 && r.status < 300){ this.mode = 'volume'; this.sfx = 'ambient'; this.restoreVol = v; this.capped(); return; }
-    }
-    if (sp.premium !== false && !noPause){
-      const t = Date.now(), r = await sp.api('PUT', '/me/player/pause');   /* the pause dip counts from when the pause was SENT */
-      if (r.status >= 200 && r.status < 300){ sp.premium = true; this.mode = 'pause'; this.sfx = 'playback'; this.maybe = false; this.capped(t); return; }
-      /* PREVIEW (fix 3): no answer / 5xx = MAYBE paused: play over ('ambient'), end it like a pause dip, send the "play" */
-      if (r.status === 0 || r.status >= 500){ this.mode = 'pause'; this.sfx = 'ambient'; this.maybe = true; this.capped(t); return; }
-      if (r.status === 403){ if (spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); } else setTimeout(() => sp.poll(), 700); }
-    }
-    this.mode = 'none'; this.sfx = 'ambient';                              /* couldn't dip: play over the music */
-  },
-  capped(t){ this.startedAt = t || Date.now(); clearTimeout(this.capT); clearTimeout(this.hardT);
-    this.capT = setTimeout(() => [...this.holds].forEach(h => h.release()), Math.max(0, this.startedAt + this.limit() - Date.now()));
-    /* pause dip: the "play" goes out at MAX - SAFE at the latest, whatever the holds / tail / chain are doing
-       (a late pause answer → at once) */
-    if (this.mode === 'pause') this.hardT = setTimeout(() => this.hardEnd(), Math.max(0, this.startedAt + this.MAX - this.SAFE - Date.now())); },
-  hardEnd(){ if (this.mode !== 'pause') return; [...this.holds].forEach(h => h.release()); clearTimeout(this.tailT); this.end(); },
-  hold(ms){
-    const h = { mode: this.sfx, done: false, t: null };
-    h.renew = (n) => { if (h.done) return; clearTimeout(h.t); h.t = setTimeout(h.release, n + 1500); };
-    h.release = () => { if (h.done) return; h.done = true; clearTimeout(h.t); this.holds.delete(h); if (!this.holds.size) this.idle(); };
-    this.holds.add(h); h.renew(ms); return h;
-  },
-  /* the last of our sounds is over */
-  idle(){
-    try { if (navigator.audioSession) navigator.audioSession.type = 'ambient'; } catch (e) {}
-    if (this.mode === 'starting' || this.mode === 'resuming') return;      /* Spotify hasn't answered yet: start() / resume() ends it */
-    if (this.mode === 'none'){ this.mode = null; if (this.queue.length) this.later(0); return; }
-    clearTimeout(this.tailT); this.tailT = setTimeout(() => this.run(() => this.end()), this.TAIL);
-  },
-  /* ends the dip; the resume runs OUTSIDE the chain so it never holds back a new sound */
-  async end(){
-    if (this.holds.size || (this.mode !== 'pause' && this.mode !== 'volume')) return;
-    const m = this.mode; clearTimeout(this.capT); clearTimeout(this.hardT);
-    this.ending = m; this.mode = null; this.resume(m);
-  },
-  /* bring the music back; no answer / 429 / 5xx → try twice more (pause: 0.5 s apart, volume: 1.5 s; a 429 waits Retry-After, max 5 s).
-     A "play" that gets 404 (no active device: iPadOS froze Spotify) is tried ONCE more 1 s later (plain play, then the
-     device_id form on a 404 again). Volume dip: a sound that comes in meanwhile re-joins the dip instead (the music is
-     still turned down), and the resume is sent after it. Pause dip: sounds that come in meanwhile play over, the
-     retries go on (never a longer pause). */
-  /* PREVIEW (fix 4): pause dip — a 403 that is not "Premium required" is retried like 0 / 429 / 5xx; after the last
-     failure ONE poll, and if Spotify says paused on our device, ONE last play. A dip whose pause got no answer / 5xx
-     ("maybe paused") takes a 403 as "already playing" = fine.
-     MOST play calls one resume can send: 3 tries + 1 extra try 1 s after a 404, each try = play + play?device_id on a 404
-     = 8, plus the 1 last play = 9 (PLAYS_MAX; a counter stops it there whatever happens). */
-  PLAYS_MAX: 9,
-  async resume(m){
-    const sp = spotify, d = sp.device, maybe = m === 'pause' && this.maybe; this.maybe = false; let plays = 0;
-    const play = q => { if (plays >= this.PLAYS_MAX) return Promise.resolve({ status: -1 }); plays++; return sp.api('PUT', '/me/player/play' + (q || '')); };
-    const send = m === 'volume' ? () => sp.api('PUT', '/me/player/volume?volume_percent=' + this.restoreVol)
-      : async () => { const b = await play(); return b.status === 404 && d && d.id ? play('?device_id=' + encodeURIComponent(d.id)) : b; };
-    let again404 = m === 'pause';
-    this.lastResume = { at: Date.now(), pauseToPlay: m === 'pause' ? (Date.now() - this.startedAt) / 1000 : null, reply: null };
-    for (let i = 0; ; i++){
-      this.flying = send(); let back = await this.flying; this.flying = null;
-      const st = back.status, r403 = st === 403 && !spPremiumRequired(back);
-      if (maybe && r403) back = { status: 204 };                            /* a play to a Spotify already playing: fine */
-      let ok = back.status >= 200 && back.status < 300;
-      const retry = !ok && i < 2 && (back.status === 0 || back.status === 429 || back.status >= 500 || (m === 'pause' && r403));
-      if (!ok && back.status === 404 && again404){ again404 = false; i--; await new Promise(r => setTimeout(r, this.RETRY404)); continue; }
-      if (retry && this.holds.size && m === 'volume'){ this.ending = null; this.mode = m; this.sfx = m === 'pause' ? 'playback' : 'ambient'; this.capped(); return; }
-      if (retry){
-        const go = await new Promise(r => { const t = setTimeout(() => r(true), back.status === 429 ? Math.min(5000, Math.max(1000, sp.backoffUntil - Date.now())) : m === 'pause' ? this.RETRYP : 1500);
-          this.cancelWait = () => { clearTimeout(t); r(false); }; });
-        this.cancelWait = null; if (!go) return;                            /* a sound re-joined the dip */
-        continue;
+  /* tries a call up to 3 times on no answer / 429 / 5xx (0.5 s apart; a 429 waits Retry-After, 1 to 5 s) */
+  async tries(fn){ let r; for (let i = 0; i < 3; i++){ r = await fn(); if (!(r.status === 0 || r.status === 429 || r.status >= 500)) return r;
+      if (i < 2) await dipWait(r.status === 429 ? Math.min(5000, Math.max(1000, spotify.backoffUntil - Date.now())) : this.RETRYP); } return r; },
+  /* bring the music back after a pause: plain play, then play with device_id, then transfer playback with play: true.
+     After a 2xx a state read CONFIRM (1 s) later must say playing, else the next step. A 403 on a later step (or when the
+     pause was only "maybe") = Spotify already plays. No answer = stop trying (network). Last resort: the card shows Paused, tap ▶. */
+  async resume(){
+    const sp = spotify, d = sp.device, id = d && d.id, maybe = this.maybe; let plays = 0;
+    const R = this.lastResume = { at: Date.now(), steps: [], reply: null, text: '', okAt: 0, pauseToPlay: this.acceptedAt ? (Date.now() - this.acceptedAt) / 1000 : null };
+    const put = (path, body) => { if (plays >= this.PLAYS_MAX) return Promise.resolve({ status: -1 }); plays++; return this.call(sp.api('PUT', path, true, body)); };
+    const steps = [['plain play', () => put('/me/player/play')], ['play with device_id', id ? () => put('/me/player/play?device_id=' + encodeURIComponent(id)) : null],
+      ['transfer playback', id ? () => put('/me/player', { device_ids: [id], play: true }) : null]];
+    let ok = false;
+    if (sp.connected()) for (let k = 0; k < steps.length && !ok; k++){
+      const [how, fn] = steps[k]; if (!fn) continue;
+      const r = await this.tries(fn); R.steps.push(how + ' ' + r.status); if (R.reply == null) R.reply = r.status;
+      if (r.status === 403 && spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); break; }
+      if (r.status === 403 && (maybe || k > 0)){ ok = true; R.text = how + ' 403 (already playing)'; break; }
+      if (r.status >= 200 && r.status < 300){
+        R.okAt = Date.now(); await dipWait(this.CONFIRM);
+        const s = await this.call(sp.api('GET', '/me/player?additional_types=track,episode'));
+        if (s.status === 200 && s.data && s.data.is_playing){ ok = true; R.text = how + ' ' + r.status + ', confirmed playing'; break; }
+        if (s.status === 0){ ok = true; R.text = how + ' ' + r.status + ' (not confirmed: no answer)'; break; }
+        R.steps.push('state: not playing'); continue;
       }
-      if (!ok && m === 'pause' && plays < this.PLAYS_MAX){                  /* last chance: is Spotify paused on OUR device? then one last play */
-        const q = await sp.api('GET', '/me/player?additional_types=track,episode');
-        if (q.status === 200 && q.data && !q.data.is_playing && q.data.device && (!d || q.data.device.id === d.id)){ back = await play(); ok = back.status >= 200 && back.status < 300; }
-      }
-      this.lastResume.reply = back.status; this.lastResume.plays = plays;
-      this.ending = null;
-      if (m === 'volume'){ if (ok){ if (d) d.volume = this.restoreVol; this.owedVol = null; this.backAt.volume = Date.now(); } else this.owedVol = this.restoreVol; }   /* still owed: the next dip restores THIS, not the lowered level */
-      else if (ok){ this.backAt.pause = Date.now();
-        if (sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); } }
-      else if (sp.now){ sp.now.playing = false; sp.render(); }            /* music stayed paused: show it, tap ▶; the next sound sends no pause */
-      if (this.mode === 'resuming') this.mode = this.holds.size ? 'none' : null;
-      setTimeout(() => sp.poll(), 800);
-      if (this.queue.length) this.later(this.GAP);
-      return;
+      if (r.status === 0 || r.status === -1){ R.text = how + ': no answer'; break; }
+      if (r.status === 404 && k === 1) await dipWait(1000);                  /* a frozen Spotify gets a second before the transfer */
     }
+    R.plays = plays;
+    if (ok){ R.okAt = R.okAt || Date.now(); this.backAt.pause = Date.now(); if (sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); } }
+    else { if (!R.text) R.text = 'music stayed paused (' + R.steps.join(', ') + ')'; else R.text = 'music stayed paused (' + R.text + ')'; if (sp.now){ sp.now.playing = false; sp.render(); } }
+    setTimeout(() => sp.poll(), 800);
+    return ok;
   },
-  /* the sounds that didn't fit start the next dip */
-  later(ms){ clearTimeout(this.qT); this.qT = setTimeout(() => { this.queue.splice(0).forEach(q => this.run(() => this.join(q, true))); }, ms); }
+  async restore(){ const sp = spotify, d = sp.device, R = this.lastResume = { at: Date.now(), steps: [], reply: null, text: '', okAt: 0, pauseToPlay: null };
+    const r = await this.tries(() => this.call(sp.api('PUT', '/me/player/volume?volume_percent=' + this.restoreVol))); R.reply = r.status;
+    const ok = r.status >= 200 && r.status < 300;
+    if (ok){ if (d) d.volume = this.restoreVol; this.owedVol = null; this.backAt.volume = Date.now(); R.okAt = Date.now(); R.text = 'volume back ' + r.status; }
+    else { this.owedVol = this.restoreVol; R.text = 'volume not restored (' + r.status + '), owed ' + this.restoreVol; }   /* still owed: the next dip restores THIS, not the lowered level */
+    return ok; },
+  /* the Status block's "Music pause:" line */
+  describe(){ const s = this.state, k = this.kind, n = this.sounding.size, q = this.waiting.length;
+    if (s === 'idle') return 'idle' + (q ? ', ' + q + ' waiting' : '');
+    const what = k === 'pause' ? 'music paused' : k === 'volume' ? 'music turned down' : k === 'none' ? 'no pause needed' : 'asking Spotify';
+    return { deciding: 'asking Spotify', open: what, closing: what + ', 10-s limit reached', resuming: 'bringing the music back', rest: 'music back (2 s before the next pause)' }[s]
+      + ', ' + n + ' sounding, ' + q + ' waiting'; }
 };
 async function levelAlert(){
   if (sound.muted) return;
   const sp = spotify, b = musicDip.lastBeep = { at: Date.now(), thought: !sp.connected() ? 'not connected' : (sp.now && sp.now.playing && !sp.now.gone ? 'playing' : 'paused'),
     pollAge: sp.polledAt ? Math.round((Date.now() - sp.polledAt) / 1000) : null, dip: null, session: null };
-  const h = await musicDip.begin(PIPS_MS + 150, true, () => !sound.muted); if (!h) return;
-  b.dip = h.over ? 'over' : musicDip.mode === 'pause' || musicDip.mode === 'volume' ? musicDip.mode : 'none'; b.session = h.mode;
-  if (sound._unl) await Promise.race([sound._p, new Promise(r => setTimeout(r, 300))]);   /* its silent unlock (this same tap) is on its way: let it settle, max 0.3 s */
-  if (sound.muted){ h.release(); return; }
-  const a = sound.audio; sound._hold = h; a.addEventListener('ended', h.release, { once: true }); a.addEventListener('error', h.release, { once: true });   /* mute releases it too */
-  const p = sound.playTransition(h.mode);
-  if (p === false) h.release(); else if (p && p.catch) p.catch(h.release);
+  if (!(await emojiSfx.whenReady())){ b.dip = 'no tap yet'; emojiSfx.hint(); return; }   /* the iPad cannot play it before a tap: no pause */
+  const a = sound.audio;
+  musicDip.request({ beep: true, e: '🔔', n: 'beep', len: PIPS_MS, front: true, info: b, want: () => !sound.muted, pick: () => (a._job || sound._unl) ? null : a });
 }
 
 window.onSpotifyIframeApiReady = (IFrameAPI) => { music.api = IFrameAPI; if (music.uri && !music.ctrl) music.create(); };
@@ -2639,57 +2659,42 @@ const EMOJI_SOUNDS = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀
 /* real length of each file (ms, ffprobe) = how long the music dip holds */
 const SFX_MS = { 'oh-my-god': 1615, 'wow': 2600, 'bruh': 629, 'fah': 1927, 'what': 400, 'cool-story-bro': 1110, 'boomshakalaka': 1190,
   'very-nice': 1075, 'emotional-damage': 2037, 'show-me-the-money': 2060, 'pay-that-man': 1670, 'what-happened': 910 };
-/* 2 players per sound, all made at start-up (iPad: an element made later is not unlocked) — the same emoji twice overlaps,
-   never restarts the one playing. Per element: _ok = unlocked, _job = the real play on it, _unl = unlock ticket, _try = unlock on its way */
+/* PER players per sound (4), all made at start-up (iPad: an element made later is not unlocked): four copies of one emoji
+   overlap, a new play never takes a sounding player (it waits for a free one). Per element: _ok = unlocked (a play worked),
+   _job = the sound on it now (musicDip), _try = silent unlock on its way. How a sound plays: see musicDip above. */
 const emojiSfx = {
-  on: true, MS: SFX_MS, pool: {}, log: [], total: 0,
-  init(){ Object.values(EMOJI_SOUNDS).forEach(n => { this.pool[n] = [0, 1].map(() => { const a = new Audio('sounds/' + n + '.m4a');
-      a.preload = 'auto'; a.setAttribute('playsinline', ''); a._ok = false; a._job = null; a._rel = null; a._unl = 0; a._try = false; a._t0 = 0;
-      /* only a play that really started ends / fails here (a newer play still waiting for its dip is not ended by the old sound) */
-      a.addEventListener('ended', () => { const j = a._job; if (j && j.on) this.done(a, j); });
-      a.addEventListener('error', () => { const j = a._job; if (j && j.on){ this.note(j, false, 'MediaError' + (a.error ? a.error.code : '')); this.done(a, j); } });
-      return a; }); });
-    this.total = Object.keys(this.pool).length * 2 + 1; },                /* + the level beep (SoundFx) */
+  on: true, MS: SFX_MS, PER: 4, pool: {}, log: [], total: 0,
+  init(){ Object.values(EMOJI_SOUNDS).forEach(n => { this.pool[n] = Array.from({ length: this.PER }, () => { const a = new Audio('sounds/' + n + '.m4a');
+      a.preload = 'auto'; a.setAttribute('playsinline', ''); a._ok = false; a._job = null; a._unl = 0; a._try = false;
+      musicDip.wire(a); return a; }); });
+    this.total = Object.keys(this.pool).length * this.PER + 1; },        /* + the level beep (SoundFx) */
   get unlockedCount(){ let n = typeof sound !== 'undefined' && sound.unlocked ? 1 : 0; Object.values(this.pool).forEach(l => l.forEach(a => { if (a._ok) n++; })); return n; },
   all(){ return [].concat(...Object.values(this.pool)); },
-  /* a free player (not busy), else the one that started first */
-  pick(n){ const l = this.pool[n]; return l.find(a => !a._job && a.paused && !a._try) || l.find(a => !a._job) || l.slice().sort((x, y) => x._t0 - y._t0)[0]; },
-  note(j, ok, err){ if (j.noted) return; j.noted = true; this.log.push({ e: j.e, ok, err: err || null, at: Date.now() }); if (this.log.length > 10) this.log.shift(); },
-  /* this play is over: free the player, music back (only if it is still THIS play's player) */
-  done(a, j){ if (!j || a._job !== j) return; a._job = null; const r = a._rel; a._rel = null; if (r) r(); },
-  /* sound off / Emoji sounds off: stop every emoji sound now, music back right away */
-  stop(){ this.all().forEach(a => { const j = a._job;   /* any player still sounding (also one whose NEW play is waiting for its dip turn); a silent unlock is left to finish */
-    if (!a.paused && !a._try){ try { a.pause(); a.currentTime = 0; a.muted = false; } catch (x) {} }
-    if (j) this.done(a, j); }); },                                       /* waiting plays are dropped: their dip turn sees the job gone and releases */
+  /* a tap has happened and a player played: sounds can play now (before it, the iPad refuses every play) */
+  ready(){ return (typeof sound !== 'undefined' && sound.unlocked) || this.all().some(a => a._ok); },
+  /* not ready but an unlock is on its way (the same tap): wait for it, max 0.6 s */
+  async whenReady(){ if (this.ready()) return true; const end = Date.now() + 600;
+    while (Date.now() < end && (this.all().some(a => a._try) || (typeof sound !== 'undefined' && sound._unl))){ await dipWait(30); if (this.ready()) return true; }
+    return this.ready(); },
+  hint(){ const h = document.getElementById('sndHint'); if (h) h.classList.add('show'); },
+  hintOff(){ const h = document.getElementById('sndHint'); if (h) h.classList.remove('show'); },
+  free(n){ return this.pool[n].find(a => !a._job && !a._try) || null; },
+  note(j, ok, err){ if (!j || j.beep || j.noted) return; j.noted = true; this.log.push({ e: j.e, ok, err: err || null, at: Date.now() }); if (this.log.length > 10) this.log.shift(); },
+  /* sound off / Emoji sounds off: stop every emoji sound now; the waiting ones are dropped; music back right away */
+  stop(){ musicDip.stopAll(j => !j.beep); },
   /* iPad: a player plays by itself later only if play() was called ON IT during a tap — so on every tap, each player not yet
-     unlocked plays silently once, then stops. Refused → the next tap tries again. Never touches a sound that is really playing. */
+     unlocked plays silently once, then stops. Refused → the next tap tries again. Never touches a player with a sound on it. */
   unlock(){ this.all().forEach(a => { if (a._ok || a._job || a._try) return;
     const t = ++a._unl; a._try = true;
     try { a.muted = true; const p = a.play();
-      const ok = () => { a._try = false; a._ok = true; if (a._unl !== t && a._job) return;   /* a real play has it now: leave it alone (a dropped one: clean up) */
-        a.pause(); a.currentTime = 0; a.muted = false; };
-      const bad = () => { a._try = false; if (a._unl === t || !a._job) a.muted = false; };
+      const ok = () => { a._try = false; a._ok = true; try { a.pause(); a.currentTime = 0; } catch (x) {} a.muted = false; this.hintOff(); musicDip.pump(); };
+      const bad = () => { a._try = false; a.muted = false; musicDip.pump(); };
       if (p && p.then) a._p = p.then(ok, bad); else ok(); } catch (x) { a._try = false; a.muted = false; } }); },
-  /* pause the music (or turn it down), play the sound, music back after it — see musicDip */
-  async play(e){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const n = EMOJI_SOUNDS[e]; if (!n) return;
-    const a = this.pick(n), j = { e }, prev = a._rel;
-    a._unl++; a._job = j; a._rel = null; a._t0 = Date.now(); if (prev) prev();   /* both busy: the oldest one restarts, its dip hold goes */
+  /* an emoji came: no tap yet → the hint, no pause, no sound; else it joins the music pause (musicDip) */
+  async play(e, onSkip){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const n = EMOJI_SOUNDS[e]; if (!n) return;
+    if (!(await this.whenReady())){ this.hint(); this.note({ e }, false, 'no tap yet'); return; }
     const want = () => this.on && !(typeof sound !== 'undefined' && sound.muted);
-    /* PREVIEW: a sound longer than musicDip.LONG (2.7 s) never pauses the music — it plays over it (a volume dip stays) */
-    const long = SFX_MS[n] > musicDip.LONG;
-    const h = long && !musicDip.volumeOk() ? await musicDip.over() : await musicDip.begin(SFX_MS[n] + 200, false, want, long);
-    if (a._job !== j){ if (h) h.release(); return; }                       /* a newer play took this player meanwhile */
-    if (!h || !want()){ if (h) h.release(); a._job = null; if (!a._try){ a.pause(); a.currentTime = 0; a.muted = false; } return; }   /* dropped (too many waiting) or muted meanwhile — the emoji still flies; an unlock on its way cleans up itself */
-    if (a._try){ await Promise.race([a._p, new Promise(r => setTimeout(r, 300))]);   /* its silent unlock is on its way: let it settle (max 0.3 s) — its pause can't touch us */
-      if (a._job !== j){ h.release(); return; } }
-    try { if (navigator.audioSession) navigator.audioSession.type = h.mode; } catch (x) {}
-    /* the music comes back when THIS sound really ended (or failed / was refused) */
-    a._rel = h.release;
-    try { if (!a.paused) a.pause();                                        /* still playing (the oldest sound, or a slow unlock): stop first, then rewind */
-      a.muted = false; a.currentTime = 0; j.on = true; const p = a.play();
-      if (p && p.then) p.then(() => { a._ok = true; this.note(j, true); }, (x) => { this.note(j, false, (x && x.name) || 'Error'); h.release(); this.done(a, j); });
-      else this.note(j, true);
-    } catch (x) { this.note(j, false, x.name || 'Error'); h.release(); this.done(a, j); } }
+    musicDip.request({ e, n, len: SFX_MS[n], want, pick: () => this.free(n), onSkip }); }
 };
 emojiSfx.init();
 ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { passive: true }));
@@ -2737,7 +2742,10 @@ const phones = {
     L.push(er ? 'Last Spotify error: ' + [er.status, er.reason || er.message, er.path].filter(Boolean).join(' ') + ', ' + Math.round((Date.now() - er.at) / 1000) + ' s ago' : 'Last Spotify error: none');
     const n = emojiSfx.unlockedCount; L.push('Sounds unlocked: ' + n + ' of ' + emojiSfx.total + (n < emojiSfx.total ? ' — tap the screen once' : ''));
     L.push('Audio mode: ' + (navigator.audioSession ? navigator.audioSession.type : 'n/a'));
-    L.push('Music pause: ' + (musicDip.mode || 'idle'));
+    L.push('Music pause: ' + musicDip.describe());
+    const w = musicDip.lastWin;   /* PREVIEW: the last finished pause: what the music did, how many sounds, how long, how the music came back */
+    L.push(!w ? 'Last pause: none yet' : 'Last pause: ' + new Date(w.at).toTimeString().slice(0, 8) + ', ' + w.how + (w.acceptMs != null ? ' (answer ' + w.acceptMs + ' ms)' : '') + ', ' + w.sounds + ' sound' + (w.sounds === 1 ? '' : 's')
+      + ', ' + (w.pausedMs != null ? (w.pausedMs / 1000).toFixed(1) + ' s' : '–') + ', ' + (w.back || '…'));
     const b = musicDip.lastBeep, rs = musicDip.lastResume && b && musicDip.lastResume.at >= b.at ? musicDip.lastResume : null;
     L.push(!b ? 'Last beep: none yet' : 'Last beep: ' + new Date(b.at).toTimeString().slice(0, 8) + ', dip ' + (b.dip || '…') + ', session ' + (b.session || '…') + ', clock thought Spotify ' + b.thought
       + (b.pollAge != null ? ' (poll ' + b.pollAge + ' s old)' : '') + (rs ? ', pause to play ' + (rs.pauseToPlay != null ? rs.pauseToPlay.toFixed(1) + ' s' : '–') + ', play reply ' + (rs.reply == null ? '…' : rs.reply) : ''));
@@ -2815,7 +2823,7 @@ const phones = {
       if (!me.name){ ack(false, 'Pick your name first'); return; }
       const now = Date.now(); if (now - (this.lastEmoji.get(me.name) || 0) < 1200){ ack(false, 'Too fast — wait a second'); return; }
       this.lastEmoji.set(me.name, now);
-      this.showEmoji(d.e, me.name); this.broadcast({ t: 'emoji', e: d.e, name: me.name }); ack(true);
+      ack(true); this.showEmoji(d.e, me.name, () => this.send(c, { t: 'skipped', id: d.id || '', e: d.e })); this.broadcast({ t: 'emoji', e: d.e, name: me.name });   /* PREVIEW: a skipped sound is told to that phone */
     }
   },
   photoRev(){ return bank.photos.map(x => x ? x.length : 0).join('.'); },
@@ -2837,8 +2845,8 @@ const phones = {
   /* state to every phone: on every change (debounced) + a heartbeat every 5 s */
   push(beat){ if (!this.conns.size) return; if (beat){ this.broadcast(this.snapshot()); return; }
     clearTimeout(this.pushT); this.pushT = setTimeout(() => this.broadcast(this.snapshot()), 120); },
-  showEmoji(e, name){
-    emojiSfx.play(e);
+  showEmoji(e, name, onSkip){
+    emojiSfx.play(e, onSkip);
     const L = this.el('emojiLayer'), f = document.createElement('div'); f.className = 'emoji-fly';
     f.style.left = (8 + Math.random() * 78) + '%';
     f.innerHTML = '<span class="e">' + e + '</span><span class="n">' + escapeHtml(name) + '</span>';
@@ -2888,6 +2896,7 @@ function exportDeck() {
   const nps = docCopy.querySelector('#npSide'); if (nps) nps.classList.remove('show');
   docCopy.querySelectorAll('script[data-music-api], script[src*="open.spotify.com"], script[data-phones]').forEach(s => s.remove());
   ['#emojiLayer', '#toastLayer', '#phQr', '#phList'].forEach(sel => { const x = docCopy.querySelector(sel); if (x) x.innerHTML = ''; });
+  { const h = docCopy.querySelector('#sndHint'); if (h) h.classList.remove('show'); }   /* PREVIEW: the copy starts without the tap hint */
   const php = docCopy.querySelector('#phonesPanel'); if (php) php.classList.remove('open');
   const html = '<!DOCTYPE html>\n' + docCopy.outerHTML;
   slides.forEach(s => s.classList.remove('active')); if (liveActive) liveActive.classList.add('active');

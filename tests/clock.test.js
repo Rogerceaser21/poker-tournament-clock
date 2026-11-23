@@ -84,7 +84,10 @@ async function newPage(browserType, { spotify = false, noTap = false } = {}) {
   /* PREVIEW rule: no sound before the first tap (the iPad refuses it), so a check that plays sounds taps once first
      (a synthetic pointerdown = the clock's unlock) and lets headless WebKit's media side settle (see SETTLE) */
   if (P && !noTap){ await p.evaluate(() => window.dispatchEvent(new PointerEvent('pointerdown')));
-    await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 8000); await settle(p); }
+    await until(() => p.evaluate(() => emojiSfx.unlockedCount === emojiSfx.total), 8000); await settle(p);
+    /* PREVIEW (23 Nov): that tap arms the first-tap safety net; with Spotify, let it decide before the check starts (it
+       reads Spotify once and may send ONE play: a check that pauses the fake Spotify early must not meet it) */
+    if (spotify) await until(() => p.evaluate(() => typeof firstTap === 'undefined' || firstTap.done), 12000); }
   return { b, p, errors, spotifyCalls, fake, log };
 }
 const state = p => p.evaluate(() => {
@@ -431,7 +434,7 @@ const TESTS = [
     const hid2 = await p.evaluate(() => getComputedStyle(document.getElementById('phDiag')).display === 'none');
     return (hid && vis && hid2 && box && /^Spotify: Tablet, volume control no, Premium yes$/.test(L[0]) && /^Last Spotify error: 403 UNKNOWN \/me\/player\/pause, \d+ s ago$/.test(L[1])
       && L[2] === 'Sounds unlocked: ' + NPL + ' of ' + NPL && /^Audio mode: /.test(L[3]) && /^Music pause: /.test(L[4])
-      && (P ? /^Last pause: \d\d:\d\d:\d\d, no pause \(Spotify was not playing\) \(answer \d+ ms\), 1 sound, \d+\.\d s, nothing to bring back$/.test(L[5]) && /^Last beep: none yet$/.test(L[6]) && /^Last sounds: 🤡 ok/.test(L[7]) && L.length === 8
+      && (P ? /^Last pause: \d\d:\d\d:\d\d, no pause \(Spotify was not playing\) \(answer \d+ ms\), 1 sound, \d+\.\d s, nothing to bring back$/.test(L[5]) && /^Last beep: none yet$/.test(L[6]) && /^Last sounds: 🤡 ok/.test(L[7]) && L.length === 9 && /^First tap: /.test(L[8])
         : /^Last sounds: 🤡 ok/.test(L[5]) && L.length === 6)) || { hid, vis, hid2, box, t }; }, { spotify: true }],
   ['Phones panel: Status block says "Spotify: not connected" when Spotify is not connected (and "none" errors, sounds not unlocked yet)', async ({ p }) => {
     await p.click('#phonesBtn'); await wait(500); await p.click('#phDiagToggle'); await wait(300);
@@ -558,7 +561,7 @@ const PREVIEW_TESTS = [
     await wait(1500); await p.click('#startBtn'); await wait(SETTLE); await p.click('#nextBtn'); await wait(3500);
     await p.click('#phonesBtn'); await wait(400); await p.click('#phDiagToggle'); await wait(1300);
     const L = (await p.evaluate(() => document.getElementById('phDiag').textContent)).split('\n');
-    return (L.length === 8 && /^Last beep: \d\d:\d\d:\d\d, dip pause, session playback, clock thought Spotify playing \(poll \d+ s old\), pause to play [12]\.\d s, play reply 204$/.test(L[6])
+    return (L.length === 9 && /^First tap: \d\d:\d\d:\d\d, music before: playing, after the unlock: playing, play sent: no \(still playing\), audio mode at the tap: \S+$/.test(L[8]) && /^Last beep: \d\d:\d\d:\d\d, dip pause, session playback, clock thought Spotify playing \(poll \d+ s old\), pause to play [12]\.\d s, play reply 204$/.test(L[6])
       && /^Last pause: \d\d:\d\d:\d\d, music paused \(answer \d+ ms\), 1 sound, [12]\.\d s, plain play 204, confirmed playing$/.test(L[5])) || L; }, { spotify: true }],
   ['PREVIEW: Spotify not connected → phones state says now: null', async ({ p }) => {
     const r = await p.evaluate(() => phones.snapshot().now); return r === null || { r }; }],
@@ -842,7 +845,7 @@ const PREVIEW_TESTS = [
     await HU.phone(p, 'Cat', 0); await wait(250); const c = await HU.view(p);
     await p.click('#huSlide .hu-bot .hu-arrow[data-dir="1"]', { timeout: 2000 }); await wait(250); const d = await HU.view(p);
     return (!a.invested && a.seats.every(s => /Chips 700$/.test(s)) && a.chips.join() === '700,700' && b.chips.join() === '1,500,700'
-      && c.names.join() === 'Ann,Bob' && d.names.join() === 'Ann,Cat' && d.chips.join() === '1,500,OUT') || { a, b, c, d }; }],
+      && c.names.join() === 'Ann,Bob' && d.names.join() === 'Ann,Cat' && d.chips.join() === '1,500,OUT') || { a, b0, b, c, d }; }],
   ['PREVIEW: Heads up opens with the two players who still have chips (biggest stack on top); with 3 in, the two biggest stacks; a reopen keeps the previous pair (both still have chips); a shown player busting with two left → those two', async ({ p }) => {
     await p.click('#startBtn'); await wait(700);
     await HU.chips(p, [0, 500, 900]); await HU.open(p); const a = await HU.view(p);
@@ -856,7 +859,7 @@ const PREVIEW_TESTS = [
     await p.click('#huSlide .hu-bot .hu-arrow[data-dir="1"]', { timeout: 2000 }); await wait(250); const b = await HU.view(p);
     await HU.phone(p, 'Ann', 650); await wait(250); const c = await HU.view(p);
     await HU.phone(p, 'Bob', 900); await wait(250); const d = await HU.view(p);
-    return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Cat' && c.names.join() === 'Ann,Cat' && c.chips.join() === '650,700' && d.names.join() === 'Ann,Cat') || { a, b, c, d }; }],
+    return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Cat' && c.names.join() === 'Ann,Cat' && c.chips.join() === '650,700' && d.names.join() === 'Ann,Cat') || { a, b0, b, c, d }; }],
   ['PREVIEW: Heads up Winner button (openWinner) opens the Winner page — from the page over a level and from the Heads up slide reached by ⏭ after the last level (auto-picked, chips shown, no Clock button there)', async ({ p }) => {
     await p.click('#startBtn'); await wait(700); await HU.open(p);
     await p.click('#huWinnerBtn', { timeout: 2000 }); await wait(700);
@@ -977,7 +980,7 @@ const PREVIEW_TESTS = [
     const d = await p.evaluate(() => ({ key: localStorage.getItem('poker_winner_photos_v1'), tiles: [...document.querySelectorAll('[data-win-tile]')].some(t => t.classList.contains('has-photo')), g: winnerPhotos.get() }));
     return (a.tiles.join() === 'true,false,true' && a.h1.join() === '1280,960' && a.w.join() === '960,1280' && a.kb.h1 < 400 && a.kb.w < 400 && a.stored && a.jpeg && !a.inBank && !a.inState && a.mainOk
       && b.tiles.join() === 'true,false,true' && b.h1.join() === '1280,960' && b.stored && c.h1.join() === '960,1280' && c.tiles[0]
-      && d.key === null && !d.tiles && !d.g.hand1 && !d.g.winner && !d.g.hand2) || { a, b, c, d }; }],
+      && d.key === null && !d.tiles && !d.g.hand1 && !d.g.winner && !d.g.hand2) || { a, b0, b, c, d }; }],
   ['PREVIEW: Winner photos — storage full: a refused write gets one more try at 960 px; refused again → the photo stays on the tile for this session with "Not saved: storage full"; the main saved game is untouched and keeps saving', async ({ p }) => {
     await p.click('#startBtn'); await wait(700); await p.evaluate(() => { presentation.goTo(presentation.slides.findIndex(s => s.classList.contains('winner'))); }); await wait(900);
     const buf = await bigJpeg(p, 4000, 3000);
@@ -1007,7 +1010,7 @@ const PREVIEW_TESTS = [
     await p.click('#huSlide .hu-bot .hu-arrow[data-dir="1"]', { timeout: 2000 }); await wait(250); const b = await HU.view(p);
     await p.click('#headsUpBtn', { timeout: 2000 }); await wait(500); await HU.open(p); const c = await HU.view(p);
     await p.click('#headsUpBtn', { timeout: 2000 }); await wait(500); await HU.phone(p, 'Cat', 0); await wait(250); await HU.open(p); const d = await HU.view(p);
-    return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Cat' && c.names.join() === 'Ann,Cat' && c.chips.join() === '900,500' && d.names.join() === 'Ann,Bob' && d.chips.join() === '900,800') || { a, b, c, d }; }],
+    return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Cat' && c.names.join() === 'Ann,Cat' && c.chips.join() === '900,500' && d.names.join() === 'Ann,Bob' && d.chips.join() === '900,800') || { a, b0, b, c, d }; }],
   /* end-pages item 6 (Igor's choice B, no online store): Share picture on the Winner page */
   ['PREVIEW: Share picture — a "Share picture" button on the Winner page: at 768x1024, 834x1112, 1024x768, 1180x820, 1366x1024 it is inside the screen above the bottom bar, overlaps nothing on the page, and a REAL mouse click at its centre hits it (elementFromPoint) and calls navigator.share once', async ({ p }) => {
     await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p); await SHARE.stub(p);
@@ -1139,7 +1142,80 @@ const PREVIEW_TESTS = [
     const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 45), RED = [255, 0, 0], BLUE = [0, 0, 255], GREEN = [0, 255, 0];
     return (ok && r.stored.w === 200 && r.stored.h === 400 && near(r.stored.px[0], RED) && near(r.stored.px[1], BLUE) && near(r.stored.px[2], GREEN)
       && r.hero === 'photo' && r.box[1] > r.box[0] && near(r.pic[0], RED) && near(r.pic[1], BLUE) && near(r.pic[2], GREEN)) || { ok, r }; }],
+  /* PREVIEW (23 Nov, b4): the first tap's safety net and the Status block's "First tap:" line. Each check makes ONE real
+     mouse tap at a point of the cover where nothing is a control (asserted with elementFromPoint), with Spotify playing */
+  ['PREVIEW: first-tap safety net — Spotify playing before the first tap, reads paused right after the unlock with NO clock command → exactly ONE plain play, 1.5 s (± 0.7) after the tap\'s unlocks settled; never again in this page (a 2nd tap with Spotify stopped sends nothing); Status "First tap: …, music before: playing, after the unlock: paused, play sent: yes (204), audio mode at the tap: …" (before any tap: "First tap: none yet")', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => spotify.poll()); log.length = 0;
+    const none = (await FT.diag(p)).slice(-1)[0];
+    const hit = await FT.tap(p); fake.playing = false;                     /* iPadOS stops Spotify on the unlock: no clock command, Spotify now paused */
+    await until(() => p.evaluate(() => typeof firstTap !== 'undefined' && firstTap.done), 15000); await wait(1000);
+    const ft = await p.evaluate(() => typeof firstTap === 'undefined' ? null : { settledAt: firstTap.settledAt, at: firstTap.at });
+    const cmds1 = FT.cmds(log), plays1 = log.filter(e => e.c === 'PUT /me/player/play'), playing1 = fake.playing, line = (await FT.diag(p)).slice(-1)[0];
+    /* a 2nd tap, Spotify stopped again: once per load = nothing */
+    fake.playing = false; await FT.tap(p); await wait(5000); const cmds2 = FT.cmds(log);
+    const dt = ft && plays1[0] ? plays1[0].t - ft.settledAt : null;
+    return (hit.ok && none === 'First tap: none yet' && cmds1.join() === 'PUT /me/player/play' && dt >= 1400 && dt <= 2200 && playing1
+      && /^First tap: \d\d:\d\d:\d\d, music before: playing, after the unlock: paused, play sent: yes \(204\), audio mode at the tap: \S+$/.test(line) && cmds2.join() === 'PUT /me/player/play') || { hit, none, cmds1, dt, playing1, line, cmds2 }; }, { spotify: true, noTap: true }],
+  ['PREVIEW: first-tap safety net — Spotify PAUSED before the first tap (and still paused after) → no play; Status "music before: paused, after the unlock: paused, play sent: no (it was paused before)"', async ({ p, log, fake }) => {
+    await wait(1200); fake.playing = false; await p.evaluate(() => spotify.poll()); log.length = 0;
+    const hit = await FT.tap(p);
+    await until(() => p.evaluate(() => typeof firstTap !== 'undefined' && firstTap.done), 15000); await wait(1500);
+    const cmds = FT.cmds(log), line = (await FT.diag(p)).slice(-1)[0];
+    return (hit.ok && cmds.length === 0 && !fake.playing && /^First tap: \d\d:\d\d:\d\d, music before: paused, after the unlock: paused, play sent: no \(it was paused before\), audio mode at the tap: \S+$/.test(line)) || { hit, cmds, line }; }, { spotify: true, noTap: true }],
+  ['PREVIEW: first-tap safety net — the first tap is the Now playing card\'s ⏯ (a music control: the user paused it) → ONLY that pause, no play; Status "play sent: no (a music control was used)"', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => spotify.poll()); await until(() => p.evaluate(() => !document.getElementById('nowPlaying').classList.contains('none')), 6000); log.length = 0;
+    const t = await p.evaluate(() => { const q = document.getElementById('npToggle').getBoundingClientRect(), x = q.left + q.width / 2, y = q.top + q.height / 2, e = document.elementFromPoint(x, y); return { x, y, ok: !!e && !!e.closest('#npToggle') }; });
+    await p.mouse.click(t.x, t.y);
+    await until(() => p.evaluate(() => typeof firstTap !== 'undefined' && firstTap.done), 15000); await wait(1500);
+    const cmds = FT.cmds(log), line = (await FT.diag(p)).slice(-1)[0];
+    return (t.ok && cmds.join() === 'PUT /me/player/pause' && !fake.playing && /^First tap: \d\d:\d\d:\d\d, music before: playing, after the unlock: paused, play sent: no \(a music control was used\), audio mode at the tap: \S+$/.test(line)) || { t, cmds, line }; }, { spotify: true, noTap: true }],
+  ['PREVIEW: first-tap safety net — the clock itself pauses the music for a level beep right after the first tap → the clock\'s own pause and play only (one each), the net sends nothing; Status "play sent: no (the clock paused it for a sound)"', async ({ p, log, fake }) => {
+    await wait(1200); await p.evaluate(() => spotify.poll()); log.length = 0;
+    const hit = await FT.tap(p);
+    await p.evaluate(async () => { const end = Date.now() + 8000; while (!sound.unlocked && Date.now() < end) await new Promise(r => setTimeout(r, 30)); levelAlert(); });
+    await until(() => p.evaluate(() => typeof firstTap !== 'undefined' && firstTap.done), 15000);
+    await until(() => p.evaluate(() => musicDip.state === 'idle'), 12000); await wait(1000);
+    const cmds = FT.cmds(log), line = (await FT.diag(p)).slice(-1)[0];
+    return (hit.ok && cmds.join() === 'PUT /me/player/pause,PUT /me/player/play' && fake.playing && /^First tap: \d\d:\d\d:\d\d, music before: playing, after the unlock: \w+, play sent: no \(the clock paused it for a sound\), audio mode at the tap: \S+$/.test(line)) || { hit, cmds, line }; }, { spotify: true, noTap: true }],
+  ['PREVIEW: Winner initial — the first WHOLE character: "😀 Zed" → 😀 (not half an emoji), "🇦🇺 Aus" → 🇦🇺, "élan" → É, "" → ?; the seat / chip-strip avatars and the share picture use it', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p);
+    const r = await p.evaluate(() => { const one = [initialOf('😀 Zed'), initialOf('🇦🇺 Aus'), initialOf('élan'), initialOf('')];
+      bank.names[winPick] = '😀 Zed'; syncBankUI();
+      const av = [...document.querySelectorAll('.seat-avatar[data-initial], .cs-ava[data-initial]')].map(e => e.dataset.initial);
+      return { one, share: winShare.inputs().initial, av, half: av.some(v => /[\uD800-\uDFFF]/.test(v) && Array.from(v).length === 1 && v.length === 1) }; });
+    return (JSON.stringify(r.one) === JSON.stringify(['😀', '🇦🇺', 'É', '?']) && r.share === '😀' && r.av.includes('😀') && !r.half) || r; }],
+  ['PREVIEW: Share picture — a very long Winner name always fits inside the frame (shrunk further, then cut with an ellipsis): no white name pixels left or right of the inner frame line on the JPEG, the name still drawn in the middle', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p);
+    const names = ['Bartholomew Maximilian Featherstonehaugh-Worthington the Third of Tonight', 'WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW'];
+    const out = [];
+    for (const nm of names){
+      out.push(await p.evaluate(async (nm) => { bank.names[winPick] = nm; syncBankUI();
+        const R = winShare.build(winShare.inputs()), u = URL.createObjectURL(R.file), im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = u; });
+        const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; const x = c.getContext('2d'); x.drawImage(im, 0, 0); URL.revokeObjectURL(u);
+        const h = R.layout.hero, y0 = Math.round(h.y + h.h + 40 + 30), y1 = Math.round(h.y + h.h + 40 + 175), W = c.width, d = x.getImageData(0, y0, W, y1 - y0).data;
+        let outside = 0, inside = 0; for (let yy = 0; yy < y1 - y0; yy++) for (let xx = 0; xx < W; xx++){ const k = (yy * W + xx) * 4; if (d[k] > 225 && d[k + 1] > 225 && d[k + 2] > 225){ if (xx < 60 || xx >= W - 60) outside++; else inside++; } }
+        return { outside, inside }; }, nm)); }
+    return out.every(o => o.outside === 0 && o.inside > 500) || out; }],
+  ['PREVIEW: Share picture full screen open → arrow keys, Space, M and T do NOT reach the clock behind it (same page, sound not muted, no table view, picture still open); Escape closes it, and then an arrow key works again', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p);
+    await p.evaluate(() => winShare.overlay(winShare.build(winShare.inputs()))); await wait(300);
+    const st = () => p.evaluate(() => ({ cur: presentation.current, muted: sound.muted, tv: document.body.classList.contains('tv-open'), open: winShare.isOpen() }));
+    const a = await st();
+    await p.keyboard.press('ArrowLeft'); await wait(1200); const b0 = await st();   /* alone first: a Left then a Right would cancel out */
+    for (const k of ['ArrowLeft', 'ArrowDown', 'Space', 'm', 't']){ await p.keyboard.press(k); await wait(900); }
+    const b = await st();
+    await p.keyboard.press('Escape'); await wait(300); const c = await st();
+    await p.keyboard.press('ArrowLeft'); await wait(1200); const d = await st();
+    return (a.open && b0.cur === a.cur && b0.open && b.cur === a.cur && b.muted === a.muted && !b.muted && !b.tv && b.open && !c.open && d.cur !== a.cur) || { a, b0, b, c, d }; }],
 ];
+/* PREVIEW (b4): helpers for the first-tap checks */
+const FT = {
+  /* one real mouse tap on the cover where nothing is a control (the table area left of the seats) */
+  tap: async p => { const t = await p.evaluate(() => { const x = 60, y = 400, e = document.elementFromPoint(x, y); return { x, y, ok: !!e && !e.closest('button, a, input, [data-sp], #nowPlaying'), hit: e ? (e.id || e.className) : null }; });
+    await p.mouse.click(t.x, t.y); return t; },
+  cmds: log => log.filter(e => !e.c.startsWith('GET')).map(e => e.c),
+  diag: p => p.evaluate(() => { phones.renderDiag(); return document.getElementById('phDiag').textContent.split('\n'); }),
+};
 
 (async () => {
   const srv = /^http:\/\/localhost:8791\//.test(PAGE) ? await require('./serve').start() : null;   /* self-serve the repo (also for preview/) */

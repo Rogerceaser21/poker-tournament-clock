@@ -1544,7 +1544,11 @@ function syncBankUI(except){
   if (typeof phones !== 'undefined') phones.push();
   saveState();
 }
-function initialOf(name){ const t = String(name || '').trim(); return t ? t[0].toUpperCase() : '?'; }
+/* PREVIEW: whole characters (graphemes: an emoji, a flag, an accented letter stay one piece), never half an emoji */
+function graphemes(s){ s = String(s || '');
+  try { if (typeof Intl !== 'undefined' && Intl.Segmenter) return Array.from(new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(s), x => x.segment); } catch (e) {}
+  return Array.from(s); }
+function initialOf(name){ const t = String(name || '').trim(); return t ? (graphemes(t)[0] || '?').toUpperCase() : '?'; }
 /* CHIP COUNT STRIP on every level — biggest stack first, busted players last */
 function renderStrips(){
   const order = bank.names.map((_, i) => i).sort((a, b) => (bank.chips[b] || 0) - (bank.chips[a] || 0));
@@ -1848,10 +1852,12 @@ var winShare = {
       x.lineWidth = 5; x.strokeStyle = '#b07f2b'; x.beginPath(); x.arc(cx, cy, r + 12, 0, Math.PI * 2); x.stroke();
       this.crown(x, cx, hb.y + 26, 210);
     }
-    /* the name, shrunk to fit */
-    let fs = 170; this.font(x, '900 ' + fs + 'px "Playfair Display", Georgia, serif');
-    while (fs > 60 && x.measureText(inp.name).width > W - 260){ fs -= 6; this.font(x, '900 ' + fs + 'px "Playfair Display", Georgia, serif'); }
-    x.save(); x.fillStyle = '#ffffff'; x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowOffsetY = 7; x.shadowBlur = 6; x.fillText(inp.name, W / 2, L.nameY + 150); x.restore();
+    /* the name, shrunk to fit (down to 38 px); still too wide → cut (whole characters) with an ellipsis, so it always fits inside the frame */
+    const maxW = W - 260; let fs = 170, name = String(inp.name || ''); this.font(x, '900 ' + fs + 'px "Playfair Display", Georgia, serif');
+    while (fs > 40 && x.measureText(name).width > maxW){ fs -= 6; this.font(x, '900 ' + fs + 'px "Playfair Display", Georgia, serif'); }
+    if (x.measureText(name).width > maxW){ const g = graphemes(name); while (g.length > 1 && x.measureText(g.join('').trimEnd() + '…').width > maxW) g.pop(); name = g.join('').trimEnd() + '…'; }
+    L.nameFs = fs; L.nameText = name;
+    x.save(); x.fillStyle = '#ffffff'; x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowOffsetY = 7; x.shadowBlur = 6; x.fillText(name, W / 2, L.nameY + 150); x.restore();
     /* Hand 1 / Hand 2 */
     ['hand1', 'hand2'].forEach(k => { const b = L.boxes[k]; if (!b) return;
       x.save(); this.font(x, '600 46px Oswald, "Arial Narrow", system-ui, sans-serif'); this.spacing(x, 6); x.fillStyle = '#f7d98a'; x.fillText(b.label.toUpperCase(), b.x + b.w / 2, b.y - 22); x.restore();
@@ -1910,7 +1916,11 @@ var winShare = {
   close(){ const o = document.getElementById('winShareOv'); if (o) o.classList.remove('open'); },
   init(){
     document.getElementById('winShareBtn').addEventListener('click', () => this.tap());
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.isOpen()){ this.close(); e.stopImmediatePropagation(); } });
+    /* with the full-screen picture open, no key reaches the clock behind it (arrows, Space, M, T, …): a capture listener on
+       window runs before every other key listener. Escape closes the picture; Tab still moves focus; ⌘ / Ctrl shortcuts keep the browser's own action */
+    window.addEventListener('keydown', (e) => { if (!this.isOpen() || e.key === 'Tab') return;
+      if (e.key === 'Escape') this.close();
+      if (!e.metaKey && !e.ctrlKey) e.preventDefault(); e.stopImmediatePropagation(); }, true);
   }
 };
 
@@ -2631,6 +2641,7 @@ const spotify = {
     this.tickBar();
   },
   async control(action){
+    this.cmdAt = Date.now();                    /* PREVIEW: a music control (⏮ ⏯ ⏭, or the clock's ⏸ / ▶): the first-tap net leaves the music alone */
     const was = this.now && this.now.playing;
     const map = { previous: ['POST', '/me/player/previous'], next: ['POST', '/me/player/next'], play: ['PUT', '/me/player/play'], pause: ['PUT', '/me/player/pause'] };
     const [m, path] = map[action === 'toggle' ? (was ? 'pause' : 'play') : action] || [];
@@ -2828,7 +2839,8 @@ const musicDip = {
     this.pump(); },
   /* mute / Emoji sounds off: stop the sounding ones now (filter = which), the waiting ones are dropped by pump() */
   stopAll(which){ [...this.sounding].filter(which).forEach(j => { try { j.a.pause(); } catch (e) {} this.over(j, 'stopped'); }); this.pump(); },
-  /* the last sound is over: the music comes back (the ONLY place a "play" / volume restore is sent) */
+  /* the last sound is over: the music comes back (the ONLY place a sound's "play" / volume restore is sent; the one other
+     automatic "play" is firstTap's safety net, once per page load, see below emojiSfx) */
   async close(){
     if (this.sounding.size || (this.state !== 'open' && this.state !== 'closing')) return;
     this.state = 'resuming'; clearTimeout(this.capT); const w = this.win;
@@ -3177,6 +3189,55 @@ const emojiSfx = {
 };
 emojiSfx.init();
 ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { passive: true }));
+/* PREVIEW (23 Nov): the FIRST tap's safety net. On Igor's iPad the first tap (the one that unlocks the 49 sound players
+   silently) stopped Spotify, while the clock sent no command (iPad Simulator and headless: zero commands after the tap).
+   So: at the tap, note what the clock last read (Spotify playing? a read under AGE old, no new request inside the tap).
+   Once every unlock play of that tap has settled (max CAP) + WAIT, ONE fresh read (musicDip.fresh, max 0.5 s): it was
+   playing, now it is paused, the clock sent no pause and no clock sound came since the tap, no music control was used
+   since the tap (⏮ ⏯ ⏭, the clock's ⏸ / ▶ with "pause the music with the clock") → ONE plain "play". Once per page load.
+   The Status block's "First tap:" line says what happened, so the next tap on the iPad names the cause. */
+const firstTap = {
+  AGE: 6000, CAP: 4000, WAIT: 1500,
+  at: 0, before: null, after: null, sent: null, mode: null, unlocks: 0, settledAt: 0, playAt: 0, done: false,
+  arm(){ if (this.at) return; const sp = spotify; this.at = Date.now();
+    this.mode = navigator.audioSession ? navigator.audioSession.type : 'n/a';
+    this.before = sp.connected() && sp.pollOk && sp.polledAt && this.at - sp.polledAt < this.AGE ? (sp.rawPlaying ? 'playing' : 'paused') : 'unknown';
+    setTimeout(() => this.watch(), 0); },                                  /* after this tap's unlock listeners have run */
+  async watch(){ const ps = [];
+    if (sound._unl && sound._p) ps.push(sound._p);
+    emojiSfx.all().forEach(a => { if (a._try && a._p) ps.push(a._p); });
+    this.unlocks = ps.length;
+    await Promise.race([Promise.all(ps.map(q => Promise.resolve(q).catch(() => {}))), dipWait(this.CAP)]);
+    this.settledAt = Date.now(); await dipWait(this.WAIT);
+    try { await this.decide(); } catch (e) { this.sent = this.sent || 'no (error)'; }
+    this.done = true; },
+  /* why NOT to send the play (null = send it) */
+  blocker(){ const sp = spotify, t = this.at, md = musicDip;
+    if (!sp.connected()) return 'Spotify not connected';
+    if (sp.premium === false) return 'Premium needed';
+    if (this.before !== 'playing') return this.before === 'paused' ? 'it was paused before' : 'not known before';
+    if (this.after === 'playing') return 'still playing';
+    if (this.after !== 'paused') return 'no answer';
+    if ((sp.cmdAt || 0) >= t) return 'a music control was used';
+    /* the clock itself paused (or turned down) the music for a sound since the tap: its own close() brought it back.
+       (A sound window that sent nothing because Spotify already read paused does not count: that was not the clock.) */
+    if (md.pauseSentAt >= t || (md.lastResume && md.lastResume.at >= t)) return 'the clock paused it for a sound';
+    if (md.busy()) return 'a clock sound is on its way';
+    return null; },
+  async decide(){ const sp = spotify;
+    this.after = sp.connected() ? await musicDip.fresh(Date.now()) : 'unknown';
+    const why = this.blocker(); if (why){ this.sent = 'no (' + why + ')'; return; }
+    this.playAt = Date.now();
+    const r = await musicDip.call(sp.api('PUT', '/me/player/play').catch(() => ({ status: 0 })));
+    this.sent = 'yes (' + r.status + ')';
+    if (r.status === 403 && spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); }
+    if (r.status >= 200 && r.status < 300 && sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); }
+    setTimeout(() => sp.poll(), 800); },
+  line(){ if (!this.at) return 'First tap: none yet';
+    return 'First tap: ' + new Date(this.at).toTimeString().slice(0, 8) + ', music before: ' + this.before + ', after the unlock: ' + (this.after || '…')
+      + ', play sent: ' + (this.sent || '…') + ', audio mode at the tap: ' + this.mode; }
+};
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => firstTap.arm(), { capture: true, passive: true }));   /* capture: before the unlocks */
 const EMOJIS = ['😂', '🔥', '🤡', '💀', '🤯', '📖', '👏', '😭', '💰', '💵', '❓', '💣'];
 function loadScript(src){ return new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')){ ok(); return; }
   const s = document.createElement('script'); s.src = src; s.async = true; s.dataset.phones = ''; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }
@@ -3240,6 +3301,7 @@ const phones = {
       + (b.pollAge != null ? ' (poll ' + b.pollAge + ' s old)' : '') + (rs ? ', pause to play ' + (rs.pauseToPlay != null ? rs.pauseToPlay.toFixed(1) + ' s' : '–') + ', play reply ' + (rs.reply == null ? '…' : rs.reply) : ''));
     const ls = emojiSfx.log.slice(-5).reverse().map(x => x.e + ' ' + (x.ok ? 'ok' : x.err));
     L.push('Last sounds: ' + (ls.join(', ') || 'none yet'));
+    L.push(firstTap.line());   /* PREVIEW (23 Nov): what the first tap did to the music */
     this.el('phDiag').textContent = L.join('\n'); },
   async renderPanel(){
     this.el('phRoom').textContent = this.room.toUpperCase(); this.el('phUrl').textContent = this.joinUrl();

@@ -869,6 +869,27 @@ const PREVIEW_TESTS = [
     }
     console.log('    [bar] ' + JSON.stringify(out));
     return (out.every(x => x.inside && x.oneRow && !x.clipped.length && !x.overlaps.length && x.hu && x.n === 11 && x.tapN === 7 && !x.tapBad.length)) || out; }],
+  ['PREVIEW: Heads up with Spotify — the level runs out under the page: music paused, beep, music back (as on the level page); the Now playing card covers none of Clock / Winner / live level / arrows at 1366x1024 and 1180x820; split music view stays off while the page is open (back on after Clock)', async ({ p, spotifyCalls }) => {
+    await wait(1200); await p.click('#startBtn'); await wait(SETTLE); await HU.open(p); spotifyCalls.length = 0; await expireNow(p); await wait(3000);
+    const calls = spotifyCalls.filter(c => /pause|play$/.test(c)), roll = await state(p), top = await HU.top(p);
+    await p.evaluate(() => { musicState.view = 'side'; musicState.open = true; spotify.render(); }); await wait(300);
+    const out = [];
+    for (const [w, h] of [[1366, 1024], [1180, 820]]){
+      await p.setViewportSize({ width: w, height: h }); await wait(400);
+      out.push(await p.evaluate(s => { const card = document.getElementById('nowPlaying');
+        const tap = [document.getElementById('huBack'), document.getElementById('huWinnerBtn'), document.getElementById('huLive'), ...document.querySelectorAll('#huSlide .hu-arrow')].map(el => { const q = el.getBoundingClientRect();
+          const e = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2); return { id: el.id || el.className, ok: !!e && (e === el || el.contains(e)) }; });
+        return { s, card: !card.classList.contains('none') && card.getBoundingClientRect().width > 0, side: document.body.classList.contains('np-side-on'), bad: tap.filter(x => !x.ok).map(x => x.id) }; }, w + 'x' + h));
+    }
+    await p.click('#huBack', { timeout: 2000 }); await wait(400); const sideAfter = await p.evaluate(() => document.body.classList.contains('np-side-on'));
+    return (calls[0] === 'PUT /me/player/pause' && calls[1] === 'PUT /me/player/play' && calls.length === 2 && roll.type === 'transition' && roll.alerts === 1 && top
+      && out.every(x => x.card && !x.side && !x.bad.length) && sideAfter) || { calls, roll, top, out, sideAfter }; }, { spotify: true }],
+  ['PREVIEW: Heads up — at 768x1024 the moved PREVIEW tag covers nothing on a level page (chip strip, Table button, bar)', async ({ p }) => {
+    await p.setViewportSize({ width: 768, height: 1024 }); await p.click('#startBtn'); await wait(900);
+    const r = await p.evaluate(() => { const t = document.getElementById('previewTag').getBoundingClientRect(), hit = q => !(q.right <= t.left || q.left >= t.right || q.bottom <= t.top || q.top >= t.bottom);
+      const els = [...document.querySelectorAll('.slide.active [data-strip], .slide.active [data-strip] *, #fontScaleCtrl, #fontScaleCtrl *, .slide.active button')].filter(e => { const q = e.getBoundingClientRect(); return q.width && q.height; });
+      return { tag: [t.left, t.top, t.right, t.bottom].map(Math.round), hits: els.filter(e => hit(e.getBoundingClientRect())).map(e => e.id || e.className) }; });
+    return (r.hits.length === 0 && r.tag[1] >= 0) || r; }],
 ];
 
 (async () => {

@@ -748,6 +748,17 @@ body.hu-open .hu-live{ display:flex; }
 .wt-label{ position:relative; z-index:1; font-weight:700; font-size:clamp(.66rem,min(1.45vw,2.1vh),.95rem); letter-spacing:.06em; text-transform:uppercase; background:rgba(8,8,10,.62); padding:.1em .55em; border-radius:6px; white-space:nowrap; max-width:96%; overflow:hidden; text-overflow:ellipsis; }
 .wt-note{ position:relative; z-index:1; font-size:clamp(.6rem,1.2vw,.8rem); color:var(--amber); background:rgba(8,8,10,.72); padding:0 .5em; border-radius:6px; }
 .wt-note:empty{ display:none; }
+.win-foot{ display:flex; align-items:center; justify-content:center; gap:clamp(.6rem,1.8vw,1.4rem); flex-wrap:nowrap; position:relative; z-index:3; max-width:100%; }   /* PREVIEW: the line + the Share button */
+.win-share{ display:inline-flex; align-items:center; gap:.45em; flex:none; font-family:var(--font-display); font-weight:700; font-size:clamp(.85rem,min(1.7vw,2.4vh),1.15rem); letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink); background:var(--gold); border:3px solid var(--gold-deep); border-radius:999px; padding:.3em 1.05em .3em .85em; min-height:44px; cursor:pointer; box-shadow:var(--bevel), 0 6px 16px rgba(0,0,0,.35); white-space:nowrap; }
+.win-share:hover{ background:var(--gold-light); } .win-share:active{ transform:scale(.96); }
+.win-share svg{ width:1.15em; height:1.15em; flex:none; }
+.ws-ov{ position:fixed; inset:0; z-index:2147483600; display:none; flex-direction:column; align-items:center; justify-content:center; gap:.8rem; padding:calc(1rem + env(safe-area-inset-top,0px)) 1rem calc(1rem + env(safe-area-inset-bottom,0px)); background:rgba(4,10,7,.94); }
+.ws-ov.open{ display:flex; }
+.ws-ov img{ max-width:100%; max-height:calc(100% - 7.5rem); object-fit:contain; border-radius:10px; box-shadow:0 18px 50px rgba(0,0,0,.6); -webkit-touch-callout:default; -webkit-user-select:auto; user-select:auto; }
+.ws-ov img:not([src]){ display:none; }
+.ws-line{ font-family:var(--font-display); font-weight:600; font-size:clamp(1rem,2vw,1.3rem); letter-spacing:.04em; color:var(--cream); text-align:center; }
+.ws-close{ font-family:var(--font-display); font-weight:700; font-size:1rem; letter-spacing:.1em; text-transform:uppercase; color:var(--ink); background:var(--gold); border:2px solid var(--gold-deep); border-radius:999px; padding:.45em 1.4em; min-height:44px; cursor:pointer; }
 .win-avatar{ cursor:pointer; }
 .hu-pot{ position:absolute; top:50%; left:50%; transform:translate(-50%,-86%); z-index:3; display:flex; flex-direction:column; align-items:center; gap:.05em; }
 .hu-pot-label{ font-size:var(--label-size); letter-spacing:.3em; text-transform:uppercase; color:rgba(246,239,217,.9); text-shadow:0 1px 4px rgba(0,0,0,.7); }
@@ -1069,7 +1080,10 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
         <button type="button" class="win-tile" data-win-tile="winner" aria-label="Winner photo"><span class="wt-label">Winner photo</span><span class="wt-note"></span></button>
       </div>
       <input type="file" id="winTileFile" accept="image/*" style="display:none">
-      <span class="win-sub reveal d4">Tonight's champion · <span class="suits"><span class="k">♠</span><span class="r">♥</span><span class="r">♦</span><span class="k">♣</span></span></span>
+      <div class="win-foot reveal d4">
+        <span class="win-sub">Tonight's champion · <span class="suits"><span class="k">♠</span><span class="r">♥</span><span class="r">♦</span><span class="k">♣</span></span></span>
+        <button type="button" class="win-share" id="winShareBtn" aria-label="Share picture"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3"/><path d="M7.5 7.5 12 3l4.5 4.5"/><path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2"/></svg>Share picture</button>
+      </div>
     </div>
   </section>
 
@@ -1573,6 +1587,7 @@ function renderHeadsUp(){
 function renderWinner(){
   const ph = document.querySelector('[data-win-photo]'); if (ph) setAvatarEl(ph, bank.photos[winPick]);
   const nm = document.querySelector('[data-win-name]'); if (nm) nm.textContent = bank.names[winPick] || 'Champion';
+  if (winShare) winShare.schedule();   /* PREVIEW: the Share picture follows (built only while the Winner page shows) */
 }
 function cycleHu(slot, dir){
   const other = huPick[slot === 0 ? 1 : 0];
@@ -1666,34 +1681,234 @@ function resizeFit(file, maxSide, quality, cb){
 }
 const winnerPhotos = {
   KEY: 'poker_winner_photos_v1', SLOTS: ['hand1', 'hand2', 'winner'],
-  data: { hand1: null, hand2: null, winner: null }, notes: {},
+  data: { hand1: null, hand2: null, winner: null }, notes: {}, mem: {},   /* mem[slot] = that photo is kept for this session only (not in the saved copy) */
+  /* PREVIEW headroom: the Winner photos never take the last room the main game save needs. Measured in WebKit and Chrome:
+     5,242,308 characters fit (keys + values). A photo is written only if every key (this one's old value left out: it is
+     replaced) plus the new value still leaves ROOM (1M characters) free; else it is made smaller, else kept in memory only. */
+  LIMIT: 5200000, ROOM: 1000000,
   get(){ return { hand1: this.data.hand1, hand2: this.data.hand2, winner: this.data.winner }; },
+  persisted(){ const o = {}; this.SLOTS.forEach(k => { o[k] = this.mem[k] ? null : this.data[k]; }); return o; },
+  fits(slot, d){
+    let used = 0;
+    try { for (let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); if (k === this.KEY) continue; used += k.length + (localStorage.getItem(k) || '').length; } } catch (e) { return true; }   /* cannot measure: the write itself decides */
+    const o = this.persisted(); o[slot] = d;
+    return used + this.KEY.length + JSON.stringify(o).length <= this.LIMIT - this.ROOM;
+  },
   load(){ try { const o = JSON.parse(localStorage.getItem(this.KEY) || 'null'); if (o && typeof o === 'object') this.SLOTS.forEach(k => { if (typeof o[k] === 'string' && o[k].startsWith('data:image/')) this.data[k] = o[k]; }); } catch (e) {} },
   /* true = written; false = refused (full) — the main saved game is never touched either way */
-  save(){ try { localStorage.setItem(this.KEY, JSON.stringify(this.data)); this.notes = {}; return true; } catch (e) { return false; } },
-  clear(){ this.data = { hand1: null, hand2: null, winner: null }; this.notes = {}; try { localStorage.removeItem(this.KEY); } catch (e) {} this.render(); },
+  save(){ try { localStorage.setItem(this.KEY, JSON.stringify(this.persisted())); this.SLOTS.forEach(k => { if (!this.mem[k]) delete this.notes[k]; }); return true; } catch (e) { return false; } },
+  clear(){ this.data = { hand1: null, hand2: null, winner: null }; this.notes = {}; this.mem = {}; try { localStorage.removeItem(this.KEY); } catch (e) {} this.render(); },
+  /* 1280 px / 0.8 → 960 / 0.7 → 720 / 0.65: the first size that leaves the headroom is written; a refused write (quota)
+     gets ONE more try, smaller; no fit / refused twice → this session only, "Not saved: storage full" on the tile */
   pick(slot, file){
-    resizeFit(file, 1280, 0.8, (d1) => {
-      if (!d1) return;
-      this.data[slot] = d1; delete this.notes[slot]; this.render();
-      if (this.save()) return;
-      resizeFit(file, 960, 0.7, (d2) => {                                  /* storage full: one more try, smaller */
-        if (d2) this.data[slot] = d2;
-        if (!this.save()) this.notes[slot] = 'Not saved: storage full';    /* kept for this session only */
-        this.render();
-      });
+    const STEPS = [[1280, 0.8], [960, 0.7], [720, 0.65]];
+    let writes = 0;
+    const step = (k) => resizeFit(file, STEPS[k][0], STEPS[k][1], (d) => {
+      if (!d) return;
+      this.data[slot] = d; this.mem[slot] = true; delete this.notes[slot];
+      if (!k) this.render();                                               /* shows on the tile at once */
+      const last = k === STEPS.length - 1;
+      if (this.fits(slot, d)){
+        this.mem[slot] = false;
+        if (this.save()){ this.render(); return; }
+        this.mem[slot] = true; writes++;
+        if (writes < 2 && !last) return step(k + 1);
+      } else if (!last) return step(k + 1);
+      this.notes[slot] = 'Not saved: storage full';                       /* kept for this session only */
+      if (!writes) this.save();                                            /* no room: the slot's older saved photo goes (smaller write) */
+      this.render();
     });
+    step(0);
   },
   render(){
     document.querySelectorAll('[data-win-tile]').forEach(t => { const k = t.dataset.winTile, d = this.data[k];
       t.style.backgroundImage = d ? 'url("' + d + '")' : ''; t.classList.toggle('has-photo', !!d);
       const n = t.querySelector('.wt-note'); if (n) n.textContent = this.notes[k] || ''; });
+    if (winShare) winShare.schedule();
   },
   init(){
     const inp = document.getElementById('winTileFile'); let slot = null;
     document.querySelectorAll('[data-win-tile]').forEach(t => t.addEventListener('click', () => { slot = t.dataset.winTile; inp.value = ''; inp.click(); }));
     inp.addEventListener('change', () => { const f = inp.files && inp.files[0]; if (f && slot) this.pick(slot, f); });
     this.load(); this.render();
+  }
+};
+
+/* PREVIEW: Share picture — ONE picture of the result, drawn by hand on a canvas (no library, no network): title + suits,
+   the Winner photo (or the player's avatar, or their initial on a gold circle), the name, Hand 1 / Hand 2 when there,
+   the date. iPad Safari opens the share sheet only if navigator.share() is called straight inside the tap, so the
+   picture is built BEFORE the tap (whenever the Winner page shows or changes) and the tap only shares it. If it is not
+   ready at the tap it is built there, synchronously, from the images already decoded. No share sheet → the picture full
+   screen with "Press and hold the picture to save or share it". (var: renderWinner may run before this line.) */
+var winShare = {
+  W: 1600, MAXB: 2 * 1024 * 1024,
+  imgs: new Map(),                /* data URL → Image (decoded once, kept while in use) */
+  ready: null,                    /* { inp, file, url, layout, q } — the picture for the inputs it was drawn from */
+  t: 0, sharingAt: 0, stale: [],
+  onWinner(){ const sl = presentation.slides[presentation.current]; return !!(sl && sl.classList.contains('winner')); },
+  dateText(){ return new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); },
+  inputs(){ const wp = winnerPhotos.get(); return { name: bank.names[winPick] || 'Champion', initial: initialOf(bank.names[winPick] || 'Champion'), winner: wp.winner || null,
+    avatar: wp.winner ? null : (bank.photos[winPick] || null), hand1: wp.hand1 || null, hand2: wp.hand2 || null, date: this.dateText() }; },
+  same(a, b){ return !!a && !!b && ['name', 'winner', 'avatar', 'hand1', 'hand2', 'date'].every(k => a[k] === b[k]); },
+  img(src){ if (!src) return null; let i = this.imgs.get(src); if (!i){ i = new Image(); i.src = src; this.imgs.set(src, i); } return i; },
+  usable(src){ const i = src && this.img(src); return !!i && i.complete && i.naturalWidth > 0; },
+  /* any Winner-page change: rebuild in the background (only while the Winner page shows; 120 ms debounce) */
+  schedule(){ clearTimeout(this.t); if (!this.onWinner()) return; this.t = setTimeout(() => this.prepare(), 120); },
+  async prepare(){
+    if (!this.onWinner()) return;
+    const inp = this.inputs(); if (this.ready && this.same(this.ready.inp, inp)) return;
+    const srcs = [inp.winner, inp.avatar, inp.hand1, inp.hand2].filter(Boolean);
+    [...this.imgs.keys()].forEach(k => { if (!srcs.includes(k)) this.imgs.delete(k); });
+    const fonts = document.fonts && document.fonts.load ? Promise.all(['700 80px Oswald', '600 40px Oswald', '900 150px "Playfair Display"'].map(f => document.fonts.load(f))).catch(() => {}) : null;
+    const dec = srcs.map(s => { const i = this.img(s); return i.decode ? i.decode().catch(() => {}) : new Promise(r => { if (i.complete) r(); else { i.onload = i.onerror = r; } }); });
+    await Promise.race([Promise.all([fonts].concat(dec)), new Promise(r => setTimeout(r, 4000))]);
+    if (!this.same(inp, this.inputs())){ this.schedule(); return; }        /* changed meanwhile */
+    this.build(inp);
+  },
+  rr(x, X, Y, W, H, r){ x.beginPath(); x.moveTo(X + r, Y); x.arcTo(X + W, Y, X + W, Y + H, r); x.arcTo(X + W, Y + H, X, Y + H, r); x.arcTo(X, Y + H, X, Y, r); x.arcTo(X, Y, X + W, Y, r); x.closePath(); },
+  cover(x, im, X, Y, W, H){   /* cover-crop: fill the box, never stretched */
+    const iw = im.naturalWidth, ih = im.naturalHeight, k = Math.max(W / iw, H / ih), sw = W / k, sh = H / k;
+    x.drawImage(im, (iw - sw) / 2, (ih - sh) / 2, sw, sh, X, Y, W, H);
+  },
+  font(x, f){ x.font = f; },
+  spacing(x, px){ if ('letterSpacing' in x) x.letterSpacing = px + 'px'; },
+  crown(x, cx, base, w){   /* a gold crown drawn by hand (no emoji: canvas emoji differs per device) */
+    const h = w * .62, l = cx - w / 2;
+    x.save(); x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowBlur = 18; x.shadowOffsetY = 8;
+    const g = x.createLinearGradient(0, base - h, 0, base); g.addColorStop(0, '#f7d98a'); g.addColorStop(1, '#c8922f');
+    x.fillStyle = g; x.beginPath(); x.moveTo(l, base); x.lineTo(l - w * .02, base - h * .78); x.lineTo(l + w * .25, base - h * .42); x.lineTo(cx, base - h); x.lineTo(l + w * .75, base - h * .42); x.lineTo(l + w * 1.02, base - h * .78); x.lineTo(l + w, base); x.closePath(); x.fill();
+    x.shadowColor = 'transparent'; x.lineWidth = 4; x.strokeStyle = '#8a5f1c'; x.stroke();
+    x.fillStyle = '#b07f2b'; x.fillRect(l, base - h * .16, w, h * .16);
+    [[l - w * .02, base - h * .78], [cx, base - h], [l + w * 1.02, base - h * .78]].forEach(([a, b]) => { x.beginPath(); x.arc(a, b, w * .055, 0, 7); x.fillStyle = '#f6efd9'; x.fill(); });
+    [[l + w * .25, .5], [cx, .5], [l + w * .75, .5]].forEach(([a], i) => { x.beginPath(); x.arc(a, base - h * .08, w * .045, 0, 7); x.fillStyle = i === 1 ? '#d12f2a' : '#2a5fb0'; x.fill(); });
+    x.restore();
+  },
+  /* the layout for these inputs (only photos already decoded count): no empty boxes for missing photos */
+  layout(inp){
+    const W = this.W, IW = W - 240, L = { W, boxes: { hero: null, hand1: null, hand2: null } };
+    let y = 330;                                                            /* suits row + title above */
+    const wi = inp.winner && this.usable(inp.winner) ? this.img(inp.winner) : null;
+    if (wi){
+      const ar = wi.naturalHeight / wi.naturalWidth, w = ar >= 1.05 ? 1080 : ar <= .95 ? IW : 1200, h = ar >= 1.05 ? 1350 : ar <= .95 ? 1020 : 1200;
+      y += 120; L.boxes.hero = { kind: 'photo', x: (W - w) / 2, y, w, h, src: inp.winner }; y += h;
+    } else {
+      const d = 620, av = inp.avatar && this.usable(inp.avatar);
+      y += 130; L.boxes.hero = { kind: av ? 'avatar' : 'initial', x: (W - d) / 2, y, w: d, h: d, src: av ? inp.avatar : null }; y += d;
+    }
+    L.nameY = y + 40; y += 40 + 200;
+    const hands = [['hand1', 'Hand 1'], ['hand2', 'Hand 2']].filter(([k]) => inp[k] && this.usable(inp[k]));
+    if (hands.length){
+      const two = hands.length === 2, w = two ? (IW - 40) / 2 : 1040, h = Math.round(w * .75);
+      y += 40 + 64;                                                         /* gap + the label line */
+      hands.forEach(([k, label], i) => { L.boxes[k] = { kind: 'photo', label, x: two ? 120 + i * (w + 40) : (W - w) / 2, y, w, h, src: inp[k] }; });
+      y += h;
+    }
+    L.dateY = y + 110; L.H = y + 250;
+    return L;
+  },
+  draw(inp){
+    const L = this.layout(inp), W = L.W, H = L.H, c = document.createElement('canvas'); c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    /* felt like the Winner page, a few confetti bits, a gold frame */
+    const bg = x.createRadialGradient(W / 2, H * .35, 40, W / 2, H * .35, Math.max(W, H) * .78);
+    bg.addColorStop(0, '#1a7f4e'); bg.addColorStop(.55, '#0a5c31'); bg.addColorStop(1, '#043b20'); x.fillStyle = bg; x.fillRect(0, 0, W, H);
+    const conf = ['#e8b84b', '#d12f2a', '#37b85b', '#f7d98a', '#2a5fb0'];
+    for (let i = 0; i < 34; i++){ const side = i % 2, px = side ? W - 70 - (i * 53 % 90) : 70 + (i * 41 % 90), py = 80 + (i * 211 % (H - 160));
+      x.save(); x.translate(px, py); x.rotate(i * .7); x.globalAlpha = .55; x.fillStyle = conf[i % 5]; x.fillRect(-9, -12, 18, 24); x.restore(); }
+    x.lineWidth = 10; x.strokeStyle = '#e8b84b'; this.rr(x, 34, 34, W - 68, H - 68, 36); x.stroke();
+    x.lineWidth = 3; x.strokeStyle = '#b07f2b'; this.rr(x, 54, 54, W - 108, H - 108, 26); x.stroke();
+    x.textAlign = 'center'; x.textBaseline = 'alphabetic';
+    /* suits on little cream cards */
+    [['♠', '#1c1a14'], ['♥', '#d12f2a'], ['♦', '#d12f2a'], ['♣', '#1c1a14']].forEach(([s, col], i) => {
+      const cw = 84, ch = 108, cx = W / 2 + (i - 1.5) * 112;
+      x.save(); x.shadowColor = 'rgba(0,0,0,.35)'; x.shadowBlur = 10; x.shadowOffsetY = 5; x.fillStyle = '#f6efd9'; this.rr(x, cx - cw / 2, 100, cw, ch, 12); x.fill(); x.restore();
+      x.fillStyle = col; this.font(x, '64px "Apple Symbols", "Segoe UI Symbol", Georgia, serif'); x.fillText(s, cx, 100 + ch / 2 + 23);
+    });
+    /* title */
+    x.save(); this.font(x, '700 84px Oswald, "Arial Narrow", system-ui, sans-serif'); this.spacing(x, 10); x.fillStyle = '#f7d98a';
+    x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowOffsetY = 5; x.fillText("TONIGHT'S CHAMPION", W / 2, 296); x.restore();
+    /* hero: Winner photo / avatar / initial, crown on top */
+    const hb = L.boxes.hero;
+    x.save(); x.shadowColor = 'rgba(0,0,0,.55)'; x.shadowBlur = 40; x.shadowOffsetY = 16; x.fillStyle = '#0b2617';
+    if (hb.kind === 'photo'){ this.rr(x, hb.x, hb.y, hb.w, hb.h, 30); x.fill(); x.restore();
+      x.save(); this.rr(x, hb.x, hb.y, hb.w, hb.h, 30); x.clip(); this.cover(x, this.img(hb.src), hb.x, hb.y, hb.w, hb.h); x.restore();
+      x.lineWidth = 12; x.strokeStyle = '#e8b84b'; this.rr(x, hb.x, hb.y, hb.w, hb.h, 30); x.stroke();
+      this.crown(x, W / 2, hb.y + 18, 190);
+    } else {
+      const r = hb.w / 2, cx = hb.x + r, cy = hb.y + r;
+      x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.fill(); x.restore();
+      x.save(); x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.clip();
+      if (hb.kind === 'avatar') this.cover(x, this.img(hb.src), hb.x, hb.y, hb.w, hb.h);
+      else { const g = x.createRadialGradient(cx - r * .3, cy - r * .35, r * .1, cx, cy, r); g.addColorStop(0, '#f7d98a'); g.addColorStop(1, '#c8922f'); x.fillStyle = g; x.fillRect(hb.x, hb.y, hb.w, hb.h);
+        x.fillStyle = '#14110a'; this.font(x, '900 330px "Playfair Display", Georgia, serif'); x.textBaseline = 'middle'; x.fillText(inp.initial || '?', cx, cy + 12); x.textBaseline = 'alphabetic'; }
+      x.restore();
+      x.lineWidth = 16; x.strokeStyle = '#e8b84b'; x.beginPath(); x.arc(cx, cy, r, 0, Math.PI * 2); x.stroke();
+      x.lineWidth = 5; x.strokeStyle = '#b07f2b'; x.beginPath(); x.arc(cx, cy, r + 12, 0, Math.PI * 2); x.stroke();
+      this.crown(x, cx, hb.y + 26, 210);
+    }
+    /* the name, shrunk to fit */
+    let fs = 170; this.font(x, '900 ' + fs + 'px "Playfair Display", Georgia, serif');
+    while (fs > 60 && x.measureText(inp.name).width > W - 260){ fs -= 6; this.font(x, '900 ' + fs + 'px "Playfair Display", Georgia, serif'); }
+    x.save(); x.fillStyle = '#ffffff'; x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowOffsetY = 7; x.shadowBlur = 6; x.fillText(inp.name, W / 2, L.nameY + 150); x.restore();
+    /* Hand 1 / Hand 2 */
+    ['hand1', 'hand2'].forEach(k => { const b = L.boxes[k]; if (!b) return;
+      x.save(); this.font(x, '600 46px Oswald, "Arial Narrow", system-ui, sans-serif'); this.spacing(x, 6); x.fillStyle = '#f7d98a'; x.fillText(b.label.toUpperCase(), b.x + b.w / 2, b.y - 22); x.restore();
+      x.save(); x.shadowColor = 'rgba(0,0,0,.5)'; x.shadowBlur = 28; x.shadowOffsetY = 12; x.fillStyle = '#0b2617'; this.rr(x, b.x, b.y, b.w, b.h, 22); x.fill(); x.restore();
+      x.save(); this.rr(x, b.x, b.y, b.w, b.h, 22); x.clip(); this.cover(x, this.img(b.src), b.x, b.y, b.w, b.h); x.restore();
+      x.lineWidth = 8; x.strokeStyle = '#e8b84b'; this.rr(x, b.x, b.y, b.w, b.h, 22); x.stroke(); });
+    /* the date */
+    x.save(); this.font(x, '500 54px Oswald, "Arial Narrow", system-ui, sans-serif'); this.spacing(x, 3); x.fillStyle = '#f6efd9'; x.fillText(inp.date, W / 2, L.dateY); x.restore();
+    x.strokeStyle = 'rgba(232,184,75,.7)'; x.lineWidth = 3; x.beginPath(); x.moveTo(W / 2 - 220, L.dateY + 44); x.lineTo(W / 2 + 220, L.dateY + 44); x.stroke();
+    return { c, L };
+  },
+  fileFrom(url, name){
+    const b = atob(url.slice(url.indexOf(',') + 1)), u = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    const safe = String(name || '').replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-').slice(0, 40) || 'champion';
+    return new File([u], 'poker-champion-' + safe + '.jpg', { type: 'image/jpeg', lastModified: Date.now() });
+  },
+  /* synchronous: draw + JPEG (0.85; lower while over 2 MB) + File; the background build and the tap both use it */
+  build(inp){
+    const used = Object.assign({}, inp); ['winner', 'avatar', 'hand1', 'hand2'].forEach(k => { if (used[k] && !this.usable(used[k])) used[k] = null; });
+    if (inp.winner && !used.winner) used.avatar = null;                   /* not decoded yet: the picture waits, no swap to the avatar */
+    const { c, L } = this.draw(used);
+    let q = .85, url = c.toDataURL('image/jpeg', q);
+    while (url.length * .75 > this.MAXB && q > .5){ q -= .1; url = c.toDataURL('image/jpeg', q); }
+    c.width = c.height = 1;                                                 /* free the canvas memory at once (iPad) */
+    const file = this.fileFrom(url, inp.name);
+    const old = this.ready; this.stale.push(old && old.url);
+    this.ready = { inp: used, file, url: URL.createObjectURL(file), layout: L.boxes, W: L.W, H: L.H, q };
+    const shown = document.querySelector('#winShareOv.open img'), keep = shown && shown.getAttribute('src');
+    this.stale = this.stale.filter(u => { if (u && u !== keep){ URL.revokeObjectURL(u); return false; } return !!u; });
+    if (!this.same(used, inp)) this.schedule();                            /* a photo was not ready: build again once it is */
+    return this.ready;
+  },
+  /* the tap: NO await before navigator.share() (iPad Safari opens the sheet only inside the tap) */
+  tap(){
+    if (Date.now() - this.sharingAt < 1500) return;                          /* a share sheet is opening */
+    const inp = this.inputs();
+    const r = this.ready && this.same(this.ready.inp, inp) ? this.ready : this.build(inp);
+    const data = { files: [r.file], title: "Tonight's champion: " + inp.name };
+    let can = false; try { can = !!(navigator.share && navigator.canShare && navigator.canShare(data)); } catch (e) {}
+    if (!can){ this.overlay(r); return; }
+    this.sharingAt = Date.now();
+    let pr; try { pr = navigator.share(data); } catch (e) { this.sharingAt = 0; this.overlay(r); return; }
+    Promise.resolve(pr).then(() => { this.sharingAt = 0; }, (e) => { this.sharingAt = 0; if (e && e.name === 'AbortError') return; this.overlay(r); });   /* cancelled = nothing */
+  },
+  overlay(r){
+    let o = document.getElementById('winShareOv');
+    if (!o){ o = document.createElement('div'); o.id = 'winShareOv'; o.className = 'ws-ov'; o.setAttribute('role', 'dialog'); o.setAttribute('aria-label', 'Winner picture');
+      o.innerHTML = '<img alt="Winner picture"><div class="ws-line">Press and hold the picture to save or share it</div><button type="button" class="ws-close">Close</button>';
+      o.querySelector('.ws-close').addEventListener('click', () => this.close());
+      o.addEventListener('click', (e) => { if (e.target === o) this.close(); });
+      document.body.appendChild(o); }
+    o.querySelector('img').src = r.url; o.classList.add('open');
+  },
+  isOpen(){ const o = document.getElementById('winShareOv'); return !!o && o.classList.contains('open'); },
+  close(){ const o = document.getElementById('winShareOv'); if (o) o.classList.remove('open'); },
+  init(){
+    document.getElementById('winShareBtn').addEventListener('click', () => this.tap());
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.isOpen()){ this.close(); e.stopImmediatePropagation(); } });
   }
 };
 
@@ -2861,6 +3076,7 @@ const headsUp = {
     this.close();
     clock.stopTick(); clock.activeSlide = null; clock.el = null;
     if (typeof phones !== 'undefined') phones.push(true);
+    winShare.schedule();                                         /* PREVIEW: the Share picture is ready before the tap */
   },
   sync(){ const b = this.el('headsUpBtn'); if (b) b.setAttribute('aria-pressed', String(this.isOpen() || this.onSlide())); },
   /* the running level on the page — same reading as the table view */
@@ -3166,6 +3382,7 @@ function exportDeck() {
   const bd = docCopy.querySelector('body'); if (bd){ bd.classList.remove('np-glow-on', 'np-side-on', 'np-side-live', 'hu-open'); bd.style.removeProperty('--strip-h'); bd.style.removeProperty('--strip-bottom'); }
   const nps = docCopy.querySelector('#npSide'); if (nps) nps.classList.remove('show');
   { const hb = docCopy.querySelector('#headsUpBtn'); if (hb) hb.setAttribute('aria-pressed', 'false'); }
+  { const wo = docCopy.querySelector('#winShareOv'); if (wo) wo.remove(); }   /* PREVIEW: the Share picture overlay (a blob link) is not baked in */
   docCopy.querySelectorAll('.win-tile').forEach(t => { t.style.backgroundImage = ''; t.classList.remove('has-photo'); const n = t.querySelector('.wt-note'); if (n) n.textContent = ''; });   /* PREVIEW: the Winner photos are not baked into a saved copy */
   docCopy.querySelectorAll('script[data-music-api], script[src*="open.spotify.com"], script[data-phones]').forEach(s => s.remove());
   ['#emojiLayer', '#toastLayer', '#phQr', '#phList'].forEach(sel => { const x = docCopy.querySelector(sel); if (x) x.innerHTML = ''; });
@@ -3225,6 +3442,7 @@ phones.init();                             /* 📱 players follow the game on th
 wake.init();                               /* keep the iPad screen on */
 tableView.init();                          /* TABLE button / T: the table mid-game */
 winnerPhotos.init();                        /* PREVIEW: the three Winner-page photo tiles */
+winShare.init();                            /* PREVIEW: Share picture on the Winner page */
 headsUp.init();                            /* PREVIEW: Heads up button in the bar: the page over the running level */
 spotify.init();                            /* Spotify app "Now playing" (finishes a login if we just came back from Spotify) */
 syncCoverMins();

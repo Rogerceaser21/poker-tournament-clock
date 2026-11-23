@@ -481,6 +481,17 @@ const HU = {
   /* 4 players Ann 900 / Bob 800 / Cat 500 / Dan 400 */
   four: p => p.evaluate(() => { resizeBank(4); bank.names.splice(0, 4, 'Ann', 'Bob', 'Cat', 'Dan'); bank.chips.splice(0, 4, 900, 800, 500, 400); syncBankUI(); })
 };
+/* PREVIEW: Share picture helpers — a stub Web Share that records each call: sync = called inside a click with no task boundary
+   (a capture listener sets the flag, a setTimeout(0) clears it) */
+const SHARE = {
+  toWinner: async p => { await p.evaluate(() => { presentation.isAnimating = false; presentation.goTo(presentation.slides.findIndex(s => s.classList.contains('winner'))); }); await wait(900); },
+  stub: p => p.evaluate(() => { window.__shares = []; window.__inClick = false; window.__canShare = true; window.__shareResult = null;
+    window.addEventListener('click', () => { window.__inClick = true; setTimeout(() => { window.__inClick = false; }, 0); }, true);
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: d => window.__canShare && !!(d && d.files && d.files.length) });
+    Object.defineProperty(navigator, 'share', { configurable: true, value: d => { const f = d && d.files && d.files[0];
+      window.__shares.push({ sync: window.__inClick, n: d && d.files ? d.files.length : 0, type: f && f.type, size: f && f.size, isFile: f instanceof File, fname: f && f.name, title: d && d.title });
+      return window.__shareResult ? window.__shareResult() : Promise.resolve(); } }); }),
+};
 const PREVIEW_TESTS = [
   ['PREVIEW: twelve emojis in order (😂 🔥 🤡 💀 / 🤯 📖 👏 😭 / 💰 💵 ❓ 💣), each with its own sound file, SFX_MS of the new clips within 30 ms of ffprobe', async ({ p }) => {
     const r = await until(() => p.evaluate(() => { const out = {}; for (const [n, l] of Object.entries(emojiSfx.pool)){ const d = l[0].duration; if (!isFinite(d) || !(d > 0)) return null; out[n] = { real: Math.round(d * 1000), table: SFX_MS[n] }; }
@@ -997,6 +1008,117 @@ const PREVIEW_TESTS = [
     await p.click('#headsUpBtn', { timeout: 2000 }); await wait(500); await HU.open(p); const c = await HU.view(p);
     await p.click('#headsUpBtn', { timeout: 2000 }); await wait(500); await HU.phone(p, 'Cat', 0); await wait(250); await HU.open(p); const d = await HU.view(p);
     return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Cat' && c.names.join() === 'Ann,Cat' && c.chips.join() === '900,500' && d.names.join() === 'Ann,Bob' && d.chips.join() === '900,800') || { a, b, c, d }; }],
+  /* end-pages item 6 (Igor's choice B, no online store): Share picture on the Winner page */
+  ['PREVIEW: Share picture — a "Share picture" button on the Winner page: at 768x1024, 834x1112, 1024x768, 1180x820, 1366x1024 it is inside the screen above the bottom bar, overlaps nothing on the page, and a REAL mouse click at its centre hits it (elementFromPoint) and calls navigator.share once', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p); await SHARE.stub(p);
+    const label = await p.evaluate(() => { const b = document.getElementById('winShareBtn'); return b ? b.textContent.trim() : null; });
+    const out = [];
+    for (const [w, h] of [[768, 1024], [834, 1112], [1024, 768], [1180, 820], [1366, 1024]]){
+      await p.setViewportSize({ width: w, height: h }); await wait(600);
+      const m = await p.evaluate(([w, h]) => { const bar = document.getElementById('fontScaleCtrl').getBoundingClientRect(), b = document.getElementById('winShareBtn');
+        b.scrollIntoView({ block: 'nearest' }); const q = b.getBoundingClientRect(), R = e => e.getBoundingClientRect();
+        const others = { avatar: R(document.querySelector('.win-avatar')), pick: R(document.querySelector('.win-pick')), name: R(document.querySelector('[data-win-name]')), tiles: R(document.getElementById('winTiles')), sub: R(document.querySelector('.win-sub')) };
+        const hit = (a, c) => !(a.right <= c.left + 1 || a.left >= c.right - 1 || a.bottom <= c.top + 1 || a.top >= c.bottom - 1);
+        const x = q.left + q.width / 2, y = q.top + q.height / 2, el = document.elementFromPoint(x, y);
+        return { size: w + 'x' + h, btn: [q.left, q.top, q.right, q.bottom].map(Math.round).join(','), barTop: Math.round(bar.top), x, y, hit: !!el && (el === b || b.contains(el)),
+          inside: q.left >= 0 && q.right <= w && q.top >= 0 && q.bottom <= bar.top - 2 && q.height >= 40, over: Object.keys(others).filter(k => hit(q, others[k])) }; }, [w, h]);
+      const before = await p.evaluate(() => window.__shares.length);
+      await p.mouse.click(m.x, m.y); await wait(400);
+      m.shares = (await p.evaluate(() => window.__shares.length)) - before;
+      out.push(m);
+    }
+    console.log('    [share button] ' + JSON.stringify(out.map(o => ({ size: o.size, btn: o.btn, barTop: o.barTop }))));
+    return (label === 'Share picture' && out.every(o => o.inside && !o.over.length && o.hit && o.shares === 1)) || { label, out }; }],
+  ['PREVIEW: Share picture — the picture is built before the tap with 0, 1, 2 and 3 photos (and the avatar / initial when there is no Winner photo): a JPEG under 2 MB, about 1600 px wide, decoded size = its layout, each photo really drawn in its own spot (colour sampled), cover-cropped (a 2:1 photo shows no stretched edge), no box for a missing photo', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p);
+    await p.evaluate(() => { window.__solid = (w, h, col, edge) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = col; x.fillRect(0, 0, w, h);
+      if (edge){ x.fillStyle = edge; x.fillRect(0, 0, w * .15, h); x.fillRect(w * .85, 0, w * .15, h); } return c.toDataURL('image/jpeg', .9); }; });
+    const cases = [
+      ['0 photos, initial', () => { winPick = 0; bank.photos[0] = null; winnerPhotos.data = { hand1: null, hand2: null, winner: null }; }],
+      ['0 photos, avatar', () => { winPick = 1; bank.photos[1] = __solid(320, 320, '#ff8000'); winnerPhotos.data = { hand1: null, hand2: null, winner: null }; }],
+      ['1 photo (Winner)', () => { winPick = 1; winnerPhotos.data = { hand1: null, hand2: null, winner: __solid(2000, 1000, '#0000ff', '#ff0000') }; }],
+      ['2 photos (Winner + Hand 1)', () => { winnerPhotos.data.hand1 = __solid(1280, 960, '#ff00ff'); }],
+      ['3 photos', () => { winnerPhotos.data.hand2 = __solid(1280, 960, '#00ffff'); }],
+    ];
+    const out = [];
+    for (const [name, fn] of cases){
+      await p.evaluate(fn); await p.evaluate(() => { winnerPhotos.render(); renderWinner(); });
+      const ok = await until(() => p.evaluate(() => !!(winShare.ready && winShare.same(winShare.ready.inp, winShare.inputs()))), 8000);
+      const r = !ok ? { name, ready: false } : await p.evaluate(async () => { const R = winShare.ready, f = R.file, u = URL.createObjectURL(f);
+        const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = u; });
+        const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; const x = c.getContext('2d'); x.drawImage(im, 0, 0);
+        const px = (X, Y) => Array.from(x.getImageData(Math.round(X), Math.round(Y), 1, 1).data.slice(0, 3)), B = R.layout, mid = b => b && px(b.x + b.w / 2, b.y + b.h / 2);
+        URL.revokeObjectURL(u);
+        return { w: im.naturalWidth, h: im.naturalHeight, W: R.W, H: R.H, type: f.type, isFile: f instanceof File, kb: Math.round(f.size / 1024), hero: B.hero.kind, heroMid: mid(B.hero),
+          heroEdges: B.hero.kind === 'photo' ? [px(B.hero.x + 14, B.hero.y + B.hero.h / 2), px(B.hero.x + B.hero.w - 14, B.hero.y + B.hero.h / 2)] : null, h1: mid(B.hand1), h2: mid(B.hand2) }; });
+      r.name = name; out.push(r);
+    }
+    const near = (a, b) => !!a && a.every((v, i) => Math.abs(v - b[i]) <= 45), BLUE = [0, 0, 255], MAG = [255, 0, 255], CYAN = [0, 255, 255], ORANGE = [255, 128, 0];
+    const base = r => r.type === 'image/jpeg' && r.isFile && r.kb < 2048 && r.w === 1600 && r.W === 1600 && r.h === r.H;
+    const [c0, c0a, c1, c2, c3] = out;
+    console.log('    [share picture] ' + JSON.stringify(out.map(o => ({ name: o.name, size: o.w + 'x' + o.h, kb: o.kb, hero: o.hero }))));
+    return (out.every(base)
+      && c0.hero === 'initial' && !c0.h1 && !c0.h2
+      && c0a.hero === 'avatar' && near(c0a.heroMid, ORANGE) && !c0a.h1
+      && c1.hero === 'photo' && near(c1.heroMid, BLUE) && c1.heroEdges.every(e => near(e, BLUE)) && !c1.h1 && !c1.h2 && c1.h > c0.h
+      && c2.hero === 'photo' && near(c2.heroMid, BLUE) && near(c2.h1, MAG) && !c2.h2 && c2.h > c1.h
+      && c3.hero === 'photo' && near(c3.h1, MAG) && near(c3.h2, CYAN) && near(c3.heroMid, BLUE)) || out; }],
+  ['PREVIEW: Share picture — the tap calls navigator.share() synchronously inside the click (no task boundary; a share from a setTimeout in a click reads as NOT synchronous) with ONE image/jpeg File; a tap right after a change shares the NEW picture; AbortError (cancelled) does nothing; canShare false, a NotAllowedError or no navigator.share → the picture full screen with "Press and hold the picture to save or share it", and Close (real click) closes it', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p); await SHARE.stub(p);
+    await until(() => p.evaluate(() => !!(window.winShare && winShare.ready)), 8000);
+    const click = async () => { const t = await p.evaluate(() => { const b = document.getElementById('winShareBtn'); b.scrollIntoView({ block: 'nearest' }); const q = b.getBoundingClientRect(); return [q.left + q.width / 2, q.top + q.height / 2]; }); await p.mouse.click(t[0], t[1]); await wait(500); };
+    const ov = () => p.evaluate(() => { const o = document.getElementById('winShareOv'), i = o && o.querySelector('img'); return { open: !!o && o.classList.contains('open') && getComputedStyle(o).display !== 'none',
+      img: !!i && !!i.getAttribute('src') && i.complete && i.naturalWidth === (winShare.ready && winShare.ready.W), line: o ? o.innerText : '' }; });
+    await click(); const a = await p.evaluate(() => window.__shares.slice(-1)[0]); const aOv = await ov();
+    /* self-proof of the detector: a share called from a setTimeout inside a click is recorded as not synchronous */
+    await p.evaluate(() => { const t = document.createElement('button'); t.id = '__late'; t.textContent = 'late'; t.style.cssText = 'position:fixed;left:10px;top:40px;z-index:2147483647;width:80px;height:40px';
+      t.addEventListener('click', () => setTimeout(() => navigator.share({ files: [new File(['x'], 'a.jpg', { type: 'image/jpeg' })] }), 0)); document.body.appendChild(t); });
+    await p.mouse.click(50, 60); await wait(300); const late = await p.evaluate(() => { document.getElementById('__late').remove(); return window.__shares.slice(-1)[0]; });
+    /* a tap within the 120-ms debounce after a name change: the picture is built in the tap, with the new name */
+    await p.evaluate(() => { bank.names[winPick] = 'Zoe Quick'; syncBankUI(); }); await click(); const quick = await p.evaluate(() => window.__shares.slice(-1)[0]);
+    /* cancelled */
+    await p.evaluate(() => { window.__shareResult = () => Promise.reject(new DOMException('cancel', 'AbortError')); }); await click(); const ab = await ov();
+    /* canShare false */
+    await p.evaluate(() => { window.__shareResult = null; window.__canShare = false; }); const n0 = await p.evaluate(() => window.__shares.length); await click();
+    const cs = await ov(); const csCalls = (await p.evaluate(() => window.__shares.length)) - n0;
+    const closeAt = await p.evaluate(() => { const q = document.querySelector('#winShareOv .ws-close').getBoundingClientRect(), x = q.left + q.width / 2, y = q.top + q.height / 2, e = document.elementFromPoint(x, y); return { x, y, hit: !!e && !!e.closest('.ws-close') }; });
+    await p.mouse.click(closeAt.x, closeAt.y); await wait(300); const closed = await ov();
+    /* share refused (not a cancel) */
+    await p.evaluate(() => { window.__canShare = true; window.__shareResult = () => Promise.reject(new DOMException('no', 'NotAllowedError')); }); await click(); const na = await ov();
+    await p.keyboard.press('Escape'); await wait(200); const esc = await ov();
+    /* no Web Share at all */
+    await p.evaluate(() => { delete navigator.share; delete navigator.canShare; Object.defineProperty(navigator, 'share', { configurable: true, value: undefined }); Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined }); });
+    await click(); const none = await ov();
+    const line = 'Press and hold the picture to save or share it';
+    return (a && a.sync && a.n === 1 && a.isFile && /^image\//.test(a.type) && a.size > 10000 && !aOv.open && late && late.sync === false
+      && quick && quick.sync && /Zoe-Quick/.test(quick.fname) && !ab.open && cs.open && cs.img && cs.line.includes(line) && csCalls === 0 && closeAt.hit && !closed.open
+      && na.open && na.img && na.line.includes(line) && !esc.open && none.open && none.img) || { a, aOv, late, quick, ab, cs, csCalls, closeAt, closed, na, esc, none }; }],
+  ['PREVIEW: Share picture — storage headroom: with ~4.3M characters of other data saved, a new Winner photo is NOT written at 1280 px (smaller or this session only, with "Not saved: storage full"); a changed player name still saves and survives a reload; with less data a photo that does not fit at 1280 is written smaller', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p);
+    const buf = await bigJpeg(p, 4000, 3000);
+    const pick = async (slot) => { const [fc] = await Promise.all([p.waitForEvent('filechooser', { timeout: 15000 }), p.click('[data-win-tile="' + slot + '"]', { timeout: 15000 })]); await fc.setFiles({ name: 'big.jpg', mimeType: 'image/jpeg', buffer: buf }); };
+    const look = (slot) => p.evaluate(async (slot) => { const g = winnerPhotos.get()[slot], o = JSON.parse(localStorage.getItem('poker_winner_photos_v1') || 'null');
+      const dim = await new Promise(r => { if (!g) return r(null); const i = new Image(); i.onload = () => r(Math.max(i.naturalWidth, i.naturalHeight)); i.src = g; });
+      return { shown: document.querySelector('[data-win-tile="' + slot + '"]').classList.contains('has-photo'), dim, stored: !!(o && o[slot]), storedIsShown: !!(o && o[slot] && o[slot] === g), note: document.querySelector('[data-win-tile="' + slot + '"] .wt-note').textContent }; }, slot);
+    /* A: 4.3M characters of junk */
+    await p.evaluate(() => localStorage.setItem('junk', 'j'.repeat(4300000)));
+    await pick('winner'); await until(() => p.evaluate(() => !!winnerPhotos.get().winner), 20000); await wait(2500);
+    const A = await look('winner');
+    await p.evaluate(() => { bank.names[0] = 'Annabel'; syncBankUI(); saveState(); }); await wait(700);
+    await p.reload(); await wait(1400);
+    const A2 = await p.evaluate(() => ({ name: bank.names[0], saved: (JSON.parse(localStorage.getItem('poker_clock_state_v1') || '{}').names || [])[0], junk: (localStorage.getItem('junk') || '').length }));
+    /* B: room for a small photo only (1280 px does not fit, 720 px does) */
+    await p.evaluate(() => { localStorage.removeItem('junk'); localStorage.removeItem('poker_winner_photos_v1'); winnerPhotos.clear(); }); await SHARE.toWinner(p);
+    const sizes = await p.evaluate(async (b64) => { const f = new File([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], 'b.jpg', { type: 'image/jpeg' });
+      const one = (s, q) => new Promise(r => resizeFit(f, s, q, d => r(d.length))); return [await one(1280, .8), await one(720, .65)]; }, buf.toString('base64'));
+    await p.evaluate(([s1280, s720]) => { let used = 0; for (let i = 0; i < localStorage.length; i++){ const k = localStorage.key(i); used += k.length + localStorage.getItem(k).length; }
+      localStorage.setItem('junk', 'j'.repeat(Math.max(0, 4200000 - used - 120 - Math.round((s1280 + s720) / 2)))); }, sizes);
+    await pick('hand1'); await until(() => p.evaluate(() => !!winnerPhotos.get().hand1), 20000); await wait(2500);
+    const B = await look('hand1');
+    console.log('    [share headroom] ' + JSON.stringify({ A, A2, sizes, B }));
+    return (A.shown && A.dim !== 1280 && (A.storedIsShown && A.dim <= 960 || !A.stored && A.note === 'Not saved: storage full')
+      && A2.name === 'Annabel' && A2.saved === 'Annabel' && A2.junk === 4300000
+      && B.shown && B.storedIsShown && B.dim < 1280 && B.note === '') || { A, A2, sizes, B }; }],
 ];
 
 (async () => {

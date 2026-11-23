@@ -2364,15 +2364,10 @@ const musicDip = {
     a.addEventListener('playing', () => { const j = a._job; if (!j || j.done || !j.started || a.muted || j.playingAt) return;
       j.playingAt = Date.now(); clearTimeout(j.timer); j.timer = setTimeout(() => this.over(j, 'did not end'), j.len + this.END_SLACK); });
     a.addEventListener('ended', () => { const j = a._job; if (j && !j.done && j.started) this.over(j, 'ended'); });
-    a.addEventListener('error', () => { const j = a._job; if (j && !j.done && j.started) this.over(j, 'MediaError' + (a.error ? a.error.code : ''));
-      else if (!j && !a._try) this.reload(a); });   /* a player in error is reloaded (spaced and limited) */
-    ['canplay', 'playing'].forEach(k => a.addEventListener(k, () => { a._rlN = 0; }));   /* it works again: the reload count starts over */
+    /* a player in error with no sound on it is NOT reloaded now: its next play does load() + play() anyway (and a tap's
+       unlock reloads it first). Fix round 2: 48 players reloading at once froze the iPad Simulator page for 120 s */
+    a.addEventListener('error', () => { const j = a._job; if (j && !j.done && j.started) this.over(j, 'MediaError' + (a.error ? a.error.code : '')); });
   },
-  /* a reload of a player in error: at most one per player per second, at most 3 in a row (then again on its next play or
-     the next tap), so files that keep failing can never loop the page */
-  reload(a){ const now = Date.now(); if ((a._rlN || 0) >= 3) return;
-    if (now - (a._rlAt || 0) < 1000){ if (!a._rlT) a._rlT = setTimeout(() => { a._rlT = null; if (!a._job) this.reload(a); }, 1000 - (now - (a._rlAt || 0))); return; }
-    a._rlN = (a._rlN || 0) + 1; a._rlAt = now; try { a.load(); } catch (e) {} },
   /* a sound wants to play: j = { e, n, len, pick() → a free player or null, want() → still wanted?, front, onSkip } */
   request(j){ j.id = ++this.seq; j.at = Date.now();
     if (j.front) this.waiting.unshift(j); else this.waiting.push(j);
@@ -2461,7 +2456,6 @@ const musicDip = {
     if (j.info) { j.info.dip = this.kind === 'none' ? 'none' : this.kind; j.info.session = 'playback'; }   /* the session every clock sound plays with */
     clearTimeout(this.tailT);
     j.timer = setTimeout(() => this.over(j, 'did not start'), this.START_TO);
-    a._rlN = 0;                                                            /* its next play: reloads allowed again */
     try { let p; if (j.beep) p = sound.playTransition(); else { a.load(); a.muted = false; a.volume = 1; p = a.play(); }
       if (p && p.then) p.then(() => { a._ok = true; if (j.beep) sound.unlocked = true; emojiSfx.note(j, true); emojiSfx.hintOff('tap'); },
         x => { if (j.done) return; emojiSfx.note(j, false, (x && x.name) || 'Error'); this.over(j, 'refused'); });   /* (already over, e.g. 'did not start': its own pause() aborted it) */
@@ -2514,6 +2508,15 @@ const musicDip = {
     const steps = [['plain play', () => put('/me/player/play')], ['play with device_id', id ? () => put('/me/player/play?device_id=' + encodeURIComponent(id)) : null],
       ['transfer playback', id ? () => put('/me/player', { device_ids: [id], play: true }) : null]];
     let ok = false;
+    /* fix round 2: before the play, ONE state read (max FRESH 0.5 s): the track moved on from where the clock paused it =
+       somebody used Spotify during the pause (play, then pause, in the app): send nothing, leave it as it is.
+       No answer (or no position recorded) = as before: play */
+    if (sp.connected() && pausedPos != null){
+      const s = await Promise.race([sp.api('GET', '/me/player?additional_types=track,episode').catch(() => ({ status: 0 })), dipWait(this.FRESH).then(() => ({ status: 0, slow: true }))]);
+      if (s.status === 200 && s.data && typeof s.data.progress_ms === 'number' && s.data.progress_ms > pausedPos + 150){
+        R.steps.push('state: moved on, used in Spotify'); R.text = 'used in Spotify during the pause (left as it is, no play)'; R.plays = 0; this.offBy = 0; R.okAt = Date.now();
+        if (sp.now){ sp.now.playing = !!s.data.is_playing; sp.render(); } setTimeout(() => sp.poll(), 800); return true; }
+    }
     if (sp.connected()) for (let k = 0; k < steps.length && !ok; k++){
       const [how, fn] = steps[k]; if (!fn) continue;
       const r = await this.tries(fn); R.steps.push(how + ' ' + r.status); if (R.reply == null) R.reply = r.status;
@@ -2722,9 +2725,10 @@ const emojiSfx = {
   stop(){ musicDip.stopAll(j => !j.beep); },
   /* iPad: a player plays by itself later only if play() was called ON IT during a tap — so on every tap, each player not yet
      unlocked plays silently once, then stops. Refused → the next tap tries again. Never touches a player with a sound on it. */
-  unlock(){ this.all().forEach(a => { if (a._ok || a._job || a._try) return; a._rlN = 0;   /* a tap: reloads allowed again */
+  unlock(){ this.all().forEach(a => { if (a._ok || a._job || a._try) return;
     const t = ++a._unl; a._try = true;
-    try { a.muted = true; const p = a.play();
+    try { if (a.error) a.load();                                         /* a player in error (file failed) is reloaded by the tap, not before */
+      a.muted = true; const p = a.play();
       const ok = () => { a._try = false; a._ok = true; try { a.pause(); a.currentTime = 0; } catch (x) {} a.muted = false; this.hintOff('tap'); musicDip.pump(); };
       const bad = () => { a._try = false; a.muted = false; musicDip.pump(); };
       if (p && p.then) a._p = p.then(ok, bad); else ok(); } catch (x) { a._try = false; a.muted = false; } }); },
@@ -2763,6 +2767,7 @@ const phones = {
        The tap is itself a tap on the screen (the players unlock on it); if the unlock is still on its way the sound waits for it (max 5 s). */
     const scAsk = this.el('phScAsk'), scMsg = this.el('phScMsg'), scShow = t => { scMsg.innerHTML = t; scMsg.hidden = !t; };
     this.el('phSoundCheck').addEventListener('click', async () => { scAsk.hidden = true; scShow('');
+      if (!emojiSfx.on){ scShow('Emoji sounds are switched off. Switch them on above, then try again.'); return; }   /* nothing would play: no question */
       emojiSfx.unlock(); const end = Date.now() + 5000; while (!emojiSfx.ready() && Date.now() < end) await dipWait(30);
       await emojiSfx.play('😂'); scAsk.hidden = false; });
     this.el('phScYes').addEventListener('click', () => { scAsk.hidden = true; scShow('Sounds are working.'); });

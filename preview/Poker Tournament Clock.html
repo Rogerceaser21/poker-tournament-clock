@@ -693,6 +693,43 @@ body.np-glow-on .slide.active .np-glow{ display:block; opacity:.5; }
 .hu-photo{ cursor:pointer; }
 .hu-invested{ font-size:clamp(.78rem,1.25vw,1.02rem); color:var(--ink-soft); font-weight:600; }
 .hu-invested b{ color:var(--gold-deep); font-weight:700; }
+/* PREVIEW: Heads up from the bar = an overlay over the running level (the level slide stays the clock's slide, so the
+   time, the beep, the Next up step and the phones carry on underneath); the real Heads up slide looks the same */
+body.hu-open #huSlide{ opacity:1; transform:none; pointer-events:auto; z-index:5; }
+body.hu-open #huSlide .reveal, body.hu-open #huSlide .reveal-scale{ opacity:1; transform:none; }
+body.hu-open .nav-dots{ display:none; }
+body.hu-open .toast-layer{ top:calc(clamp(1.5rem,3.2vh,2.2rem) + 4.2rem); }   /* below the Clock button */
+.hu-back{ display:none; }
+body.hu-open .hu-back{ display:flex; }
+#huSlide .slide-inner{ padding-bottom:calc(clamp(4.6rem,9vh,6rem) + env(safe-area-inset-bottom,0px)); }   /* the seat card and the pill clear the bottom bar */
+#huSlide .hu-title{ font-size:calc(var(--hero-size) * .72); }
+.hu-row2{ display:flex; align-items:center; justify-content:center; gap:clamp(.5rem,1.6vw,1.2rem); flex-wrap:wrap; }
+.hu-live{ display:none; align-items:baseline; gap:clamp(.5rem,1.4vw,1.1rem); background:rgba(8,8,10,.6); border:2px solid var(--gold-deep); border-radius:12px;
+  padding:.3em .9em; color:var(--cream); font-family:var(--font-display); white-space:nowrap; }
+body.hu-open .hu-live{ display:flex; }
+.hu-lv{ font-weight:700; font-size:clamp(.85rem,min(1.6vw,2.4vh),1.3rem); letter-spacing:.08em; color:var(--gold-light); }
+.hu-lv span{ font-weight:400; color:rgba(246,239,217,.6); }
+.hu-timer{ font-weight:700; font-size:clamp(1.6rem,min(4.2vw,6vh),3.2rem); line-height:1; color:var(--cream); font-variant-numeric:tabular-nums; }
+.hu-timer.paused{ color:var(--amber); animation:pausePulse 1.1s ease-in-out infinite; }
+.hu-blinds{ font-size:clamp(.85rem,min(1.6vw,2.4vh),1.3rem); letter-spacing:.06em; }
+.hu-blinds b{ color:var(--gold-light); font-variant-numeric:tabular-nums; }
+.hu-next{ font-size:clamp(.7rem,min(1.15vw,1.8vh),.95rem); letter-spacing:.12em; text-transform:uppercase; color:rgba(246,239,217,.7); }
+.hu-next b{ color:var(--cream); }
+.hu-next:empty{ display:none; }
+.hu-win-btn{ font-family:var(--font-display); font-weight:700; font-size:clamp(.95rem,1.6vw,1.25rem); letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink); background:var(--gold); border:3px solid var(--gold-deep); border-radius:12px; padding:.45em 1.1em; min-height:46px; cursor:pointer; box-shadow:var(--bevel), 0 6px 16px rgba(0,0,0,.35); }
+.hu-win-btn:hover{ background:var(--gold-light); } .hu-win-btn:active{ transform:scale(.95); }
+/* landscape: the live level sits left of the table and the Winner button right of it (no height to spare); portrait: one row under the title */
+@media (orientation:landscape){
+  .hu-row2{ position:absolute; inset:0; z-index:3; pointer-events:none; justify-content:space-between; flex-wrap:nowrap; padding:0 calc(var(--slide-pad) + .4vw); }
+  .hu-row2 > *{ pointer-events:auto; }
+  body:not(.hu-open) .hu-row2{ justify-content:flex-end; }
+  .hu-live{ flex-direction:column; align-items:center; gap:.25em; padding:.6em .9em; min-width:clamp(140px,15vw,220px); white-space:normal; text-align:center; }
+  .hu-timer{ font-size:clamp(2rem,min(4.6vw,8vh),4rem); }
+  .hu-blinds b{ white-space:nowrap; }
+}
+#headsUpBtn[aria-pressed="true"]{ background:rgba(232,184,75,.3); color:var(--gold-light); }
+@media (max-width:820px){ #previewTag{ bottom:calc(96px + env(safe-area-inset-bottom)) !important; } }   /* PREVIEW tag: above the (longer) bottom bar on narrow iPads */
 .win-pick{ display:flex; align-items:center; gap:.6em; }
 .win-avatar{ cursor:pointer; }
 .hu-pot{ position:absolute; top:50%; left:50%; transform:translate(-50%,-86%); z-index:3; display:flex; flex-direction:column; align-items:center; gap:.05em; }
@@ -750,6 +787,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
   <button id="muteBtn" class="fs-btn" aria-label="Toggle sound" title="Sound on/off (M)" data-ico="sound"></button>
   <button id="musicBtn" class="fs-btn" aria-label="Music" title="Music: show / hide the Spotify player" data-ico="music"></button>
   <button id="phonesBtn" class="fs-btn" aria-label="Phones" title="Players' phones: QR code to join" data-ico="phone"></button>
+  <button id="headsUpBtn" class="fs-btn" aria-label="Heads up" title="Heads up" aria-pressed="false" data-ico="headsup"></button>
   <button id="fullscreenBtn" class="fs-btn" aria-label="Enter fullscreen" title="Fullscreen (⌘ F / F)" data-ico="full"></button>
 </div>
 
@@ -936,9 +974,20 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
 
   <!-- ===== SLIDE 25 — HEADS UP ===== -->
   <section class="slide" id="huSlide" data-slide="25" aria-label="Heads up — final two players">
+    <button class="tv-back hu-back" id="huBack" aria-label="Back to the clock"><span data-ico="clock"></span>Clock</button>
     <div class="slide-inner">
       <span class="eyebrow reveal d1">Down to the last two</span>
       <h2 class="hu-title reveal d2">Heads Up</h2>
+      <!-- PREVIEW: the running level (shown while Heads up is opened over a level by the bar button) + the Winner button -->
+      <div class="hu-row2 reveal d2">
+        <div class="hu-live" id="huLive" aria-live="off">
+          <span class="hu-lv" id="huLevel"></span>
+          <span class="hu-timer" id="huTimer"></span>
+          <span class="hu-blinds" id="huBlinds"></span>
+          <span class="hu-next" id="huNext"></span>
+        </div>
+        <button class="hu-win-btn" id="huWinnerBtn" aria-label="Winner" title="Open the Winner page">🏆 Winner</button>
+      </div>
       <div class="hu-table-wrap reveal d3">
         <div class="hu-table">
           <div class="money-pile" id="moneyPile" aria-hidden="true"></div>
@@ -953,7 +1002,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
               <button class="hu-arrow" data-hu-cycle="0" data-dir="1" aria-label="Next player">▶</button>
             </div>
             <span class="hu-name" data-hu-name="0">Player 1</span>
-            <span class="hu-invested">Invested <b>AED <span data-hu-invested="0">500</span></b></span>
+            <span class="hu-invested hu-chips">Chips <b><span data-hu-chips="0">700</span></b></span>
           </div>
           <div class="hu-seat-card hu-bot">
             <div class="hu-pick">
@@ -962,7 +1011,7 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
               <button class="hu-arrow" data-hu-cycle="1" data-dir="1" aria-label="Next player">▶</button>
             </div>
             <span class="hu-name" data-hu-name="1">Player 2</span>
-            <span class="hu-invested">Invested <b>AED <span data-hu-invested="1">500</span></b></span>
+            <span class="hu-invested hu-chips">Chips <b><span data-hu-chips="1">700</span></b></span>
           </div>
         </div>
       </div>
@@ -1019,7 +1068,8 @@ const ICON = {
   full:  '<svg class="ico" viewBox="0 0 24 24"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg>',
   table: '<svg class="ico" viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="9" ry="5.5"/><circle cx="12" cy="3.6" r="1.4" fill="currentColor"/><circle cx="12" cy="20.4" r="1.4" fill="currentColor"/><circle cx="1.9" cy="12" r="1.4" fill="currentColor"/><circle cx="22.1" cy="12" r="1.4" fill="currentColor"/></svg>',
   clock: '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
-  phone: '<svg class="ico" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>'
+  phone: '<svg class="ico" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>',
+  headsup: '<svg class="ico" viewBox="0 0 24 24"><circle cx="7" cy="8" r="2.8"/><circle cx="17" cy="8" r="2.8"/><path d="M2 19.5c0-3 2.2-5.3 5-5.3s5 2.3 5 5.3"/><path d="M12 19.5c0-3 2.2-5.3 5-5.3s5 2.3 5 5.3"/></svg>'
 };
 function setIcon(el, name){ if (el && el.dataset.icoNow !== name){ el.innerHTML = ICON[name] || ''; el.dataset.icoNow = name; } }
 document.querySelectorAll('[data-ico]').forEach(el => setIcon(el, el.dataset.ico));
@@ -1422,7 +1472,12 @@ function removePlayer(i){
 /* which players are shown at heads-up (top, bottom) and as the winner — chosen
    live with the ◀ ▶ pickers; their photo / name / investment link to the bank */
 let huPick = [0, 1];
+let huPrevChips = null;   /* PREVIEW: chips at the last Heads up render, to see a shown player BUST (above 0 → 0) */
 let winPick = 0;
+/* PREVIEW: players with chips, biggest stack first (ties: seat order) */
+function livePlayers(){ return bank.chips.map((c, i) => i).filter(i => bank.chips[i] > 0).sort((a, b) => bank.chips[b] - bank.chips[a] || a - b); }
+/* PREVIEW: Heads up opens with the two players who still have chips (3 or more in: the two biggest stacks); 0 or 1 in: unchanged */
+function huAutoPick(){ const live = livePlayers(); if (live.length >= 2) huPick = [live[0], live[1]]; huPrevChips = bank.chips.slice(); }
 function potTotal(){ return bank.buyins.reduce((a, b) => a + (Number(b) || 0), 0); }
 function fmtMoney(n){ return Number(n || 0).toLocaleString('en-US'); }
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
@@ -1471,14 +1526,18 @@ function renderStrips(){
     el.querySelectorAll('.cs-ava[data-seat]').forEach(a => setAvatarEl(a, bank.photos[+a.dataset.seat]));
   });
 }
-/* heads-up + winner LINK to the chosen players: photo, name, and amount invested
-   (their buy-in incl. rebuys) all come straight from the bank */
+/* heads-up + winner LINK to the chosen players: photo, name and (PREVIEW) chips all come straight from the bank.
+   PREVIEW: the host's ◀ ▶ choice is kept; it is replaced only when a shown player busts (chips above 0 → 0) while
+   exactly two players still have chips (then those two are shown) */
 function renderHeadsUp(){
+  const prev = huPrevChips;
+  if (prev && prev.length === bank.chips.length && huPick.some(i => prev[i] > 0 && !(bank.chips[i] > 0))){ const live = livePlayers(); if (live.length === 2) huPick = live.slice(); }
+  huPrevChips = bank.chips.slice();
   [0, 1].forEach(slot => {
     const pi = huPick[slot];
     const ph = document.querySelector('[data-hu-photo="' + slot + '"]'); if (ph) setAvatarEl(ph, bank.photos[pi]);
     const nm = document.querySelector('[data-hu-name="' + slot + '"]'); if (nm) nm.textContent = bank.names[pi];
-    const iv = document.querySelector('[data-hu-invested="' + slot + '"]'); if (iv) iv.textContent = fmtMoney(bank.buyins[pi]);
+    const ch = document.querySelector('[data-hu-chips="' + slot + '"]'); if (ch) ch.textContent = bank.chips[pi] > 0 ? fmtMoney(bank.chips[pi]) : 'OUT';
   });
 }
 function renderWinner(){
@@ -2226,7 +2285,7 @@ const spotify = {
     this._softFor = url; img.src = url;
   },
   portrait(){ return window.matchMedia && matchMedia('(orientation: portrait)').matches; },
-  openSide(){ if (this.portrait() || document.body.classList.contains('tv-open')){ this.openBig(); return; } this.setView('side'); },
+  openSide(){ if (this.portrait() || document.body.classList.contains('tv-open') || document.body.classList.contains('hu-open')){ this.openBig(); return; } this.setView('side'); },
   setView(v){ musicState.view = v; saveState(); this.render(); },
   openBig(){ if (!this.now) return; const b = this.el('npBig'); b.classList.add('open'); b.setAttribute('aria-hidden', 'false'); this.render(); this.gameLine(); },
   closeBig(){ const b = this.el('npBig'); b.classList.remove('open'); b.setAttribute('aria-hidden', 'true'); },
@@ -2247,7 +2306,7 @@ const spotify = {
     card.classList.toggle('none', !on);
     document.body.classList.toggle('np-glow-on', on && musicState.glow && !!(n && n.artSmall));
     /* split view: only on level / next-up screens, in landscape, while 🎵 is showing */
-    const sl = document.querySelector('.slide.active'), side = on && musicState.view === 'side' && musicState.open && !this.portrait() && !document.body.classList.contains('tv-open');
+    const sl = document.querySelector('.slide.active'), side = on && musicState.view === 'side' && musicState.open && !this.portrait() && !document.body.classList.contains('tv-open') && !document.body.classList.contains('hu-open');
     document.body.classList.toggle('np-side-on', side);
     const live = side && !!(sl && sl.dataset.type);
     document.body.classList.toggle('np-side-live', live);
@@ -2680,6 +2739,77 @@ const tableView = {
 };
 
 /* ============================================================
+   PREVIEW: HEADS UP from the bottom bar — opens OVER the running level (like the table view): the level slide stays
+   the clock's slide, so its time keeps running, it runs out as usual (beep, 5-s Next up, next level), pause works and
+   the phones keep showing the level. The page shows the live level, time and blinds. The second tap or Clock = back.
+   With no level running (cover / winner) the button goes to the plain Heads up slide.
+   ============================================================ */
+const headsUp = {
+  t: null,
+  el(id){ return document.getElementById(id); },
+  isOpen(){ return document.body.classList.contains('hu-open'); },
+  onSlide(){ return presentation.slides[presentation.current] === this.el('huSlide'); },
+  running(){ const sl = presentation.slides[presentation.current]; return !!(sl && sl.dataset.type && clock.activeSlide === sl); },
+  toggle(){ if (this.isOpen()) this.close(); else this.open(); },
+  open(){
+    if (this.onSlide()) return;                                  /* already showing (the real Heads up slide) */
+    huAutoPick(); renderHeadsUp();
+    if (!this.running()){ const hi = presentation.slides.indexOf(this.el('huSlide')); if (hi >= 0) presentation.goTo(hi); this.sync(); return; }
+    if (tableView.isOpen()) tableView.close();
+    document.body.classList.add('hu-open');
+    this.tick(); clearInterval(this.t); this.t = setInterval(() => this.tick(), 250);
+    this.sync(); if (typeof spotify !== 'undefined') spotify.render();
+  },
+  close(){
+    if (!this.isOpen()) return;
+    document.body.classList.remove('hu-open'); clearInterval(this.t); this.t = null;
+    this.sync(); if (typeof spotify !== 'undefined') spotify.render();
+  },
+  /* after every slide change: on a screen with no level (cover / Heads up / winner) the overlay is dropped
+     (a last level that runs out under it lands on the real Heads up slide = the same page); arriving at the
+     real Heads up slide picks the players like opening it does */
+  slideChanged(){
+    const sl = presentation.slides[presentation.current];
+    if (sl && !sl.dataset.type){ const was = this.isOpen(); this.close(); if (this.onSlide() && !was){ huAutoPick(); renderHeadsUp(); } }
+    this.sync();
+  },
+  sync(){ const b = this.el('headsUpBtn'); if (b) b.setAttribute('aria-pressed', String(this.isOpen() || this.onSlide())); },
+  /* the running level on the page — same reading as the table view */
+  tick(){
+    const sl = presentation.slides[presentation.current], type = sl && sl.dataset.type;
+    const T = this.el('huTimer'), L = this.el('huLevel'), B = this.el('huBlinds'), N = this.el('huNext');
+    const idx = sl && sl.dataset.lid ? levels.findIndex(l => l.id === sl.dataset.lid) : -1;
+    const lv = idx >= 0 ? levels[idx] : null;
+    let ms = 0;
+    if (type && clock.activeSlide === sl) ms = clock.paused ? clock.remaining : clock.deadline - performance.now();
+    const secs = Math.max(0, Math.ceil(ms / 1000));
+    T.classList.toggle('paused', !!type && clock.paused);
+    if (type === 'transition'){ L.innerHTML = 'Next up · Level ' + (idx + 1); T.textContent = String(secs); }
+    else if (type === 'level'){ L.innerHTML = 'Level ' + (idx + 1) + ' <span>of ' + levels.length + '</span>'; T.textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0'); }
+    else { L.textContent = ''; T.textContent = ''; }
+    B.innerHTML = lv ? 'Blinds <b>' + fmtMoney(lv.sb) + ' / ' + fmtMoney(lv.bb) + '</b>' : '';
+    const nx = type === 'level' && idx >= 0 ? levels[idx + 1] : null;
+    N.innerHTML = nx ? 'Next <b>' + fmtMoney(nx.sb) + ' / ' + fmtMoney(nx.bb) + '</b>' : (type === 'level' ? '<b>Final level</b>' : '');
+  },
+  init(){
+    this.el('headsUpBtn').addEventListener('click', () => this.toggle());
+    this.el('huBack').addEventListener('click', () => this.close());
+    this.el('huWinnerBtn').addEventListener('click', () => openWinner());
+    const oc = presentation.onChange; presentation.onChange = () => { if (oc) oc(); this.slideChanged(); };
+    this.sync();
+  }
+};
+/* PREVIEW: the Winner page — ONE way in (the Heads up page's Winner button). The next build hooks "the timer stops
+   for good" here. A tap while a slide is still sliding in (0.45 s) is retried, never lost. */
+function openWinner(){
+  const wi = presentation.slides.findIndex(s => s.classList.contains('winner')); if (wi < 0) return;
+  let tries = 0;
+  const go = () => { if (presentation.isAnimating && tries++ < 20){ setTimeout(go, 60); return; }
+    headsUp.close(); presentation.goTo(wi); };
+  go();
+}
+
+/* ============================================================
    PHONES — the iPad is the host. Players scan a QR code, pick their
    name and follow the game live on their phone (join.html). Phones
    connect straight to this iPad (WebRTC via PeerJS; the free public
@@ -2944,8 +3074,9 @@ function exportDeck() {
   ['#tableView', '#playerCard'].forEach(sel => { const o = docCopy.querySelector(sel); if (o) o.classList.remove('open'); });
   const tvt = docCopy.querySelector('#tvTable'); if (tvt) tvt.querySelectorAll('.seat').forEach(x => x.remove());
   docCopy.style.removeProperty('--np-art'); docCopy.style.removeProperty('--np-art-big'); docCopy.style.removeProperty('--np-art-soft');
-  const bd = docCopy.querySelector('body'); if (bd){ bd.classList.remove('np-glow-on', 'np-side-on', 'np-side-live'); bd.style.removeProperty('--strip-h'); bd.style.removeProperty('--strip-bottom'); }
+  const bd = docCopy.querySelector('body'); if (bd){ bd.classList.remove('np-glow-on', 'np-side-on', 'np-side-live', 'hu-open'); bd.style.removeProperty('--strip-h'); bd.style.removeProperty('--strip-bottom'); }
   const nps = docCopy.querySelector('#npSide'); if (nps) nps.classList.remove('show');
+  { const hb = docCopy.querySelector('#headsUpBtn'); if (hb) hb.setAttribute('aria-pressed', 'false'); }
   docCopy.querySelectorAll('script[data-music-api], script[src*="open.spotify.com"], script[data-phones]').forEach(s => s.remove());
   ['#emojiLayer', '#toastLayer', '#phQr', '#phList'].forEach(sel => { const x = docCopy.querySelector(sel); if (x) x.innerHTML = ''; });
   { const h = docCopy.querySelector('#sndHint'); if (h) h.classList.remove('show'); }   /* PREVIEW: the copy starts without the tap hint */
@@ -3003,6 +3134,7 @@ playerCard.init();                         /* tap a player to edit photo / name 
 phones.init();                             /* 📱 players follow the game on their phones */
 wake.init();                               /* keep the iPad screen on */
 tableView.init();                          /* TABLE button / T: the table mid-game */
+headsUp.init();                            /* PREVIEW: Heads up button in the bar: the page over the running level */
 spotify.init();                            /* Spotify app "Now playing" (finishes a login if we just came back from Spotify) */
 syncCoverMins();
 

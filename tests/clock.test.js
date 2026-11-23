@@ -457,6 +457,23 @@ const TEN_SND = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'f
    what Safari decodes; ffprobe / Chrome count ~70 ms more AAC priming on those) and the old 100-ms rule. */
 const NEW5 = ['very-nice', 'emotional-damage', 'show-me-the-money', 'pay-that-man', 'what-happened', 'what', 'cool-story-bro', 'boomshakalaka'];   /* the new clips: ffprobe within 30 ms */
 const fakeConn = id => ({ connectionId: id, open: true, sent: [], send(m){ this.sent.push(m); } });
+/* PREVIEW end-pages items 1-2 (23 Nov): the Heads up button in the bar opens the Heads up page OVER the running level */
+const HU = {
+  open: async p => { await p.click('#headsUpBtn', { timeout: 2000 }); await wait(600); },
+  /* the page really on top: the element in the middle of the screen belongs to the Heads up page */
+  top: p => p.evaluate(() => { const e = document.elementFromPoint(innerWidth / 2, innerHeight / 2); return !!(e && e.closest('#huSlide')); }),
+  view: p => p.evaluate(() => { const t = id => ((document.getElementById(id) || {}).textContent || '').replace(/\s+/g, ' ').trim();
+    return { timer: t('huTimer'), level: t('huLevel'), blinds: t('huBlinds'), next: t('huNext'),
+      names: [0, 1].map(s => (document.querySelector('[data-hu-name="' + s + '"]') || {}).textContent),
+      chips: [0, 1].map(s => (document.querySelector('[data-hu-chips="' + s + '"]') || {}).textContent),
+      seats: [...document.querySelectorAll('#huSlide .hu-seat-card')].map(c => c.innerText.replace(/\s+/g, ' ').trim()),
+      invested: document.getElementById('huSlide').innerText.includes('Invested') }; }),
+  secs: t => { const m = /^(\d+):(\d\d)$/.exec(t || ''); return m ? +m[1] * 60 + +m[2] : null; },
+  /* a phone (signed in as `name`) sends a chip count, the way phones.onData gets it */
+  phone: (p, name, value) => p.evaluate(([name, value]) => { const c = { connectionId: 'ph-' + name, open: true, send(){} }; phones.conns.set(c.connectionId, { c, name });
+    phones.onData(c, { t: 'chips', name, value, id: 'x' + Math.random() }); }, [name, value]),
+  chips: (p, arr) => p.evaluate(arr => { bank.chips.splice(0, bank.chips.length, ...arr); syncBankUI(); }, arr)
+};
 const PREVIEW_TESTS = [
   ['PREVIEW: twelve emojis in order (😂 🔥 🤡 💀 / 🤯 📖 👏 😭 / 💰 💵 ❓ 💣), each with its own sound file, SFX_MS of the new clips within 30 ms of ffprobe', async ({ p }) => {
     const r = await until(() => p.evaluate(() => { const out = {}; for (const [n, l] of Object.entries(emojiSfx.pool)){ const d = l[0].duration; if (!isFinite(d) || !(d > 0)) return null; out[n] = { real: Math.round(d * 1000), table: SFX_MS[n] }; }
@@ -765,6 +782,93 @@ const PREVIEW_TESTS = [
     const probe = n => Math.round(1000 * +require('child_process').execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', dir + '/' + n + '.m4a']).toString().trim());
     const bad = Object.entries(tbl).filter(([n, ms]) => !(Math.abs(probe(n) - ms) <= 30)).map(([n, ms]) => [n, ms, probe(n)]);
     return (Object.keys(tbl).length === 12 && bad.length === 0) || { bad }; }],
+  /* end-pages items 1-2: Heads up button, the game carries on under the Heads up page, chips, auto-pick, Winner button, bar layout */
+  ['PREVIEW: Heads up button — in the bottom bar right after 📱 Phones, labelled "Heads up"; one tap on Level 1 shows the Heads up page ON TOP while Level 1 keeps its time (not reset, still running); a 2nd tap or Clock → back on Level 1 with the time still running; it also opens from the Next up screen', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await p.evaluate(() => { clock.deadline -= 5 * 60 * 1000; }); await wait(200);
+    const btn = await p.evaluate(() => { const b = document.getElementById('headsUpBtn'); return b ? { prev: (b.previousElementSibling || {}).id, inBar: !!b.closest('#fontScaleCtrl'), label: b.getAttribute('aria-label'), title: b.title, fs: b.classList.contains('fs-btn'), ico: !!b.querySelector('svg') } : null; });
+    const a = await state(p); await HU.open(p); const onTop = await HU.top(p), b = await state(p);
+    await wait(2200); const c = await state(p);
+    await p.click('#headsUpBtn', { timeout: 2000 }); await wait(600); const off1 = !(await HU.top(p)), d = await state(p);
+    await HU.open(p); const on2 = await HU.top(p); await p.click('#huBack', { timeout: 2000 }); await wait(600); const off2 = !(await HU.top(p)), e = await state(p);
+    await press(p, '#nextBtn'); await HU.open(p); const t = await state(p), onTop3 = await HU.top(p), v = await HU.view(p);
+    return (btn && btn.prev === 'phonesBtn' && btn.inBar && btn.label === 'Heads up' && btn.title === 'Heads up' && btn.fs && btn.ico
+      && onTop && b.type === 'level' && b.level === 'Level 1' && b.left <= a.left && b.left >= a.left - 2 && b.left <= b.full - 290
+      && c.left <= b.left - 1 && c.left >= b.left - 3 && !c.paused
+      && off1 && d.type === 'level' && d.level === 'Level 1' && d.left <= c.left && d.left >= c.left - 2
+      && on2 && off2 && e.type === 'level' && e.level === 'Level 1' && e.left <= d.left && e.left >= d.left - 3
+      && t.type === 'transition' && onTop3 && v.level === 'Next up · Level 2') || { btn, a, b, c, d, e, t, onTop, off1, on2, off2, onTop3, v }; }],
+  ['PREVIEW: Heads up page shows the running level live — "Level 1 of 3", the time left ticking down (same as the clock, not reset), Blinds 1 / 2, Next 2 / 4', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await p.evaluate(() => { clock.deadline -= 3 * 60 * 1000; }); await HU.open(p);
+    const v1 = await HU.view(p), s1 = await state(p); await wait(2300); const v2 = await HU.view(p), s2 = await state(p);
+    const t1 = HU.secs(v1.timer), t2 = HU.secs(v2.timer);
+    return (v1.level === 'Level 1 of 3' && t1 !== null && Math.abs(t1 - s1.left) <= 1 && t1 <= 17 * 60 + 1 && t2 <= t1 - 2 && t2 >= t1 - 3 && Math.abs(t2 - s2.left) <= 1
+      && v1.blinds === 'Blinds 1 / 2' && v1.next === 'Next 2 / 4') || { v1, v2, s1, s2 }; }],
+  ['PREVIEW: Heads up — the level runs out while the page shows: ONE beep, the 5-s Next up, then Level 2 at full time; the page STAYS on top and shows Next up, then Level 2\'s blinds and time; the phones\' state says Next up, then Level 2', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.open(p); await expireNow(p); await wait(900);
+    const t = await state(p), tv = await HU.view(p), tTop = await HU.top(p), ts = await p.evaluate(() => phones.snapshot());
+    await wait(5600);
+    const l = await state(p), lv = await HU.view(p), lTop = await HU.top(p), ls = await p.evaluate(() => phones.snapshot());
+    return (t.type === 'transition' && t.level === 'Level 2' && t.alerts === 1 && tTop && tv.level === 'Next up · Level 2' && tv.blinds === 'Blinds 2 / 4' && ts.type === 'transition'
+      && l.type === 'level' && l.level === 'Level 2' && l.left >= l.full - 2 && l.alerts === 1 && lTop && lv.level === 'Level 2 of 3' && lv.blinds === 'Blinds 2 / 4' && lv.next === 'Next 5 / 10'
+      && HU.secs(lv.timer) >= l.full - 2 && ls.type === 'level' && ls.levelNo === 2 && ls.sb === 2 && ls.bb === 4 && ls.remaining > (l.full - 3) * 1000) || { t, tv, tTop, ts: { type: ts.type, levelNo: ts.levelNo }, l, lv, lTop, ls: { type: ls.type, levelNo: ls.levelNo, sb: ls.sb, bb: ls.bb, remaining: ls.remaining } }; }],
+  ['PREVIEW: Heads up — pause works on the page (Space, then the ⏸ button): the time holds and shows paused, resume carries on, the page stays', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.open(p);
+    await p.keyboard.press('Space'); await wait(300); const a = await state(p), va = await HU.view(p), pa = await p.evaluate(() => document.getElementById('huTimer').classList.contains('paused'));
+    await wait(1600); const b = await state(p), vb = await HU.view(p);
+    await p.click('#pauseBtn', { timeout: 2000 }); await wait(2200); const c = await state(p), vc = await HU.view(p), top = await HU.top(p);
+    return (a.paused && pa && b.paused && a.left === b.left && va.timer === vb.timer && !c.paused && HU.secs(vc.timer) <= HU.secs(vb.timer) - 1 && top && c.type === 'level') || { a, b, c, va, vb, vc, pa, top }; }],
+  ['PREVIEW: Heads up shows each player\'s CHIPS (not Invested); a phone\'s chip change shows at once; a busted player picked with ▶ shows OUT', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.open(p);
+    const a = await HU.view(p);
+    await HU.phone(p, 'Ann', 1500); await wait(250); const b = await HU.view(p);
+    await HU.phone(p, 'Cat', 0); await wait(250); const c = await HU.view(p);
+    await p.click('#huSlide .hu-bot .hu-arrow[data-dir="1"]', { timeout: 2000 }); await wait(250); const d = await HU.view(p);
+    return (!a.invested && a.seats.every(s => /Chips 700$/.test(s)) && a.chips.join() === '700,700' && b.chips.join() === '1,500,700'
+      && c.names.join() === 'Ann,Bob' && d.names.join() === 'Ann,Cat' && d.chips.join() === '1,500,OUT') || { a, b, c, d }; }],
+  ['PREVIEW: Heads up opens with the two players who still have chips (biggest stack on top); with 3 in, the two biggest stacks; a shown player busting with two left → those two', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700);
+    await HU.chips(p, [0, 500, 900]); await HU.open(p); const a = await HU.view(p);
+    await p.click('#headsUpBtn', { timeout: 2000 }); await wait(400);
+    await HU.chips(p, [300, 800, 600]); await HU.open(p); const b = await HU.view(p);
+    await HU.phone(p, 'Bob', 0); await wait(250); const c = await HU.view(p);
+    return (a.names.join() === 'Cat,Bob' && a.chips.join() === '900,500' && b.names.join() === 'Bob,Cat' && b.chips.join() === '800,600'
+      && c.names.join() === 'Cat,Ann' && c.chips.join() === '600,300') || { a, b, c }; }],
+  ['PREVIEW: Heads up — the host\'s ◀ ▶ choice survives phone chip changes (no auto-pick on every update)', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.open(p); const a = await HU.view(p);
+    await p.click('#huSlide .hu-bot .hu-arrow[data-dir="1"]', { timeout: 2000 }); await wait(250); const b = await HU.view(p);
+    await HU.phone(p, 'Ann', 650); await wait(250); const c = await HU.view(p);
+    await HU.phone(p, 'Bob', 900); await wait(250); const d = await HU.view(p);
+    return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Cat' && c.names.join() === 'Ann,Cat' && c.chips.join() === '650,700' && d.names.join() === 'Ann,Cat') || { a, b, c, d }; }],
+  ['PREVIEW: Heads up Winner button (openWinner) opens the Winner page — from the page over a level and from the Heads up slide reached by ⏭ after the last level (auto-picked, chips shown, no Clock button there)', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.open(p);
+    await p.click('#huWinnerBtn', { timeout: 2000 }); await wait(700);
+    const w1 = await p.evaluate(() => { const e = document.elementFromPoint(innerWidth / 2, innerHeight / 2); return { winner: presentation.slides[presentation.current].classList.contains('winner'), top: !!(e && e.closest('.slide.winner')), hu: document.body.classList.contains('hu-open'), fn: typeof openWinner }; });
+    await p.evaluate(() => presentation.goTo(presentation.slides.findIndex(s => s.dataset.lid === 'L3' && s.dataset.type === 'level'))); await wait(700);
+    await HU.chips(p, [0, 400, 1700]); await press(p, '#nextBtn');
+    const h = await state(p), v = await HU.view(p), top = await HU.top(p), r = await p.evaluate(() => ({ back: getComputedStyle(document.getElementById('huBack')).display, pressed: document.getElementById('headsUpBtn').getAttribute('aria-pressed') }));
+    await p.click('#huWinnerBtn', { timeout: 2000 }); await wait(700);
+    const w2 = await p.evaluate(() => presentation.slides[presentation.current].classList.contains('winner'));
+    return (w1.winner && w1.top && !w1.hu && w1.fn === 'function' && h.type === 'huSlide' && top && v.names.join() === 'Cat,Bob' && v.chips.join() === '1,700,400' && r.back === 'none' && r.pressed === 'true' && w2) || { w1, h, v, top, r, w2 }; }],
+  ['PREVIEW: Heads up — the bottom bar (with the Heads up button) stays ONE row inside the screen at 768x1024, 834x1112, 1024x768, 1180x820, 1366x1024: no clipped button, no overlap with the slide counter or the PREVIEW tag; on the Heads up page Clock, Winner, the 4 arrows and the live level are tappable (nothing on top) and on screen', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.open(p);
+    const out = [];
+    for (const [w, h] of [[768, 1024], [834, 1112], [1024, 768], [1180, 820], [1366, 1024]]){
+      await p.setViewportSize({ width: w, height: h }); await wait(400);
+      out.push(await p.evaluate(([w, h]) => { const bar = document.getElementById('fontScaleCtrl'), r = bar.getBoundingClientRect(), kids = [...bar.children].filter(k => getComputedStyle(k).display !== 'none');
+        const cy = r.top + r.height / 2, hit = (a, b) => !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+        const others = ['slideCounter', 'previewTag'].map(id => document.getElementById(id)).filter(e => e && getComputedStyle(e).display !== 'none');
+        const tap = [document.getElementById('huBack'), document.getElementById('huWinnerBtn'), document.getElementById('huLive'), ...document.querySelectorAll('#huSlide .hu-arrow')].filter(Boolean).map(el => { const q = el.getBoundingClientRect();
+          const e = document.elementFromPoint(q.left + q.width / 2, q.top + q.height / 2); return { id: el.id || el.className, ok: q.width > 0 && q.left >= 0 && q.right <= innerWidth && q.top >= 0 && q.bottom <= r.top && !!e && (e === el || el.contains(e)) }; });
+        return { size: w + 'x' + h, left: Math.round(r.left), right: Math.round(r.right), width: Math.round(r.width), height: Math.round(r.height), n: kids.filter(k => k.tagName === 'BUTTON').length,
+          inside: r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight,
+          oneRow: kids.every(k => { const q = k.getBoundingClientRect(); return Math.abs(q.top + q.height / 2 - cy) < 4; }),
+          clipped: kids.filter(k => k.scrollWidth > k.clientWidth + 1 || k.scrollHeight > k.clientHeight + 1).map(k => k.id || k.className),
+          overlaps: others.filter(o => hit(r, o.getBoundingClientRect())).map(o => o.id),
+          gapCounter: Math.round(document.getElementById('slideCounter').getBoundingClientRect().left - r.right), gapTag: Math.round(r.left - document.getElementById('previewTag').getBoundingClientRect().right),
+          hu: !!bar.querySelector('#headsUpBtn'), tapBad: tap.filter(x => !x.ok).map(x => x.id), tapN: tap.length }; }, [w, h]));
+    }
+    console.log('    [bar] ' + JSON.stringify(out));
+    return (out.every(x => x.inside && x.oneRow && !x.clipped.length && !x.overlaps.length && x.hu && x.n === 11 && x.tapN === 7 && !x.tapBad.length)) || out; }],
 ];
 
 (async () => {

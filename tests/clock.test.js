@@ -1116,9 +1116,29 @@ const PREVIEW_TESTS = [
     await pick('hand1'); await until(() => p.evaluate(() => !!winnerPhotos.get().hand1), 20000); await wait(2500);
     const B = await look('hand1');
     console.log('    [share headroom] ' + JSON.stringify({ A, A2, sizes, B }));
-    return (A.shown && A.dim !== 1280 && (A.storedIsShown && A.dim <= 960 || !A.stored && A.note === 'Not saved: storage full')
+    return (A.shown && (A.storedIsShown && A.dim <= 960 || !A.stored && A.note === 'Not saved: storage full')
       && A2.name === 'Annabel' && A2.saved === 'Annabel' && A2.junk === 4300000
       && B.shown && B.storedIsShown && B.dim < 1280 && B.note === '') || { A, A2, sizes, B }; }],
+  ['PREVIEW: Share picture — EXIF rotation: a JPEG stored sideways with EXIF Orientation 6 picked on the Winner photo tile is kept upright (200x400, the marked corner top right) and drawn upright in the share picture', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await SHARE.toWinner(p);
+    /* 400x200 quadrants: top-left red, top-right green, bottom-left blue, bottom-right yellow; Orientation 6 = shown turned 90° clockwise */
+    const raw = Buffer.from(await p.evaluate(() => { const c = document.createElement('canvas'); c.width = 400; c.height = 200; const x = c.getContext('2d');
+      [['#ff0000', 0, 0], ['#00ff00', 200, 0], ['#0000ff', 0, 100], ['#ffff00', 200, 100]].forEach(([f, a, b]) => { x.fillStyle = f; x.fillRect(a, b, 200, 100); }); return c.toDataURL('image/jpeg', .95).split(',')[1]; }), 'base64');
+    const tiff = Buffer.from([0x4d, 0x4d, 0x00, 0x2a, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0]);
+    const body = Buffer.concat([Buffer.from('Exif\0\0', 'binary'), tiff]), app1 = Buffer.concat([Buffer.from([0xff, 0xe1, (body.length + 2) >> 8, (body.length + 2) & 255]), body]);
+    const jpg = Buffer.concat([raw.subarray(0, 2), app1, raw.subarray(2)]);
+    const [fc] = await Promise.all([p.waitForEvent('filechooser', { timeout: 15000 }), p.click('[data-win-tile="winner"]', { timeout: 15000 })]);
+    await fc.setFiles({ name: 'sideways.jpg', mimeType: 'image/jpeg', buffer: jpg });
+    await until(() => p.evaluate(() => !!winnerPhotos.get().winner), 15000);
+    const ok = await until(() => p.evaluate(() => !!(winShare.ready && winShare.same(winShare.ready.inp, winShare.inputs()))), 8000);
+    const r = await p.evaluate(async () => { const load = u => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = u; });
+      const read = (im, pts) => { const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight; const x = c.getContext('2d'); x.drawImage(im, 0, 0); return pts.map(([a, b]) => Array.from(x.getImageData(Math.round(a), Math.round(b), 1, 1).data.slice(0, 3))); };
+      const st = await load(winnerPhotos.get().winner), stored = { w: st.naturalWidth, h: st.naturalHeight, px: read(st, [[st.naturalWidth - 15, 15], [15, 15], [st.naturalWidth - 15, st.naturalHeight - 15]]) };
+      const R = winShare.ready, u = URL.createObjectURL(R.file), sp = await load(u), b = R.layout.hero; URL.revokeObjectURL(u);
+      return { stored, hero: b.kind, box: [b.w, b.h], pic: read(sp, [[b.x + b.w * .85, b.y + b.h * .12], [b.x + b.w * .15, b.y + b.h * .12], [b.x + b.w * .85, b.y + b.h * .88]]) }; });
+    const near = (a, b) => a.every((v, i) => Math.abs(v - b[i]) <= 45), RED = [255, 0, 0], BLUE = [0, 0, 255], GREEN = [0, 255, 0];
+    return (ok && r.stored.w === 200 && r.stored.h === 400 && near(r.stored.px[0], RED) && near(r.stored.px[1], BLUE) && near(r.stored.px[2], GREEN)
+      && r.hero === 'photo' && r.box[1] > r.box[0] && near(r.pic[0], RED) && near(r.pic[1], BLUE) && near(r.pic[2], GREEN)) || { ok, r }; }],
 ];
 
 (async () => {

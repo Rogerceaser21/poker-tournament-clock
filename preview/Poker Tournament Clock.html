@@ -1702,9 +1702,10 @@ const winnerPhotos = {
      gets ONE more try, smaller; no fit / refused twice → this session only, "Not saved: storage full" on the tile */
   pick(slot, file){
     const STEPS = [[1280, 0.8], [960, 0.7], [720, 0.65]];
-    let writes = 0;
+    let writes = 0, first = null;
     const step = (k) => resizeFit(file, STEPS[k][0], STEPS[k][1], (d) => {
       if (!d) return;
+      if (!k) first = d;
       this.data[slot] = d; this.mem[slot] = true; delete this.notes[slot];
       if (!k) this.render();                                               /* shows on the tile at once */
       const last = k === STEPS.length - 1;
@@ -1714,6 +1715,7 @@ const winnerPhotos = {
         this.mem[slot] = true; writes++;
         if (writes < 2 && !last) return step(k + 1);
       } else if (!last) return step(k + 1);
+      this.data[slot] = first || d;                                        /* this session only: the full 1280 px one (nothing is written) */
       this.notes[slot] = 'Not saved: storage full';                       /* kept for this session only */
       if (!writes) this.save();                                            /* no room: the slot's older saved photo goes (smaller write) */
       this.render();
@@ -1880,7 +1882,7 @@ var winShare = {
     this.ready = { inp: used, file, url: URL.createObjectURL(file), layout: L.boxes, W: L.W, H: L.H, q };
     const shown = document.querySelector('#winShareOv.open img'), keep = shown && shown.getAttribute('src');
     this.stale = this.stale.filter(u => { if (u && u !== keep){ URL.revokeObjectURL(u); return false; } return !!u; });
-    if (!this.same(used, inp)) this.schedule();                            /* a photo was not ready: build again once it is */
+    if (['winner', 'avatar', 'hand1', 'hand2'].some(k => inp[k] && !used[k] && !this.img(inp[k]).complete)) this.schedule();   /* a photo still loading: build again once it is (a broken one: no loop) */
     return this.ready;
   },
   /* the tap: NO await before navigator.share() (iPad Safari opens the sheet only inside the tap) */

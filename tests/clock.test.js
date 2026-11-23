@@ -458,6 +458,11 @@ const TEN_SND = { '😂': 'oh-my-god', '🔥': 'wow', '🤡': 'bruh', '💀': 'f
 const NEW5 = ['very-nice', 'emotional-damage', 'show-me-the-money', 'pay-that-man', 'what-happened', 'what', 'cool-story-bro', 'boomshakalaka'];   /* the new clips: ffprobe within 30 ms */
 const fakeConn = id => ({ connectionId: id, open: true, sent: [], send(m){ this.sent.push(m); } });
 /* PREVIEW end-pages items 1-2 (23 Nov): the Heads up button in the bar opens the Heads up page OVER the running level */
+/* a big noisy JPEG made in the page (w x h), as a Buffer — a stand-in for a 12-megapixel iPad photo */
+const bigJpeg = async (p, w, h) => Buffer.from(await p.evaluate(([w, h]) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, w, h); g.addColorStop(0, '#c33'); g.addColorStop(1, '#36c'); x.fillStyle = g; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 1500; i++){ x.fillStyle = 'hsl(' + (i * 37 % 360) + ',70%,' + (30 + i % 40) + '%)'; x.fillRect(Math.random() * w, Math.random() * h, 20 + Math.random() * 300, 20 + Math.random() * 300); }
+  return c.toDataURL('image/jpeg', 0.92).split(',')[1]; }, [w, h]), 'base64');
 const HU = {
   open: async p => { await p.click('#headsUpBtn', { timeout: 2000 }); await wait(600); },
   /* the page really on top: the element in the middle of the screen belongs to the Heads up page */
@@ -472,7 +477,9 @@ const HU = {
   /* a phone (signed in as `name`) sends a chip count, the way phones.onData gets it */
   phone: (p, name, value) => p.evaluate(([name, value]) => { const c = { connectionId: 'ph-' + name, open: true, send(){} }; phones.conns.set(c.connectionId, { c, name });
     phones.onData(c, { t: 'chips', name, value, id: 'x' + Math.random() }); }, [name, value]),
-  chips: (p, arr) => p.evaluate(arr => { bank.chips.splice(0, bank.chips.length, ...arr); syncBankUI(); }, arr)
+  chips: (p, arr) => p.evaluate(arr => { bank.chips.splice(0, bank.chips.length, ...arr); syncBankUI(); }, arr),
+  /* 4 players Ann 900 / Bob 800 / Cat 500 / Dan 400 */
+  four: p => p.evaluate(() => { resizeBank(4); bank.names.splice(0, 4, 'Ann', 'Bob', 'Cat', 'Dan'); bank.chips.splice(0, 4, 900, 800, 500, 400); syncBankUI(); })
 };
 const PREVIEW_TESTS = [
   ['PREVIEW: twelve emojis in order (😂 🔥 🤡 💀 / 🤯 📖 👏 😭 / 💰 💵 ❓ 💣), each with its own sound file, SFX_MS of the new clips within 30 ms of ffprobe', async ({ p }) => {
@@ -825,13 +832,13 @@ const PREVIEW_TESTS = [
     await p.click('#huSlide .hu-bot .hu-arrow[data-dir="1"]', { timeout: 2000 }); await wait(250); const d = await HU.view(p);
     return (!a.invested && a.seats.every(s => /Chips 700$/.test(s)) && a.chips.join() === '700,700' && b.chips.join() === '1,500,700'
       && c.names.join() === 'Ann,Bob' && d.names.join() === 'Ann,Cat' && d.chips.join() === '1,500,OUT') || { a, b, c, d }; }],
-  ['PREVIEW: Heads up opens with the two players who still have chips (biggest stack on top); with 3 in, the two biggest stacks; a shown player busting with two left → those two', async ({ p }) => {
+  ['PREVIEW: Heads up opens with the two players who still have chips (biggest stack on top); with 3 in, the two biggest stacks; a reopen keeps the previous pair (both still have chips); a shown player busting with two left → those two', async ({ p }) => {
     await p.click('#startBtn'); await wait(700);
     await HU.chips(p, [0, 500, 900]); await HU.open(p); const a = await HU.view(p);
     await p.click('#headsUpBtn', { timeout: 2000 }); await wait(400);
     await HU.chips(p, [300, 800, 600]); await HU.open(p); const b = await HU.view(p);
     await HU.phone(p, 'Bob', 0); await wait(250); const c = await HU.view(p);
-    return (a.names.join() === 'Cat,Bob' && a.chips.join() === '900,500' && b.names.join() === 'Bob,Cat' && b.chips.join() === '800,600'
+    return (a.names.join() === 'Cat,Bob' && a.chips.join() === '900,500' && b.names.join() === 'Cat,Bob' && b.chips.join() === '600,800'
       && c.names.join() === 'Cat,Ann' && c.chips.join() === '600,300') || { a, b, c }; }],
   ['PREVIEW: Heads up — the host\'s ◀ ▶ choice survives phone chip changes (no auto-pick on every update)', async ({ p }) => {
     await p.click('#startBtn'); await wait(700); await HU.open(p); const a = await HU.view(p);
@@ -890,6 +897,104 @@ const PREVIEW_TESTS = [
       const els = [...document.querySelectorAll('.slide.active [data-strip], .slide.active [data-strip] *, #fontScaleCtrl, #fontScaleCtrl *, .slide.active button')].filter(e => { const q = e.getBoundingClientRect(); return q.width && q.height; });
       return { tag: [t.left, t.top, t.right, t.bottom].map(Math.round), hits: els.filter(e => hit(e.getBoundingClientRect())).map(e => e.id || e.className) }; });
     return (r.hits.length === 0 && r.tag[1] >= 0) || r; }],
+  /* end-pages item 4: the Winner page runs nothing; three photo tiles; Heads up fixes C and D */
+  ['PREVIEW: Winner page — reached by the Winner button, by ⏭ from the real Heads up slide, by an arrow key and by a nav dot: the Heads up page is closed, no tick, no beep / Next up even after the old deadline, no countdown or blinds shown, phones get the no-timer state', async ({ p }) => {
+    const out = [];
+    for (const route of ['button', 'next', 'arrow', 'dot']){
+      await p.evaluate(() => { presentation.isAnimating = false; presentation.goTo(0); }); await wait(600);
+      await p.click('#startBtn'); await wait(700);
+      if (route === 'button'){ await HU.open(p); await p.evaluate(() => { window.__alerts = 0; clock.deadline = performance.now() + 1200; }); await p.click('#huWinnerBtn', { timeout: 2000 }); }
+      else {
+        await p.evaluate(() => presentation.goTo(presentation.slides.findIndex(s => s.dataset.lid === 'L3' && s.dataset.type === 'level'))); await wait(700);
+        await p.evaluate(() => { clock.deadline = performance.now() + 1200; });
+        await press(p, '#nextBtn');                                   /* the real Heads up slide */
+        await p.evaluate(() => { window.__alerts = 0; });
+        if (route === 'next') await p.click('#nextBtn'); else if (route === 'arrow') await p.keyboard.press('ArrowRight');
+        else await p.evaluate(() => { const d = document.querySelectorAll('#navDots > *'); d[d.length - 1].click(); });
+      }
+      await wait(3000);
+      out.push(await p.evaluate(route => { const sl = presentation.slides[presentation.current], sn = phones.snapshot();
+        return { route, winner: sl.classList.contains('winner'), hu: document.body.classList.contains('hu-open'), tick: clock.tickId, el: !!clock.el, act: !!clock.activeSlide, alerts: window.__alerts,
+          clocks: sl.querySelectorAll('[data-clock]').length, timeText: /\d+:\d\d/.test(sl.innerText), blinds: /blinds|next up/i.test(sl.innerText), huLive: getComputedStyle(document.getElementById('huLive')).display,
+          snap: { type: sn.type, remaining: sn.remaining, paused: sn.paused, sb: sn.sb, bb: sn.bb, next: sn.next } }; }, route));
+    }
+    return out.every(o => o.winner && !o.hu && o.tick === null && !o.el && !o.act && o.alerts === 0 && !o.clocks && !o.timeText && !o.blinds && o.huLive === 'none'
+      && o.snap.type === 'winner' && o.snap.remaining === null && !o.snap.paused && o.snap.sb === null && o.snap.next === null) || out; }],
+  ['PREVIEW: Winner page — three photo tiles "Hand 1", "Hand 2 (optional)", "Winner photo": a REAL mouse click at each tile\'s centre hits it and opens the picker (file chooser); at 768x1024, 834x1112, 1024x768, 1180x820, 1366x1024 the tiles, avatar, pick row, name and line are inside the screen above the bottom bar and do not overlap', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await p.evaluate(() => { presentation.goTo(presentation.slides.findIndex(s => s.classList.contains('winner'))); }); await wait(900);
+    const labels = await p.evaluate(() => [...document.querySelectorAll('[data-win-tile]')].map(t => t.querySelector('.wt-label').textContent));
+    const out = []; let chosen = 0;
+    for (const [w, h] of [[768, 1024], [834, 1112], [1024, 768], [1180, 820], [1366, 1024]]){
+      await p.setViewportSize({ width: w, height: h }); await wait(600);
+      const m = await p.evaluate(([w, h]) => { const bar = document.getElementById('fontScaleCtrl').getBoundingClientRect(), R = e => { const q = e.getBoundingClientRect(); return { l: q.left, t: q.top, r: q.right, b: q.bottom }; };
+        const items = { avatar: R(document.querySelector('.win-avatar')), pick: R(document.querySelector('.win-pick')), name: R(document.querySelector('[data-win-name]')), tiles: R(document.getElementById('winTiles')), sub: R(document.querySelector('.win-sub')) };
+        const hit = (a, b) => !(a.r <= b.l + 1 || a.l >= b.r - 1 || a.b <= b.t + 1 || a.t >= b.b - 1), keys = Object.keys(items), over = [];
+        for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) if (hit(items[keys[i]], items[keys[j]])) over.push(keys[i] + '/' + keys[j]);
+        const inside = keys.every(k => items[k].l >= 0 && items[k].r <= w && items[k].t >= 0 && items[k].b <= bar.top - 2);
+        const crown = R(document.querySelector('.win-crown')), tile = document.querySelector('[data-win-tile]').getBoundingClientRect();
+        return { size: w + 'x' + h, barTop: Math.round(bar.top), tiles: [items.tiles.l, items.tiles.t, items.tiles.r, items.tiles.b].map(Math.round).join(','), tile: Math.round(tile.width) + 'x' + Math.round(tile.height), lowest: Math.round(Math.max(items.sub.b, items.tiles.b)), crownTop: Math.round(crown.t), inside, over }; }, [w, h]);
+      m.taps = [];
+      for (const slot of ['hand1', 'hand2', 'winner']){
+        const t = await p.evaluate(slot => { const e = document.querySelector('[data-win-tile="' + slot + '"]'); e.scrollIntoView({ block: 'nearest' }); const q = e.getBoundingClientRect(), x = q.left + q.width / 2, y = q.top + q.height / 2, h = document.elementFromPoint(x, y); return { x, y, hit: !!h && (h === e || e.contains(h)) }; }, slot);
+        const fc = await Promise.all([p.waitForEvent('filechooser', { timeout: 8000 }), p.mouse.click(t.x, t.y)]).then(r => r[0], () => null); m.taps.push(t.hit && !!fc); if (fc){ chosen++; await fc.setFiles([]); await wait(150); }
+      }
+      out.push(m);
+    }
+    console.log('    [winner tiles] ' + JSON.stringify(out.map(o => ({ size: o.size, barTop: o.barTop, tiles: o.tiles, tile: o.tile, lowest: o.lowest, crownTop: o.crownTop }))));
+    return (labels.join('|') === 'Hand 1|Hand 2 (optional)|Winner photo' && out.every(o => o.inside && !o.over.length && o.taps.every(Boolean) && o.crownTop >= 0) && chosen === 15) || { labels, out, chosen }; }],
+  ['PREVIEW: Winner photos — a 4000x3000 photo picked on a tile shows on it, is kept at 1280 px (JPEG, under 400 KB), is NOT in bank.photos nor in the main saved game, survives a reload; a 2nd pick replaces it; Reset clears all three', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await p.evaluate(() => { presentation.goTo(presentation.slides.findIndex(s => s.classList.contains('winner'))); }); await wait(900);
+    const buf = await bigJpeg(p, 4000, 3000), buf2 = await bigJpeg(p, 3000, 4000);
+    const pickTile = async (slot, b) => { const [fc] = await Promise.all([p.waitForEvent('filechooser', { timeout: 15000 }), p.click('[data-win-tile="' + slot + '"]', { timeout: 15000 })]); await fc.setFiles({ name: 'big.jpg', mimeType: 'image/jpeg', buffer: b }); };
+    await pickTile('hand1', buf); await until(() => p.evaluate(() => !!(window.winnerPhotos && winnerPhotos.get().hand1)), 20000); await wait(300); await pickTile('winner', buf2);
+    await until(() => p.evaluate(() => !!(window.winnerPhotos && winnerPhotos.get().hand1 && winnerPhotos.get().winner)), 20000); await wait(400);
+    const info = () => p.evaluate(async () => { const g = winnerPhotos.get(), raw = localStorage.getItem('poker_winner_photos_v1'), st = localStorage.getItem('poker_clock_state_v1') || '';
+      const dim = u => new Promise(r => { if (!u) return r(null); const i = new Image(); i.onload = () => r([i.naturalWidth, i.naturalHeight]); i.src = u; });
+      const o = raw ? JSON.parse(raw) : null;
+      return { tiles: [...document.querySelectorAll('[data-win-tile]')].map(t => t.classList.contains('has-photo') && /url\("data:image\/jpeg/.test(t.style.backgroundImage)),
+        h1: await dim(g.hand1), w: await dim(g.winner), h2: g.hand2, kb: { h1: g.hand1 ? Math.round(g.hand1.length * 3 / 4 / 1024) : 0, w: g.winner ? Math.round(g.winner.length * 3 / 4 / 1024) : 0 },
+        stored: !!o && o.hand1 === g.hand1 && o.winner === g.winner && o.hand2 === null, jpeg: !!g.hand1 && g.hand1.startsWith('data:image/jpeg'),
+        inBank: bank.photos.some(x => x && x.length > 5000), inState: !!g.hand1 && (st.includes(g.hand1.slice(30, 130)) || st.includes('poker_winner')), mainOk: !!(JSON.parse(st || '{}').names) }; });
+    await p.evaluate(() => { bank.chips[0] = 701; syncBankUI(); saveState(); }); await wait(600);
+    const a = await info(); console.log('    [winner photos] ' + JSON.stringify({ srcKB: [buf.length >> 10, buf2.length >> 10], hand1: a.h1, winner: a.w, kb: a.kb }));
+    const before = await p.evaluate(() => winnerPhotos.get().hand1);
+    await p.reload(); await wait(1400); await p.evaluate(() => { presentation.goTo(presentation.slides.findIndex(s => s.classList.contains('winner'))); }); await wait(900); const b = await info();
+    await pickTile('hand1', buf2); await until(() => p.evaluate(b => winnerPhotos.get().hand1 !== b, before), 20000); await wait(400); const c = await info();
+    p.once('dialog', d => d.accept()); await p.evaluate(() => document.getElementById('resetAll').click()); await wait(1800);
+    const d = await p.evaluate(() => ({ key: localStorage.getItem('poker_winner_photos_v1'), tiles: [...document.querySelectorAll('[data-win-tile]')].some(t => t.classList.contains('has-photo')), g: winnerPhotos.get() }));
+    return (a.tiles.join() === 'true,false,true' && a.h1.join() === '1280,960' && a.w.join() === '960,1280' && a.kb.h1 < 400 && a.kb.w < 400 && a.stored && a.jpeg && !a.inBank && !a.inState && a.mainOk
+      && b.tiles.join() === 'true,false,true' && b.h1.join() === '1280,960' && b.stored && c.h1.join() === '960,1280' && c.tiles[0]
+      && d.key === null && !d.tiles && !d.g.hand1 && !d.g.winner && !d.g.hand2) || { a, b, c, d }; }],
+  ['PREVIEW: Winner photos — storage full: a refused write gets one more try at 960 px; refused again → the photo stays on the tile for this session with "Not saved: storage full"; the main saved game is untouched and keeps saving', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await p.evaluate(() => { presentation.goTo(presentation.slides.findIndex(s => s.classList.contains('winner'))); }); await wait(900);
+    const buf = await bigJpeg(p, 4000, 3000);
+    const pickTile = async (slot) => { const [fc] = await Promise.all([p.waitForEvent('filechooser', { timeout: 15000 }), p.click('[data-win-tile="' + slot + '"]', { timeout: 15000 })]); await fc.setFiles({ name: 'big.jpg', mimeType: 'image/jpeg', buffer: buf }); };
+    await p.evaluate(() => { bank.chips[0] = 702; syncBankUI(); saveState(); }); await wait(600);
+    const mainBefore = await p.evaluate(() => localStorage.getItem('poker_clock_state_v1'));
+    /* 1: only the first write is refused; the smaller retry fits */
+    await p.evaluate(() => { window.__tries = []; window.__origSet = Storage.prototype.setItem; Storage.prototype.setItem = function(k, v){ if (k === 'poker_winner_photos_v1'){ window.__tries.push(v.length); if (window.__tries.length === 1) throw new DOMException('full', 'QuotaExceededError'); } return window.__origSet.apply(this, arguments); }; });
+    await pickTile('hand1'); await until(() => p.evaluate(() => window.__tries.length >= 2), 20000); await wait(500);
+    const one = await p.evaluate(async () => { const g = winnerPhotos.get(); const dim = await new Promise(r => { const i = new Image(); i.onload = () => r([i.naturalWidth, i.naturalHeight]); i.src = g.hand1; });
+      return { tries: window.__tries.length, small: window.__tries[1] < window.__tries[0] || dim[0] <= 960, dim, note: document.querySelector('[data-win-tile="hand1"] .wt-note').textContent, stored: !!JSON.parse(localStorage.getItem('poker_winner_photos_v1') || 'null') }; });
+    /* 2: every write to that key is refused */
+    await p.evaluate(() => { window.__tries = []; Storage.prototype.setItem = function(k, v){ if (k === 'poker_winner_photos_v1'){ window.__tries.push(v.length); throw new DOMException('full', 'QuotaExceededError'); } return window.__origSet.apply(this, arguments); }; });
+    await pickTile('winner'); await until(() => p.evaluate(() => window.__tries.length >= 2), 20000); await wait(600);
+    const two = await p.evaluate(() => ({ tries: window.__tries.length, note: document.querySelector('[data-win-tile="winner"] .wt-note').textContent, shown: document.querySelector('[data-win-tile="winner"]').classList.contains('has-photo'), mem: !!winnerPhotos.get().winner,
+      noteOnOther: document.querySelector('[data-win-tile="hand1"] .wt-note').textContent, mainSame: localStorage.getItem('poker_clock_state_v1') }));
+    await p.evaluate(() => { bank.chips[0] = 703; syncBankUI(); saveState(); }); await wait(700);
+    const mainAfter = await p.evaluate(() => JSON.parse(localStorage.getItem('poker_clock_state_v1')));
+    return (one.tries === 2 && one.small && one.note === '' && one.stored && two.tries === 2 && two.note === 'Not saved: storage full' && two.shown && two.mem && two.noteOnOther === '' && two.mainSame === mainBefore && mainAfter.chips[0] === 703 && mainAfter.names.length === 3) || { one, two, mainAfter }; }],
+  ['PREVIEW: Heads up — a busted player cannot stay on the page: 4 players 900/800/500/400, the shown #2 goes OUT, then a player who is NOT shown goes out so two remain → the page shows exactly those two (no OUT)', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.four(p); await HU.open(p); const a = await HU.view(p);
+    await HU.phone(p, 'Bob', 0); await wait(250); const b = await HU.view(p);
+    await HU.phone(p, 'Dan', 0); await wait(250); const c = await HU.view(p);
+    return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Bob' && b.chips.join() === '900,OUT' && c.names.join() === 'Ann,Cat' && c.chips.join() === '900,500' && !c.chips.includes('OUT')) || { a, b, c }; }],
+  ['PREVIEW: Heads up — closing and reopening the page keeps the host\'s ◀ ▶ pair while both still have chips; it auto-picks on the first open and when a shown player is out', async ({ p }) => {
+    await p.click('#startBtn'); await wait(700); await HU.four(p); await HU.open(p); const a = await HU.view(p);
+    await p.click('#huSlide .hu-bot .hu-arrow[data-dir="1"]', { timeout: 2000 }); await wait(250); const b = await HU.view(p);
+    await p.click('#headsUpBtn', { timeout: 2000 }); await wait(500); await HU.open(p); const c = await HU.view(p);
+    await p.click('#headsUpBtn', { timeout: 2000 }); await wait(500); await HU.phone(p, 'Cat', 0); await wait(250); await HU.open(p); const d = await HU.view(p);
+    return (a.names.join() === 'Ann,Bob' && b.names.join() === 'Ann,Cat' && c.names.join() === 'Ann,Cat' && c.chips.join() === '900,500' && d.names.join() === 'Ann,Bob' && d.chips.join() === '900,800') || { a, b, c, d }; }],
 ];
 
 (async () => {

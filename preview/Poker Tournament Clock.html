@@ -731,6 +731,23 @@ body.hu-open .hu-live{ display:flex; }
 #headsUpBtn[aria-pressed="true"]{ background:rgba(232,184,75,.3); color:var(--gold-light); }
 @media (max-width:820px){ #previewTag{ bottom:calc(96px + env(safe-area-inset-bottom)) !important; } }   /* PREVIEW tag: above the (longer) bottom bar on narrow iPads */
 .win-pick{ display:flex; align-items:center; gap:.6em; }
+/* PREVIEW: the Winner page nothing runs on, with three photo tiles (Hand 1, Hand 2, Winner photo); the bottom bar is cleared like on the Heads up page */
+.slide.winner .slide-inner{ padding-bottom:calc(clamp(4.6rem,9vh,6rem) + env(safe-area-inset-bottom,0px)); gap:clamp(.25rem,.9vh,.6rem); }
+.slide.winner{ --wa:clamp(96px, min(16vw,22vh), 200px); }
+.slide.winner .win-photo-wrap{ flex:none; padding-top:clamp(.5rem,2.2vh,1.4rem); }   /* room for the crown */
+.slide.winner .win-avatar{ position:relative; width:var(--wa); height:var(--wa); flex:none; }   /* in the flow (the later .seat-avatar rule had made it absolute: the circle sat on top of the Winner line) */
+.slide.winner .win-label{ font-size:clamp(1.3rem,min(4.4vw,6vh),3rem); }
+.slide.winner .win-name{ font-size:calc(var(--hero-size) * .62); }
+.win-tiles{ display:flex; justify-content:center; align-items:stretch; gap:clamp(.5rem,1.6vw,1.2rem); width:100%; position:relative; z-index:3; }
+.win-tile{ position:relative; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:.15em; cursor:pointer; overflow:hidden;
+  width:clamp(104px,23vw,210px); height:clamp(64px,11.5vh,128px); padding:0 0 .25em; border:3px solid var(--gold-deep); border-radius:12px;
+  background:rgba(8,8,10,.5) center / cover no-repeat; color:var(--cream); font-family:var(--font-display); box-shadow:var(--bevel), 0 6px 16px rgba(0,0,0,.35); }
+.win-tile:hover{ border-color:var(--gold-light); } .win-tile:active{ transform:scale(.97); }
+.win-tile::before{ content:'＋'; position:absolute; top:34%; left:50%; transform:translate(-50%,-50%); font-size:clamp(1.4rem,3.4vh,2.2rem); color:var(--gold-light); opacity:.8; }
+.win-tile.has-photo::before{ content:''; }
+.wt-label{ position:relative; z-index:1; font-weight:700; font-size:clamp(.66rem,min(1.45vw,2.1vh),.95rem); letter-spacing:.06em; text-transform:uppercase; background:rgba(8,8,10,.62); padding:.1em .55em; border-radius:6px; white-space:nowrap; max-width:96%; overflow:hidden; text-overflow:ellipsis; }
+.wt-note{ position:relative; z-index:1; font-size:clamp(.6rem,1.2vw,.8rem); color:var(--amber); background:rgba(8,8,10,.72); padding:0 .5em; border-radius:6px; }
+.wt-note:empty{ display:none; }
 .win-avatar{ cursor:pointer; }
 .hu-pot{ position:absolute; top:50%; left:50%; transform:translate(-50%,-86%); z-index:3; display:flex; flex-direction:column; align-items:center; gap:.05em; }
 .hu-pot-label{ font-size:var(--label-size); letter-spacing:.3em; text-transform:uppercase; color:rgba(246,239,217,.9); text-shadow:0 1px 4px rgba(0,0,0,.7); }
@@ -1046,6 +1063,12 @@ body.scaled-up .slide-inner{ gap:clamp(.3rem,.8vh,.6rem); }
         <button class="hu-arrow" data-win-cycle data-dir="1" aria-label="Next player">▶</button>
       </div>
       <span class="win-name reveal d3" data-win-name>Champion</span>
+      <div class="win-tiles reveal d4" id="winTiles">
+        <button type="button" class="win-tile" data-win-tile="hand1" aria-label="Hand 1 photo"><span class="wt-label">Hand 1</span><span class="wt-note"></span></button>
+        <button type="button" class="win-tile" data-win-tile="hand2" aria-label="Hand 2 photo (optional)"><span class="wt-label">Hand 2 (optional)</span><span class="wt-note"></span></button>
+        <button type="button" class="win-tile" data-win-tile="winner" aria-label="Winner photo"><span class="wt-label">Winner photo</span><span class="wt-note"></span></button>
+      </div>
+      <input type="file" id="winTileFile" accept="image/*" style="display:none">
       <span class="win-sub reveal d4">Tonight's champion · <span class="suits"><span class="k">♠</span><span class="r">♥</span><span class="r">♦</span><span class="k">♣</span></span></span>
     </div>
   </section>
@@ -1254,6 +1277,7 @@ class TournamentClock {
   }
   tick() {
     if (this.paused || !this.el) return;
+    if (this.p.slides[this.p.current].classList.contains('winner')){ this.stopTick(); return; }   /* PREVIEW: nothing runs on the Winner page */
     const rem = this.deadline - performance.now();
     /* auto-advance. A successful goTo() restarts the clock on the new slide
        (which clears THIS interval). If next() is momentarily blocked by an
@@ -1477,7 +1501,11 @@ let winPick = 0;
 /* PREVIEW: players with chips, biggest stack first (ties: seat order) */
 function livePlayers(){ return bank.chips.map((c, i) => i).filter(i => bank.chips[i] > 0).sort((a, b) => bank.chips[b] - bank.chips[a] || a - b); }
 /* PREVIEW: Heads up opens with the two players who still have chips (3 or more in: the two biggest stacks); 0 or 1 in: unchanged */
-function huAutoPick(){ const live = livePlayers(); if (live.length >= 2) huPick = [live[0], live[1]]; huPrevChips = bank.chips.slice(); }
+let huPicked = false;     /* PREVIEW: the pair has been picked once this game (a reopen keeps it) */
+let huPrevLive = null;    /* PREVIEW: which players had chips at the last Heads up render */
+function huAutoPick(){ const live = livePlayers(); if (live.length >= 2) huPick = [live[0], live[1]]; huPicked = true; huPrevChips = bank.chips.slice(); huPrevLive = live.slice().sort((a, b) => a - b).join(); }
+/* PREVIEW: opening / arriving: auto-pick only on the first open of a game or when a shown player is out; else the previous pair stays */
+function huEnter(){ if (!huPicked || huPick.some(i => !(bank.chips[i] > 0))) huAutoPick(); else { huPrevChips = bank.chips.slice(); huPrevLive = livePlayers().slice().sort((a, b) => a - b).join(); } }
 function potTotal(){ return bank.buyins.reduce((a, b) => a + (Number(b) || 0), 0); }
 function fmtMoney(n){ return Number(n || 0).toLocaleString('en-US'); }
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c])); }
@@ -1530,9 +1558,11 @@ function renderStrips(){
    PREVIEW: the host's ◀ ▶ choice is kept; it is replaced only when a shown player busts (chips above 0 → 0) while
    exactly two players still have chips (then those two are shown) */
 function renderHeadsUp(){
-  const prev = huPrevChips;
-  if (prev && prev.length === bank.chips.length && huPick.some(i => prev[i] > 0 && !(bank.chips[i] > 0))){ const live = livePlayers(); if (live.length === 2) huPick = live.slice(); }
-  huPrevChips = bank.chips.slice();
+  /* the players with chips changed (a bust) and exactly two are left: those two are shown (whoever busted); an arrow choice made
+     afterwards is not undone — nothing changes until the next bust */
+  const live = livePlayers(), key = live.slice().sort((a, b) => a - b).join();
+  if (huPrevLive !== null && key !== huPrevLive && live.length === 2 && !(huPick.includes(live[0]) && huPick.includes(live[1]))) huPick = live.slice();
+  huPrevLive = key; huPrevChips = bank.chips.slice();
   [0, 1].forEach(slot => {
     const pi = huPick[slot];
     const ph = document.querySelector('[data-hu-photo="' + slot + '"]'); if (ph) setAvatarEl(ph, bank.photos[pi]);
@@ -1618,6 +1648,54 @@ function resizeSquare(file, size, cb){
   img.onerror = () => URL.revokeObjectURL(url);
   img.src = url;
 }
+
+/* PREVIEW: the three Winner-page photos (Hand 1, Hand 2, Winner photo). Their OWN localStorage key — never in bank.photos
+   (that goes to the phones) and never in the main saved game. Longest side 1280 px, JPEG 0.8; if the storage is full:
+   once more at 960 px / 0.7; still no → kept for this session only, with a line on the tile. winnerPhotos.get() =
+   { hand1, hand2, winner } data URLs or null (the next build draws them into one shareable picture). */
+function resizeFit(file, maxSide, quality, cb){
+  const img = new Image(), url = URL.createObjectURL(file);
+  img.onload = () => {
+    const k = Math.min(1, maxSide / Math.max(img.naturalWidth || img.width, img.naturalHeight || img.height));
+    const w = Math.max(1, Math.round((img.naturalWidth || img.width) * k)), h = Math.max(1, Math.round((img.naturalHeight || img.height) * k));
+    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+    URL.revokeObjectURL(url); cb(c.toDataURL('image/jpeg', quality));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); cb(null); };
+  img.src = url;
+}
+const winnerPhotos = {
+  KEY: 'poker_winner_photos_v1', SLOTS: ['hand1', 'hand2', 'winner'],
+  data: { hand1: null, hand2: null, winner: null }, notes: {},
+  get(){ return { hand1: this.data.hand1, hand2: this.data.hand2, winner: this.data.winner }; },
+  load(){ try { const o = JSON.parse(localStorage.getItem(this.KEY) || 'null'); if (o && typeof o === 'object') this.SLOTS.forEach(k => { if (typeof o[k] === 'string' && o[k].startsWith('data:image/')) this.data[k] = o[k]; }); } catch (e) {} },
+  /* true = written; false = refused (full) — the main saved game is never touched either way */
+  save(){ try { localStorage.setItem(this.KEY, JSON.stringify(this.data)); this.notes = {}; return true; } catch (e) { return false; } },
+  clear(){ this.data = { hand1: null, hand2: null, winner: null }; this.notes = {}; try { localStorage.removeItem(this.KEY); } catch (e) {} this.render(); },
+  pick(slot, file){
+    resizeFit(file, 1280, 0.8, (d1) => {
+      if (!d1) return;
+      this.data[slot] = d1; delete this.notes[slot]; this.render();
+      if (this.save()) return;
+      resizeFit(file, 960, 0.7, (d2) => {                                  /* storage full: one more try, smaller */
+        if (d2) this.data[slot] = d2;
+        if (!this.save()) this.notes[slot] = 'Not saved: storage full';    /* kept for this session only */
+        this.render();
+      });
+    });
+  },
+  render(){
+    document.querySelectorAll('[data-win-tile]').forEach(t => { const k = t.dataset.winTile, d = this.data[k];
+      t.style.backgroundImage = d ? 'url("' + d + '")' : ''; t.classList.toggle('has-photo', !!d);
+      const n = t.querySelector('.wt-note'); if (n) n.textContent = this.notes[k] || ''; });
+  },
+  init(){
+    const inp = document.getElementById('winTileFile'); let slot = null;
+    document.querySelectorAll('[data-win-tile]').forEach(t => t.addEventListener('click', () => { slot = t.dataset.winTile; inp.value = ''; inp.click(); }));
+    inp.addEventListener('change', () => { const f = inp.files && inp.files[0]; if (f && slot) this.pick(slot, f); });
+    this.load(); this.render();
+  }
+};
 
 /* ============================================================
    LEVELS — one list drives every level slide and every "Next up"
@@ -1890,6 +1968,7 @@ document.getElementById('setStartStack').addEventListener('change', (e) => {
 document.getElementById('resetAll').addEventListener('click', () => {
   if (!confirm('Reset blinds, players, photos and chips back to the defaults?')) return;
   try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  try { localStorage.removeItem(winnerPhotos.KEY); } catch (e) {}   /* PREVIEW: the Winner-page photos go too */
   storeReady = false; location.reload();
 });
 
@@ -2618,6 +2697,7 @@ const musicDip = {
 };
 async function levelAlert(){
   if (sound.muted) return;
+  { const cs = presentation.slides[presentation.current]; if (cs && cs.classList.contains('winner')) return; }   /* PREVIEW: no beep on the Winner page */
   const sp = spotify, b = musicDip.lastBeep = { at: Date.now(), thought: !sp.connected() ? 'not connected' : (sp.now && sp.now.playing && !sp.now.gone ? 'playing' : 'paused'),
     pollAge: sp.polledAt ? Math.round((Date.now() - sp.polledAt) / 1000) : null, dip: null, session: null };
   if (!(await emojiSfx.whenReady(() => sound.unlocked))){ b.dip = 'no tap yet'; emojiSfx.hint(); return; }   /* its own player is not unlocked (iPad: no tap yet): no pause */
@@ -2753,7 +2833,7 @@ const headsUp = {
   toggle(){ if (this.isOpen()) this.close(); else this.open(); },
   open(){
     if (this.onSlide()) return;                                  /* already showing (the real Heads up slide) */
-    huAutoPick(); renderHeadsUp();
+    huEnter(); renderHeadsUp();
     if (!this.running()){ const hi = presentation.slides.indexOf(this.el('huSlide')); if (hi >= 0) presentation.goTo(hi); this.sync(); return; }
     if (tableView.isOpen()) tableView.close();
     document.body.classList.add('hu-open');
@@ -2770,8 +2850,17 @@ const headsUp = {
      real Heads up slide picks the players like opening it does */
   slideChanged(){
     const sl = presentation.slides[presentation.current];
-    if (sl && !sl.dataset.type){ const was = this.isOpen(); this.close(); if (this.onSlide() && !was){ huAutoPick(); renderHeadsUp(); } }
+    if (sl && !sl.dataset.type){ const was = this.isOpen(); this.close(); if (this.onSlide() && !was){ huEnter(); renderHeadsUp(); } }
+    if (sl && sl.classList.contains('winner')) this.enterWinner();
     this.sync();
+  },
+  /* PREVIEW: the Winner page — whatever way it was reached (the Winner button, ⏭, an arrow key, the dots): the overlay is closed
+     and nothing runs there any more: no level timer, no tick, no beep, no Next up (the slide change already dropped the clock's
+     slide; this makes it certain). The phones then get the no-timer state ("Game over"). */
+  enterWinner(){
+    this.close();
+    clock.stopTick(); clock.activeSlide = null; clock.el = null;
+    if (typeof phones !== 'undefined') phones.push(true);
   },
   sync(){ const b = this.el('headsUpBtn'); if (b) b.setAttribute('aria-pressed', String(this.isOpen() || this.onSlide())); },
   /* the running level on the page — same reading as the table view */
@@ -3077,6 +3166,7 @@ function exportDeck() {
   const bd = docCopy.querySelector('body'); if (bd){ bd.classList.remove('np-glow-on', 'np-side-on', 'np-side-live', 'hu-open'); bd.style.removeProperty('--strip-h'); bd.style.removeProperty('--strip-bottom'); }
   const nps = docCopy.querySelector('#npSide'); if (nps) nps.classList.remove('show');
   { const hb = docCopy.querySelector('#headsUpBtn'); if (hb) hb.setAttribute('aria-pressed', 'false'); }
+  docCopy.querySelectorAll('.win-tile').forEach(t => { t.style.backgroundImage = ''; t.classList.remove('has-photo'); const n = t.querySelector('.wt-note'); if (n) n.textContent = ''; });   /* PREVIEW: the Winner photos are not baked into a saved copy */
   docCopy.querySelectorAll('script[data-music-api], script[src*="open.spotify.com"], script[data-phones]').forEach(s => s.remove());
   ['#emojiLayer', '#toastLayer', '#phQr', '#phList'].forEach(sel => { const x = docCopy.querySelector(sel); if (x) x.innerHTML = ''; });
   { const h = docCopy.querySelector('#sndHint'); if (h) h.classList.remove('show'); }   /* PREVIEW: the copy starts without the tap hint */
@@ -3134,6 +3224,7 @@ playerCard.init();                         /* tap a player to edit photo / name 
 phones.init();                             /* 📱 players follow the game on their phones */
 wake.init();                               /* keep the iPad screen on */
 tableView.init();                          /* TABLE button / T: the table mid-game */
+winnerPhotos.init();                        /* PREVIEW: the three Winner-page photo tiles */
 headsUp.init();                            /* PREVIEW: Heads up button in the bar: the page over the running level */
 spotify.init();                            /* Spotify app "Now playing" (finishes a login if we just came back from Spotify) */
 syncCoverMins();

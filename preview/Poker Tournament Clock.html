@@ -1920,7 +1920,9 @@ var winShare = {
        window runs before every other key listener. Escape closes the picture; Tab still moves focus; ⌘ / Ctrl shortcuts keep the browser's own action */
     window.addEventListener('keydown', (e) => { if (!this.isOpen() || e.key === 'Tab') return;
       if (e.key === 'Escape') this.close();
-      if (!e.metaKey && !e.ctrlKey) e.preventDefault(); e.stopImmediatePropagation(); }, true);
+      /* Enter / Space on the focused Close button keep the button's own action (it closes the picture); the clock still sees nothing */
+      const own = (e.key === 'Enter' || e.key === ' ') && e.target && e.target.closest && e.target.closest('#winShareOv button');
+      if (!e.metaKey && !e.ctrlKey && !own) e.preventDefault(); e.stopImmediatePropagation(); }, true);
   }
 };
 
@@ -2294,13 +2296,13 @@ class SoundFx {
   }
   _unlock(){
     const a = this.audio; if (this._unl || !a.paused || a._job) return;   /* one try at a time; never touch a beep that is playing */
-    const t = this._tok = (this._tok || 0) + 1; this._unl = true;
+    const t = this._tok = (this._tok || 0) + 1; this._unl = true; const ev = firstTap.tag();   /* PREVIEW: the Status line counts the first tap's unlock plays */
     try {
       a.muted = true;                                   /* silent unlock: never blip (or pause Spotify) on a tap */
       const p = a.play();
-      const done = () => { this._unl = false; this.unlocked = true; if (this._tok === t){ a.pause(); a.currentTime = 0; a.muted = false; }   /* a real beep took over: leave it */
+      const done = () => { this._unl = false; this.unlocked = true; firstTap.res(ev, true); if (this._tok === t){ a.pause(); a.currentTime = 0; a.muted = false; }   /* a real beep took over: leave it */
         if (typeof emojiSfx !== 'undefined') emojiSfx.hintOff('tap'); if (typeof musicDip !== 'undefined') musicDip.pump(); };
-      const bad = () => { this._unl = false; if (this._tok === t) a.muted = false; if (typeof musicDip !== 'undefined') musicDip.pump(); };   /* refused: the next tap tries again */
+      const bad = () => { this._unl = false; firstTap.res(ev, false); if (this._tok === t) a.muted = false; if (typeof musicDip !== 'undefined') musicDip.pump(); };   /* refused: the next tap tries again */
       if (p && p.then) this._p = p.then(done, bad); else done();
     } catch (e) { this._unl = false; a.muted = false; }
   }
@@ -2534,6 +2536,7 @@ const spotify = {
     const r = await this.api('GET', '/me/player?additional_types=track,episode');      /* = currently playing + the device it plays on */
     this.polledAt = Date.now(); this.pollOk = r.status === 200 || r.status === 204;
     if (this.pollOk){ this.rawPlaying = r.status === 200 && !!(r.data && r.data.is_playing);   /* PREVIEW: Spotify's own answer, unmasked */
+      if (typeof firstTap !== 'undefined') firstTap.reading(this.rawPlaying, t0);   /* PREVIEW: the first-tap net watches every read */
       if (this.rawPlaying && typeof emojiSfx !== 'undefined') emojiSfx.hintOff('music'); }
     /* PREVIEW (fix 2): for 3 s after OUR "play" brought the music back, a poll may say playing but never paused (Spotify lags) */
     const backG = typeof musicDip !== 'undefined' && t0 - musicDip.backAt.pause < 3000 && !!(this.now && this.now.playing);
@@ -2716,7 +2719,7 @@ const musicDip = {
   CAP: 10000, MUSIC_MIN: 2000, QMAX: 6,                                   /* Igor's three limits */
   PAUSE_WAIT: 1500, PAUSE_TO: 3000, OFF_MAX: 12700, FRESH: 500, START_TO: 1500, END_SLACK: 1500, TAIL: 150, CONFIRM: 1000, RETRYP: 500, CALL_TO: 8000, PLAYS_MAX: 9,
   state: 'idle', kind: null, maybe: false, late: false, believed: null, pauseP: null, pauseRes: null, acceptedAt: 0, openedAt: 0, capAt: 0, pauseSentAt: 0, pausedPos: null, blockedWin: false,
-  waiting: [], sounding: new Set(), restoreVol: null, owedVol: null, backAt: { pause: 0, volume: 0 },
+  waiting: [], sounding: new Set(), restoreVol: null, owedVol: null, backAt: { pause: 0, volume: 0 }, pauseOkAt: 0, netP: null, netBackAt: 0,
   tailT: null, capT: null, restT: null, win: null, lastWin: null, lastResume: null, lastBeep: null, seq: 0,
   live(){ const sp = spotify; return sp.connected() && sp.now && sp.now.playing && !sp.now.gone; },
   /* did OUR dip (kind 'pause' / 'volume') cover a poll that started at t0? then the dip's state is the truth */
@@ -2759,7 +2762,11 @@ const musicDip = {
   fits(j){ const longest = Math.max(PIPS_MS, ...Object.values(SFX_MS)); return Date.now() + j.len + this.START_SLACK + this.TAIL <= this.capAt + longest; },
   /* a new window: decide what the music needs, then open */
   async open(){
-    this.state = 'deciding'; const t0 = Math.min(Date.now(), ...this.waiting.map(j => j.at)), sp = spotify;
+    this.state = 'deciding';
+    /* PREVIEW: the first-tap net's play: no sound starts while it is unanswered (call() caps it at 8 s), then 2 s of music */
+    if (this.netP) await this.netP;
+    if (this.netBackAt && Date.now() < this.netBackAt + this.MUSIC_MIN) await dipWait(this.netBackAt + this.MUSIC_MIN - Date.now());
+    const t0 = Math.min(Date.now(), ...this.waiting.map(j => j.at)), sp = spotify;
     this.kind = null; this.maybe = false; this.late = false; this.pauseP = null; this.pauseRes = null; this.acceptedAt = 0; this.pauseSentAt = 0; this.pausedPos = null; this.blockedWin = false;
     const w = this.win = { at: Date.now(), how: '', sounds: 0, pausedMs: null, back: null, acceptMs: null };
     if (sp._clockPlayP) await Promise.race([sp._clockPlayP, dipWait(1500)]);   /* the clock's own ▶ (pause music with the clock) first */
@@ -2803,14 +2810,14 @@ const musicDip = {
     return sp.rawPlaying ? 'playing' : 'paused'; },
   /* the pause's answer: is it ours to resume? Only a 2xx, or no clear answer when a fresh read just before said playing */
   onPause(r, late){ const sp = spotify, st = r.status, w = this.win;
-    if (st >= 200 && st < 300){ sp.premium = true; this.kind = 'pause'; if (!late) this.acceptedAt = Date.now(); if (w) w.how = late ? w.how + ', pause accepted late' : 'music paused';
+    if (st >= 200 && st < 300){ sp.premium = true; this.kind = 'pause'; this.pauseOkAt = Date.now(); if (!late) this.acceptedAt = Date.now(); if (w) w.how = late ? w.how + ', pause accepted late' : 'music paused';
       sp.api('GET', '/me/player?additional_types=track,episode').then(s => { if (s.status === 200 && s.data && !s.data.is_playing) this.pausedPos = s.data.progress_ms; });   /* where the clock paused it (fix: tell the user's own pause later) */
       return; }
     if (st === 403 && spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); this.kind = 'none'; if (w) w.how = 'no pause (Premium needed)'; return; }
     if (st === 403){ this.kind = 'none'; setTimeout(() => sp.poll(), 700); if (w) w.how = (late ? w.how + ', ' : '') + 'no pause (Spotify was not playing, 403): no play afterwards'; return; }   /* refused: never followed by a play */
     if (st === 404){ this.kind = 'none'; if (w) w.how = 'no pause (Spotify asleep, 404)'; return; }
     /* 0 / 5xx / 429: maybe paused. Play at the end only if the fresh read before the pause said playing */
-    if (this.believed === 'playing'){ this.kind = 'pause'; this.maybe = true; if (w) w.how = (late ? w.how + ', ' : '') + 'pause answer ' + st + ' (maybe paused, it was playing)'; }
+    if (this.believed === 'playing'){ this.kind = 'pause'; this.maybe = true; this.pauseOkAt = Date.now(); if (w) w.how = (late ? w.how + ', ' : '') + 'pause answer ' + st + ' (maybe paused, it was playing)'; }
     else { this.kind = 'none'; this.unsure = true; if (w) w.how = (late ? w.how + ', ' : '') + 'pause answer ' + st + ' (not known to be playing: left as it is)'; }
   },
   openNow(){ this.state = 'open'; this.openedAt = Date.now(); this.capAt = (this.acceptedAt || this.openedAt) + this.CAP;
@@ -3175,11 +3182,11 @@ const emojiSfx = {
   /* iPad: a player plays by itself later only if play() was called ON IT during a tap — so on every tap, each player not yet
      unlocked plays silently once, then stops. Refused → the next tap tries again. Never touches a player with a sound on it. */
   unlock(){ this.all().forEach(a => { if (a._ok || a._job || a._try) return;
-    const t = ++a._unl; a._try = true;
+    const t = ++a._unl; a._try = true; const ev = firstTap.tag();
     try { if (a.error) a.load();                                         /* a player in error (file failed) is reloaded by the tap, not before */
       a.muted = true; const p = a.play();
-      const ok = () => { a._try = false; a._ok = true; try { a.pause(); a.currentTime = 0; } catch (x) {} a.muted = false; this.hintOff('tap'); musicDip.pump(); };
-      const bad = () => { a._try = false; a.muted = false; musicDip.pump(); };
+      const ok = () => { a._try = false; a._ok = true; firstTap.res(ev, true); try { a.pause(); a.currentTime = 0; } catch (x) {} a.muted = false; this.hintOff('tap'); musicDip.pump(); };
+      const bad = () => { a._try = false; firstTap.res(ev, false); a.muted = false; musicDip.pump(); };
       if (p && p.then) a._p = p.then(ok, bad); else ok(); } catch (x) { a._try = false; a.muted = false; } }); },
   /* an emoji came: no tap yet → the hint, no pause, no sound; else it joins the music pause (musicDip) */
   async play(e, onSkip){ if (!this.on || (typeof sound !== 'undefined' && sound.muted)) return; const n = EMOJI_SOUNDS[e]; if (!n) return;
@@ -3189,55 +3196,81 @@ const emojiSfx = {
 };
 emojiSfx.init();
 ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => emojiSfx.unlock(), { passive: true }));
-/* PREVIEW (23 Nov): the FIRST tap's safety net. On Igor's iPad the first tap (the one that unlocks the 49 sound players
-   silently) stopped Spotify, while the clock sent no command (iPad Simulator and headless: zero commands after the tap).
-   So: at the tap, note what the clock last read (Spotify playing? a read under AGE old, no new request inside the tap).
-   Once every unlock play of that tap has settled (max CAP) + WAIT, ONE fresh read (musicDip.fresh, max 0.5 s): it was
-   playing, now it is paused, the clock sent no pause and no clock sound came since the tap, no music control was used
-   since the tap (⏮ ⏯ ⏭, the clock's ⏸ / ▶ with "pause the music with the clock") → ONE plain "play". Once per page load.
-   The Status block's "First tap:" line says what happened, so the next tap on the iPad names the cause. */
+/* PREVIEW (23 Nov, fix round 1): the FIRST tap's safety net. On Igor's iPad the first tap (the one that unlocks the 49
+   sound players silently) stopped Spotify, while the clock sent no command (iPad Simulator, real Safari: 49 of 49 unlock
+   plays accepted on pointerdown, zero Spotify commands). Spotify's Web API may show such a stop LATE, so:
+   1. at the tap: note what the clock last read (playing? a read under AGE old and newer than the page's last return to
+      view; no request inside the tap);
+   2. wait for the WHOLE tap's unlock (every sound and the beep unlocked, max CAP 4 s);
+   3. WATCH for WATCH (8 s): one read WAIT (1.5 s) after the unlock plus every regular state poll are readings; act on the
+      FIRST reading that says paused (when it was playing before);
+   4. guards: page hidden at any point since the tap (Igor in the Spotify app) / a music control used since the tap / the
+      clock's own pause accepted since the tap / not connected / no Premium → nothing;
+   5. the play goes through musicDip's gate: it waits until no clock sound sounds or waits (max GATE 15 s: a capped pause is up to 10 s + the longest sound), and while it is
+      unanswered no sound may start (musicDip.netP), then 2 s of music before the next pause (musicDip.netBackAt).
+   ONE plain play, once per page load. The Status block's "First tap:" line gives the facts. */
 const firstTap = {
-  AGE: 6000, CAP: 4000, WAIT: 1500,
-  at: 0, before: null, after: null, sent: null, mode: null, unlocks: 0, settledAt: 0, playAt: 0, done: false,
-  arm(){ if (this.at) return; const sp = spotify; this.at = Date.now();
+  AGE: 6000, CAP: 4000, WAIT: 1500, WATCH: 8000, GATE: 15000,   /* GATE: a capped clock pause lasts up to 10 s + the longest sound */
+  at: 0, curEv: null, before: null, mode: null, unl: {}, unlockDoneAt: 0, watchEnd: 0, stopAt: 0, sent: null, playAt: 0,
+  cancelled: null, shownAt: 0, done: false, _wake: null,
+  onEv(e){ this.curEv = e.type; this.arm(); },
+  arm(){ if (this.at) return; const sp = spotify; this.at = Date.now(); this.watchEnd = this.at + this.CAP + this.WATCH;
     this.mode = navigator.audioSession ? navigator.audioSession.type : 'n/a';
-    this.before = sp.connected() && sp.pollOk && sp.polledAt && this.at - sp.polledAt < this.AGE ? (sp.rawPlaying ? 'playing' : 'paused') : 'unknown';
-    setTimeout(() => this.watch(), 0); },                                  /* after this tap's unlock listeners have run */
-  async watch(){ const ps = [];
-    if (sound._unl && sound._p) ps.push(sound._p);
-    emojiSfx.all().forEach(a => { if (a._try && a._p) ps.push(a._p); });
-    this.unlocks = ps.length;
-    await Promise.race([Promise.all(ps.map(q => Promise.resolve(q).catch(() => {}))), dipWait(this.CAP)]);
-    this.settledAt = Date.now(); await dipWait(this.WAIT);
-    try { await this.decide(); } catch (e) { this.sent = this.sent || 'no (error)'; }
+    this.before = sp.connected() && sp.pollOk && sp.polledAt && this.at - sp.polledAt < this.AGE && sp.polledAt > this.shownAt ? (sp.rawPlaying ? 'playing' : 'paused') : 'unknown';
+    setTimeout(() => this.watch(), 0); },
+  /* the unlock code tags each silent play with the event it ran on (only during the first tap's unlock) and reports it */
+  tag(){ return this.at && !this.unlockDoneAt ? (this.curEv || '?') : null; },
+  res(ev, ok){ if (!ev) return; const u = this.unl[ev] || (this.unl[ev] = { ok: 0, bad: 0 }); if (ok) u.ok++; else u.bad++; },
+  /* a state read (spotify._poll, Spotify answered): t0 = when it was sent */
+  reading(playing, t0){ if (!this.at || this.done || this.stopAt || this.cancelled || t0 < this.at || t0 > this.watchEnd) return;
+    if (!playing){ this.stopAt = Date.now(); this.wake(); } },
+  cancel(why){ if (!this.at || this.done || this.cancelled || this.playAt) return; this.cancelled = why; this.wake(); },
+  wake(){ const w = this._wake; this._wake = null; if (w) w(); },
+  sleep(ms){ return new Promise(r => { this._wake = r; setTimeout(() => { if (this._wake === r) this._wake = null; r(); }, Math.max(0, ms)); }); },
+  async watch(){
+    const end = this.at + this.CAP;
+    while (Date.now() < end && !(emojiSfx.ready() && sound.unlocked)) await dipWait(50);
+    this.unlockDoneAt = Date.now(); this.watchEnd = this.unlockDoneAt + this.WATCH;
+    if (!this.stopAt && !this.cancelled) await this.sleep(this.WAIT);
+    if (!this.stopAt && !this.cancelled && spotify.connected()) spotify.poll();      /* the one read of the net's own */
+    while (!this.stopAt && !this.cancelled && Date.now() < this.watchEnd) await this.sleep(this.watchEnd - Date.now());
+    try { await this.act(); } catch (e) { this.sent = this.sent || 'no (error)'; }
     this.done = true; },
   /* why NOT to send the play (null = send it) */
   blocker(){ const sp = spotify, t = this.at, md = musicDip;
+    if (this.cancelled) return this.cancelled;
     if (!sp.connected()) return 'Spotify not connected';
     if (sp.premium === false) return 'Premium needed';
-    if (this.before !== 'playing') return this.before === 'paused' ? 'it was paused before' : 'not known before';
-    if (this.after === 'playing') return 'still playing';
-    if (this.after !== 'paused') return 'no answer';
+    if (this.before !== 'playing') return this.before === 'paused' ? 'it was paused before the tap' : 'not known before the tap';
     if ((sp.cmdAt || 0) >= t) return 'a music control was used';
-    /* the clock itself paused (or turned down) the music for a sound since the tap: its own close() brought it back.
-       (A sound window that sent nothing because Spotify already read paused does not count: that was not the clock.) */
-    if (md.pauseSentAt >= t || (md.lastResume && md.lastResume.at >= t)) return 'the clock paused it for a sound';
-    if (md.busy()) return 'a clock sound is on its way';
+    if (md.pauseOkAt >= t || (md.lastResume && md.lastResume.at >= t)) return 'the clock paused it for a sound';
     return null; },
-  async decide(){ const sp = spotify;
-    this.after = sp.connected() ? await musicDip.fresh(Date.now()) : 'unknown';
-    const why = this.blocker(); if (why){ this.sent = 'no (' + why + ')'; return; }
+  async act(){ const sp = spotify, md = musicDip;
+    if (!this.stopAt){ this.sent = 'no' + (this.cancelled ? ' (' + this.cancelled + ')' : ''); return; }
+    let why = this.blocker(); if (why){ this.sent = 'no (' + why + ')'; return; }
+    const g = Date.now() + this.GATE;                                     /* never a play while a clock sound sounds or waits */
+    while (md.busy() && Date.now() < g && !this.cancelled) await dipWait(50);
+    why = this.blocker() || (md.busy() ? 'clock sounds kept going for 15 s' : null); if (why){ this.sent = 'no (' + why + ')'; return; }
+    /* from here to the send, no await: no sound can open between the gate and the play */
     this.playAt = Date.now();
-    const r = await musicDip.call(sp.api('PUT', '/me/player/play').catch(() => ({ status: 0 })));
+    const p = md.netP = md.call(sp.api('PUT', '/me/player/play').catch(() => ({ status: 0 })));
+    let r; try { r = await p; } finally { if (md.netP === p) md.netP = null; }
     this.sent = 'yes (' + r.status + ')';
     if (r.status === 403 && spPremiumRequired(r)){ sp.premium = false; sp.save(); sp.render(); }
-    if (r.status >= 200 && r.status < 300 && sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); }
+    if (r.status >= 200 && r.status < 300){ md.netBackAt = md.backAt.pause = Date.now();   /* Spotify lags after a play: like the clock's own */
+      if (sp.now){ if (!sp.now.playing) sp.now.at = Date.now(); sp.now.playing = true; sp.now.gone = false; sp.render(); } }
     setTimeout(() => sp.poll(), 800); },
   line(){ if (!this.at) return 'First tap: none yet';
-    return 'First tap: ' + new Date(this.at).toTimeString().slice(0, 8) + ', music before: ' + this.before + ', after the unlock: ' + (this.after || '…')
-      + ', play sent: ' + (this.sent || '…') + ', audio mode at the tap: ' + this.mode; }
+    const evs = Object.keys(this.unl), ok = evs.reduce((n, k) => n + this.unl[k].ok, 0), bad = evs.reduce((n, k) => n + this.unl[k].bad, 0);
+    const on = evs.length === 1 ? 'on ' + evs[0] : evs.length ? 'on ' + evs.map(k => k + ' ' + this.unl[k].ok + '/' + this.unl[k].bad).join(', ') : '';
+    const stop = this.stopAt ? 'stop seen ' + ((this.stopAt - this.at) / 1000).toFixed(1) + ' s after the tap'
+      : !this.done ? 'watching for a stop' : this.cancelled ? 'no stop seen before the watch ended' : 'no stop seen in 8 s';
+    return 'First tap: ' + new Date(this.at).toTimeString().slice(0, 8) + ', unlock plays ' + ok + ' accepted, ' + bad + ' refused' + (on ? ' ' + on : '')
+      + ', music before: ' + this.before + ', ' + stop + ', play sent: ' + (this.sent || '…') + ', audio mode at the tap: ' + this.mode; }
 };
-['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, () => firstTap.arm(), { capture: true, passive: true }));   /* capture: before the unlocks */
+['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, (e) => firstTap.onEv(e), { capture: true, passive: true }));   /* capture: before the unlocks */
+document.addEventListener('visibilitychange', () => { if (document.hidden) firstTap.cancel('the page was hidden since the tap'); else firstTap.shownAt = Date.now(); });
+window.addEventListener('pagehide', () => firstTap.cancel('the page was hidden since the tap'));
 const EMOJIS = ['😂', '🔥', '🤡', '💀', '🤯', '📖', '👏', '😭', '💰', '💵', '❓', '💣'];
 function loadScript(src){ return new Promise((ok, bad) => { if (document.querySelector('script[src="' + src + '"]')){ ok(); return; }
   const s = document.createElement('script'); s.src = src; s.async = true; s.dataset.phones = ''; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); }

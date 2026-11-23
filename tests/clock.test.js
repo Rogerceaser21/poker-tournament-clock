@@ -673,9 +673,10 @@ const PREVIEW_TESTS = [
     await wait(1200); let fail = true, reqFail = 0, reqAll = 0; await p.context().route('**/*.m4a', r => { reqAll++; if (fail){ reqFail++; return r.fulfill({ status: 500, body: '' }); } return r.continue(); });
     await p.evaluate(() => { window.__loads = 0; const o = HTMLMediaElement.prototype.load; HTMLMediaElement.prototype.load = function(){ window.__loads++; return o.apply(this, arguments); }; emojiSfx.all().forEach(a => { try { a.load(); } catch (e) {} }); });
     await wait(2500); const errd = await p.evaluate(() => emojiSfx.all().filter(a => a.error).length), loads = await p.evaluate(() => window.__loads), nFail = reqFail; fail = false;
-    log.length = 0; emoji(p, '🔥'); await wait(8000);
-    const d = dips(log), pl = d.find(x => x.c === 'play'), r = await p.evaluate(() => ({ stalls: (window.__stalls || []).filter(([a, b]) => b - a > 3000).length, busy: musicDip.busy(), loads: window.__loads,
-      wow: window.__sfx.filter(x => x.n === 'wow.m4a').map(x => { const e = window.__ends.find(y => y.i === x.i && y.t > x.t + 30); return e ? e.t - x.t : null; }), len: SFX_MS.wow }));
+    log.length = 0; const tE = Date.now(); emoji(p, '🔥'); await wait(8000);
+    /* stalls counted from the emoji on (the defect froze the page right after its play(); the 48 loads the check itself forces make headless WebKit stall ~3 s, on 0b65220 too) */
+    const d = dips(log), pl = d.find(x => x.c === 'play'), r = await p.evaluate(tE => ({ stalls: (window.__stalls || []).filter(([a, b]) => b > tE && b - a > 3000).length, allStalls: (window.__stalls || []).filter(([a, b]) => b - a > 3000).map(([a, b]) => [a - tE, b - a]), busy: musicDip.busy(), loads: window.__loads,
+      wow: window.__sfx.filter(x => x.n === 'wow.m4a').map(x => { const e = window.__ends.find(y => y.i === x.i && y.t > x.t + 30); return e ? e.t - x.t : null; }), len: SFX_MS.wow }), tE);
     const full = r.wow.some(ms => ms != null && ms >= r.len * 0.9);
     /* the 48 forced loads make 48 (+ range) requests; the defect added up to 3 reloads per player on top (≥ 140 requests in 2.5 s) */
     console.log('        [fix round 2 (1)] ' + (P ? 'preview' : 'root') + ': sound-file requests while failing ' + nFail + ', load() calls while failing ' + loads + ' (48 forced), players in error ' + errd + ', requests in all ' + reqAll);

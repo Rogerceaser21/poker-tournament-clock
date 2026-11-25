@@ -1,0 +1,42 @@
+Emoji sounds (PREVIEW set, 20 emojis).
+
+From Remotion's free sound-effect library (@remotion/sfx, https://www.remotion.dev/docs/sfx),
+"can be used without attribution". Converted to AAC (.m4a); wow.m4a trimmed to 2.6 s.
+  😂 oh-my-god.m4a ← oh-my-god-vine.wav     🔥 wow.m4a ← anime-wow.wav     🤡 bruh.m4a ← bruh.wav
+  💀 fah.m4a ← fah.wav
+
+Movie / meme clips (myinstants.com; ❓ from YouTube), cut, faded and loudness-matched to about -13 LUFS
+(details: /Users/igor/wt/poker-sound-candidates/report.json, scripts/clips.json):
+  👏 very-nice.m4a          ← "Very nice!" (Borat)                       very-nice-borat.mp3, 0.285-1.36 s
+  💰 show-me-the-money.m4a  ← "Show me the money!" (Jerry Maguire)       show-me-the-money_mxC8iKl.mp3, 0.14-2.2 s
+  💵 pay-that-man.m4a       ← "Pay that man his money" (Rounders)        rounders-pay-that-man-his-money-00.mp3, 0.3-1.97 s
+  😭 emotional-damage.m4a   ← "Emotional damage!" (Steven He meme), sped up 15 %   emotional-damage-steven-he_FHHipGL.mp3
+                              (https://www.myinstants.com/media/sounds/emotional-damage-steven-he_FHHipGL.mp3), 2.037 s
+  ❓ what-happened.m4a      ← "What happened?" (the What Happened Guy), from "What Happened Guy Meme (ORIGINAL)"
+                              (https://www.youtube.com/watch?v=cw_5dsHP5Kc), 0.91 s
+  🤯 what.m4a              ← "WHAT?!" (Lil Jon)                          what_Dd8MzFG.mp3, 0.40 s
+                              (https://www.myinstants.com/media/sounds/what_Dd8MzFG.mp3)
+  📖 cool-story-bro.m4a    ← "Cool story, bro."                          cool-story-bro.mp3, 1.11 s
+                              (https://www.myinstants.com/media/sounds/cool-story-bro.mp3)
+  💣 boomshakalaka.m4a     ← "Boomshakalaka!" (NBA Jam)                  nba-jam-boomshakalaka.mp3, 1.19 s
+                              (https://www.myinstants.com/media/sounds/nba-jam-boomshakalaka.mp3)
+
+Round 2 (25 Nov): eight more meme clips (myinstants.com and YouTube), cut, faded and loudness-matched to -13 LUFS:
+  🍆 hooyeah.m4a            ← "Can I get a hooyeah?" (Vine)              can-i-get-a-hoyeah-original-vine.mp3, 0.20-3.41 s, 3.21 s
+                              (https://www.myinstants.com/media/sounds/can-i-get-a-hoyeah-original-vine.mp3)
+  👀 what-did-he-say.m4a    ← "What did he sayyy" (TikTok)               5s_to_7s_what_did_he_say_tik_tok.mp3, 2.04 s
+                              (https://www.myinstants.com/media/sounds/5s_to_7s_what_did_he_say_tik_tok.mp3)
+  🗣️ let-me-tell-you.m4a    ← "Let me tell you something" (bungee guy)   YouTube iIl8aFAeX9Q, 73.10-75.45 s, 2.35 s
+                              (https://www.youtube.com/watch?v=iIl8aFAeX9Q)
+  ⏰ aint-nobody.m4a        ← "I got bronchitis... ain't nobody got time for that" (Sweet Brown)
+                              YouTube ydmPh4MXT3g, 22.70-26.60 s, 3.90 s (https://www.youtube.com/watch?v=ydmPh4MXT3g)
+  🥢 what-is-the-charge.m4a ← "What is the charge? ... succulent Chinese meal"   what-is-the-charge.mp3, 0-4.18 s,
+                              not sped up, 4.18 s (https://www.myinstants.com/media/sounds/what-is-the-charge.mp3)
+  🏛️ democracy-manifest.m4a ← "Gentlemen, this is democracy manifest"   this-is-democracy-manifest.mp3, 1.0-5.55 s,
+                              sped up to 4.00 s (https://www.myinstants.com/media/sounds/this-is-democracy-manifest.mp3)
+  ✋ hand-off.m4a           ← "Get your hand off my penis"               get-your-hands-off-my-p.mp3, 0.05-2.05 s, 2.00 s
+                              (https://www.myinstants.com/media/sounds/get-your-hands-off-my-p.mp3)
+  🧅 onion-belt.m4a         ← "So I tied an onion to my belt, which was the style at the time" (Grandpa Simpson)
+                              YouTube, 3.30-7.75 s, sped up to 4.02 s
+
+Removed in the preview: ding.m4a, fail-horn.m4a, yippee.m4a, boom.m4a (the Vine boom: almost pure bass, inaudible on the iPad).

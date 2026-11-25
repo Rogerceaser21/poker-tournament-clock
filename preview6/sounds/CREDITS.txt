@@ -6,7 +6,7 @@ From Remotion's free sound-effect library (@remotion/sfx, https://www.remotion.d
   💀 fah.m4a ← fah.wav
 
 Movie / meme clips (myinstants.com; ❓ from YouTube), cut, faded and loudness-matched to about -13 LUFS
-(details: /Users/igor/wt/poker-sound-candidates/report.json, scripts/clips.json):
+(cut points and loudness kept in the sound work folder):
   👏 very-nice.m4a          ← "Very nice!" (Borat)                       very-nice-borat.mp3, 0.285-1.36 s
   💰 show-me-the-money.m4a  ← "Show me the money!" (Jerry Maguire)       show-me-the-money_mxC8iKl.mp3, 0.14-2.2 s
   💵 pay-that-man.m4a       ← "Pay that man his money" (Rounders)        rounders-pay-that-man-his-money-00.mp3, 0.3-1.97 s

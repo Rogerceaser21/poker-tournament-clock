@@ -1,0 +1,24 @@
+Emoji sounds (PREVIEW set, 12 emojis).
+
+From Remotion's free sound-effect library (@remotion/sfx, https://www.remotion.dev/docs/sfx),
+"can be used without attribution". Converted to AAC (.m4a); wow.m4a trimmed to 2.6 s.
+  😂 oh-my-god.m4a ← oh-my-god-vine.wav     🔥 wow.m4a ← anime-wow.wav     🤡 bruh.m4a ← bruh.wav
+  💀 fah.m4a ← fah.wav
+
+Movie / meme clips (myinstants.com; ❓ from YouTube), cut, faded and loudness-matched to about -13 LUFS
+(details: /Users/igor/wt/poker-sound-candidates/report.json, scripts/clips.json):
+  👏 very-nice.m4a          ← "Very nice!" (Borat)                       very-nice-borat.mp3, 0.285-1.36 s
+  💰 show-me-the-money.m4a  ← "Show me the money!" (Jerry Maguire)       show-me-the-money_mxC8iKl.mp3, 0.14-2.2 s
+  💵 pay-that-man.m4a       ← "Pay that man his money" (Rounders)        rounders-pay-that-man-his-money-00.mp3, 0.3-1.97 s
+  😭 emotional-damage.m4a   ← "Emotional damage!" (Steven He meme), sped up 15 %   emotional-damage-steven-he_FHHipGL.mp3
+                              (https://www.myinstants.com/media/sounds/emotional-damage-steven-he_FHHipGL.mp3), 2.037 s
+  ❓ what-happened.m4a      ← "What happened?" (the What Happened Guy), from "What Happened Guy Meme (ORIGINAL)"
+                              (https://www.youtube.com/watch?v=cw_5dsHP5Kc), 0.91 s
+  🤯 what.m4a              ← "WHAT?!" (Lil Jon)                          what_Dd8MzFG.mp3, 0.40 s
+                              (https://www.myinstants.com/media/sounds/what_Dd8MzFG.mp3)
+  📖 cool-story-bro.m4a    ← "Cool story, bro."                          cool-story-bro.mp3, 1.11 s
+                              (https://www.myinstants.com/media/sounds/cool-story-bro.mp3)
+  💣 boomshakalaka.m4a     ← "Boomshakalaka!" (NBA Jam)                  nba-jam-boomshakalaka.mp3, 1.19 s
+                              (https://www.myinstants.com/media/sounds/nba-jam-boomshakalaka.mp3)
+
+Removed in the preview: ding.m4a, fail-horn.m4a, yippee.m4a, boom.m4a (the Vine boom: almost pure bass, inaudible on the iPad).
